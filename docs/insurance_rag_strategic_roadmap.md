@@ -56,7 +56,7 @@
 * **The Agentic Orchestration Backbone (3.5):**
     * **Orchestration Framework (3.4.1):** State-machine driven multi-agent framework utilizing distinct execution boundaries, explicit custom tools, and skills.
     * **Agent Topography:**
-        * **RAG Agent (3.4.2.1):** Dedicated retrieval engine leveraging hybrid search vectors, dense cross-encoders, and multi-source aggregator tools.
+        * **RAG Agent (3.4.2.1):** Dedicated retrieval engine leveraging hybrid search vectors, dense cross-encoders, question reformulation and multi-source aggregator tools.
         * **Talk-to-Your-Data Agent (3.4.2.2):** Conversational proxy interfacing with structured data schemas and long-term history records to output clean natural language prose.
         * **Report Generation Agent (3.4.2.3):** High-tier analysis engine accessing memory logs to execute internal Python data transformations. Leverages programmatic visualization tools to convert pandas DataFrames into persistent images, routing outputs through a structural Formatter Tool.
         * **Validator Agent (3.4.2.4):** Check for grounded answers, valid citations & halucinations / apply reputation Guardrails at output.
