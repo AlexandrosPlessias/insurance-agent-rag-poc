@@ -1,34 +1,50 @@
-"""Ingest PDFs from data/raw/ into ChromaDB (Phase 1)."""
+"""Ingest PDFs from data/raw/ into ChromaDB (Phase 1).
+
+Run from poc/:  python scripts/ingest_pdfs.py
+"""
 import sys
 from pathlib import Path
 
-# Allow running this script directly: `python scripts/ingest_pdfs.py`
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.config import settings  # noqa: E402
+from app.observability.logging import (  # noqa: E402
+    configure_logging,
+    get_logger,
+)
 from app.rag.chunker import chunk_documents  # noqa: E402
 from app.rag.loader import load_pdfs  # noqa: E402
 from app.rag.vectorstore import add_documents  # noqa: E402
+
+configure_logging()
+log = get_logger("ingest_pdfs")
 
 
 def main() -> int:
     raw_dir = settings.raw_pdf_dir
     if not raw_dir.exists():
-        print(f"No raw PDF directory at {raw_dir}.", file=sys.stderr)
+        log.error("No raw PDF directory at %s", raw_dir)
         return 1
 
-    print(f"Loading PDFs from {raw_dir} ...")
+    log.info("=" * 60)
+    log.info("Ingestion pipeline starting")
+    log.info("  raw_dir     = %s", raw_dir)
+    log.info("  chroma_dir  = %s", settings.chroma_persist_dir)
+    log.info("  collection  = %s", settings.chroma_collection)
+    log.info("  embed_model = %s", settings.embed_model)
+    log.info("=" * 60)
+
     documents = load_pdfs(raw_dir)
     if not documents:
-        print(f"No PDFs found in {raw_dir}. Drop *.pdf files there and re-run.")
+        log.warning(
+            "No PDFs found in %s. Drop *.pdf files there and re-run.",
+            raw_dir,
+        )
         return 0
 
-    print(f"Loaded {len(documents)} pages. Chunking ...")
     chunks = chunk_documents(documents)
-    print(f"Produced {len(chunks)} chunks. Embedding + indexing ...")
-
-    n = add_documents(chunks)
-    print(f"Indexed {n} chunks into ChromaDB at {settings.chroma_persist_dir}.")
+    add_documents(chunks)
+    log.info("Ingestion complete. Total chunks indexed: %d", len(chunks))
     return 0
 
 

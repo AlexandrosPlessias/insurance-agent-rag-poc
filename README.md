@@ -49,9 +49,16 @@ The agentic backbone is equipped with tools to securely fetch and interact with 
 From the repo root **inside WSL2 Ubuntu**:
 
 ```bash
+# If you cloned the repo on Windows, normalize line endings first.
+# Otherwise scripts may fail with "set: pipefail: invalid option name"
+# or "bad interpreter: /bin/bash^M".
+sed -i 's/\r$//' poc/scripts/*.sh
+
 chmod +x poc/scripts/*.sh
 bash poc/scripts/setup_wsl.sh
 ```
+
+> Always invoke with **`bash`**, not `sh` — Debian/Ubuntu `/bin/sh` is `dash` and doesn't support `pipefail`.
 
 The scripts automatically `cd` into `poc/`, so they work from anywhere.
 
@@ -96,33 +103,94 @@ You need **three terminals** in WSL2 (or use `tmux`/`screen`):
 
 Open the UI in your Windows browser at **http://localhost:8501** (WSL2 forwards `localhost` automatically).
 
-### 5. Ingesting policy documents
+### 5. Quick smoke test (no PDFs needed)
+
+The fastest way to verify everything works. The script synthesises a small fake auto-insurance policy PDF, ingests it, then runs 3 sample questions through the RAG agent.
+
+```bash
+cd poc && source .venv/bin/activate
+python scripts/smoke_test.py
+```
+
+**Expected output** (timing varies by hardware — first run is slower because the model loads into RAM):
+
+```
+======================================================================
+Phase 1 smoke test — local RAG over a synthetic insurance policy
+======================================================================
+
+11:42:03 | INFO    | smoke_test                   | Building synthetic sample PDF at .../tests/fixtures/sample_policy.pdf
+11:42:03 | INFO    | app.rag.vectorstore          | Resetting Chroma collection: policies
+11:42:03 | INFO    | app.rag.loader               | Loading PDF: sample_policy.pdf
+11:42:03 | INFO    | app.rag.loader               |   → 3 pages with text from sample_policy.pdf
+11:42:03 | INFO    | app.rag.chunker              | Chunking 3 pages (size=1000, overlap=150) ...
+11:42:03 | INFO    | app.rag.chunker              |   → produced 3 chunks
+11:42:03 | INFO    | app.rag.vectorstore          | Embedding + indexing 3 chunks ...
+11:42:05 | INFO    | app.rag.vectorstore          |   -> indexed 3 chunks in 1.85s
+
+----------------------------------------------------------------------
+Q: What is the deductible for collision claims?
+----------------------------------------------------------------------
+11:42:05 | INFO    | app.agents.rag_agent         | RAG agent invoked: 'What is the deductible for collision claims?'
+11:42:05 | INFO    | app.rag.retriever            | Retrieving top-5 for query: 'What is the deductible for collision claims?'
+11:42:05 | INFO    | app.rag.retriever            |   → retrieved 3 chunks in 0.12s
+11:42:05 | INFO    | app.agents.rag_agent         | Calling LLM with 3 context chunk(s) ...
+11:42:18 | INFO    | app.agents.rag_agent         |   -> LLM responded in 12.4s
+A: The deductible for collision claims is EUR 500 per claim.
+
+Citations:
+  - sample_policy.pdf (p. 1)
+  - sample_policy.pdf (p. 2)
+```
+
+If you see citations pointing at the right pages, **Phase 1 is working end-to-end**. The first LLM call is slow (cold-start); subsequent calls drop to a few seconds.
+
+### 6. Ingesting your own policy documents
 
 Drop your PDF files into `poc/data/raw/`, then run:
 
 ```bash
-cd poc
-source .venv/bin/activate
+cd poc && source .venv/bin/activate
 python scripts/ingest_pdfs.py
 ```
 
-The script parses each PDF with PyMuPDF, chunks the text while preserving page numbers, embeds via `nomic-embed-text`, and persists to ChromaDB at `poc/data/chroma_db/`.
+You'll see the same log format as the smoke test — `Loading PDF`, `Chunking`, `Embedding + indexing`. The script:
+1. Parses each PDF with PyMuPDF (one `Document` per page, page number kept in metadata).
+2. Splits each page into ~1000-char chunks with 150-char overlap.
+3. Embeds with `nomic-embed-text` and persists to `poc/data/chroma_db/`.
 
 > ⚠ `poc/data/raw/` is **gitignored** — your policy documents never enter version control.
+>
+> 💡 No PDFs to hand? Try public samples — search for "sample insurance policy filetype:pdf" or use the `tests/fixtures/sample_policy.pdf` produced by `smoke_test.py`.
 
-### 6. Resetting local state
+After ingestion, restart the API + UI (or just hit them) and ask questions about your documents in the Streamlit UI at http://localhost:8501.
+
+### 7. Resetting local state
 
 ```bash
 cd poc && source .venv/bin/activate
 python scripts/reset_stores.py     # wipes ChromaDB + SQLite, keeps raw PDFs
 ```
 
-### 7. Verifying the install
+### 8. Watching the flow
+
+Every module logs to stderr with the format:
+
+```
+HH:MM:SS | LEVEL   | module.name                  | message
+```
+
+| Where logs appear | What you see |
+|---|---|
+| Terminal running `bash poc/scripts/run_api.sh` | `POST /chat` lines, retrieval timing, LLM call timing |
+| Terminal running `python scripts/ingest_pdfs.py` | Ingestion pipeline progress |
+| Terminal running `python scripts/smoke_test.py` | Full E2E flow + answers |
+
+Adjust verbosity with the `LOG_LEVEL` env var:
 
 ```bash
-cd poc && source .venv/bin/activate
-python scripts/smoke_test.py       # ingests a fixture PDF and runs a sample query
-pytest                             # runs unit + integration tests
+LOG_LEVEL=DEBUG python scripts/smoke_test.py   # more detail
+LOG_LEVEL=WARNING bash scripts/run_api.sh      # quieter API
 ```
 
 ---
@@ -179,7 +247,8 @@ The PoC is built in 5 incremental phases (full detail in [docs/PoC_scope.md](doc
 |---|---|
 | `ollama: command not found` | Re-run `bash poc/scripts/setup_wsl.sh` or install manually: `curl -fsSL https://ollama.com/install.sh \| sh` |
 | `Connection refused on :11434` | Ollama daemon not running — start it with `ollama serve` in a separate terminal |
-| `bad interpreter: /bin/bash^M` on shell scripts | CRLF line endings — fix with `sed -i 's/\r$//' poc/scripts/*.sh` |
+| `bad interpreter: /bin/bash^M` or `set: pipefail: invalid option name` | CRLF line endings (from a Windows clone). Fix with `sed -i 's/\r$//' poc/scripts/*.sh` — no need for `dos2unix` |
+| `sh: invalid option name` when running a script | You used `sh script.sh`. Use `bash script.sh` instead — `/bin/sh` on Ubuntu is `dash`, which lacks `pipefail` |
 | `ModuleNotFoundError: No module named 'app'` | You're not in `poc/` — `cd poc` first, or use the provided `bash poc/scripts/run_*.sh` wrappers |
 | Streamlit can't reach API | Check that `run_api.sh` is running and `UI_API_URL` in `.env` matches |
 | Out of memory pulling `qwen2.5:7b` | Use the lighter fallback: `ollama pull llama3.1:8b` and set `LLM_MODEL=llama3.1:8b` |

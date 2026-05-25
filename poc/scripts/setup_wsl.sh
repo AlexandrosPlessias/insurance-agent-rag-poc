@@ -13,7 +13,7 @@ echo "[1/5] Installing system packages..."
 sudo apt-get update
 sudo apt-get install -y \
   python3 python3-venv python3-dev \
-  build-essential curl git
+  build-essential curl git zstd
 
 # Require Python 3.10+ (Ubuntu 22.04 ships 3.10, Ubuntu 24.04 ships 3.12).
 "$PYTHON_BIN" -c "import sys; assert sys.version_info >= (3, 10), \
