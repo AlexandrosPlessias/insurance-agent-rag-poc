@@ -9,11 +9,14 @@ class ChatRequest(BaseModel):
 class Citation(BaseModel):
     source: str
     page: int
+    content: str = ""
+    download_url: str = ""
 
 
 class ChatResponse(BaseModel):
     answer: str
     citations: list[Citation]
+    reformulated_query: str = ""
 
 
 class HealthResponse(BaseModel):
