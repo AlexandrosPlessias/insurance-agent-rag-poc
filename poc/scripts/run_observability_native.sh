@@ -33,10 +33,14 @@ cd "$(dirname "$0")/.."
 
 INSTALL_DIR="${INSTALL_DIR:-.openobserve}"
 DATA_DIR="${DATA_DIR:-${INSTALL_DIR}/data}"
-ZO_VERSION="${ZO_VERSION:-v0.13.2}"
 ADMIN_EMAIL="${ZO_ROOT_USER_EMAIL:-admin@example.com}"
 ADMIN_PASSWORD="${ZO_ROOT_USER_PASSWORD:-Complexpass#123}"
 HTTP_PORT="${ZO_HTTP_PORT:-5080}"
+# Optional overrides:
+#   ZO_VERSION       - pin a specific tag (e.g. v0.15.0); default = latest
+#   ZO_DOWNLOAD_URL  - full asset URL; skips API resolution entirely
+ZO_VERSION="${ZO_VERSION:-}"
+ZO_DOWNLOAD_URL="${ZO_DOWNLOAD_URL:-}"
 
 ARCH=$(uname -m)
 case "$ARCH" in
@@ -48,12 +52,49 @@ esac
 mkdir -p "$INSTALL_DIR" "$DATA_DIR"
 
 if [ ! -x "$INSTALL_DIR/openobserve" ]; then
-  URL="https://github.com/openobserve/openobserve/releases/download/${ZO_VERSION}/openobserve-${ZO_VERSION}-linux-${ARCH}-musl.tar.gz"
-  echo "Downloading OpenObserve ${ZO_VERSION} ..."
-  curl -fsSL "$URL" | tar -xz -C "$INSTALL_DIR"
+  if [ -n "$ZO_DOWNLOAD_URL" ]; then
+    ASSET_URL="$ZO_DOWNLOAD_URL"
+  else
+    if [ -n "$ZO_VERSION" ]; then
+      API_URL="https://api.github.com/repos/openobserve/openobserve/releases/tags/${ZO_VERSION}"
+    else
+      API_URL="https://api.github.com/repos/openobserve/openobserve/releases/latest"
+    fi
+    echo "Resolving OpenObserve release via $API_URL ..."
+    ASSET_URL=$(curl -fsSL "$API_URL" \
+      | grep -oE '"browser_download_url":[[:space:]]*"[^"]+"' \
+      | grep "linux-${ARCH}" \
+      | grep -E '\.tar\.gz"$' \
+      | grep -vE '(sha256|\.asc|\.sig)' \
+      | head -n1 \
+      | sed -E 's/.*"(https[^"]+)"/\1/')
+  fi
+
+  if [ -z "$ASSET_URL" ]; then
+    echo "ERROR: could not resolve a linux-${ARCH} release asset." >&2
+    echo "Inspect https://github.com/openobserve/openobserve/releases" >&2
+    echo "and rerun with ZO_DOWNLOAD_URL=<full url>." >&2
+    exit 1
+  fi
+
+  echo "Downloading $ASSET_URL ..."
+  if ! curl -fsSL "$ASSET_URL" | tar -xz -C "$INSTALL_DIR"; then
+    echo "ERROR: failed to download/extract $ASSET_URL" >&2
+    exit 1
+  fi
+
+  if [ ! -x "$INSTALL_DIR/openobserve" ]; then
+    # Some releases nest the binary under a subdir; try to locate it.
+    FOUND=$(find "$INSTALL_DIR" -maxdepth 3 -type f -name openobserve | head -n1 || true)
+    if [ -n "$FOUND" ] && [ "$FOUND" != "$INSTALL_DIR/openobserve" ]; then
+      mv "$FOUND" "$INSTALL_DIR/openobserve"
+      chmod +x "$INSTALL_DIR/openobserve"
+    fi
+  fi
+
   if [ ! -x "$INSTALL_DIR/openobserve" ]; then
     echo "ERROR: openobserve binary missing after extraction." >&2
-    echo "Inspect $INSTALL_DIR for the right filename." >&2
+    echo "Inspect $INSTALL_DIR for the actual filename." >&2
     exit 1
   fi
 else

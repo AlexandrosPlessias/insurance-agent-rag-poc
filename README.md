@@ -267,7 +267,7 @@ The PoC is built in 5 incremental phases (full detail in [docs/PoC_scope.md](doc
 
 ### Phase 5 features
 
-- **OpenTelemetry SDK** wired into both the FastAPI backend and the Streamlit UI ([poc/app/observability/tracing.py](poc/app/observability/tracing.py)). `setup_otel()` is a no-op when `OTEL_ENABLED=false`, so the rest of the PoC stays untouched if you don't want it.
+- **OpenTelemetry SDK** wired into both the FastAPI backend and the Streamlit UI ([poc/app/observability/tracing.py](poc/app/observability/tracing.py)). **Enabled by default** — `setup_otel()` TCP-probes `OTEL_ENDPOINT` at startup and self-disables (logs a warning, returns) if the backend isn't running, so the app stays usable when you haven't started OpenObserve yet.
 - **Auto-instrumentation** of FastAPI (server spans + request attributes) and httpx (client spans). A request from Streamlit → API → graph nodes shows up as a single connected trace.
 - **Manual spans** on every graph node — `supervisor.classify`, `rag.node`, `rag.reformulate`, `rag.llm.invoke`, `rag.retrieve`, `validator.judge`, `report.node`, `report.extract`, `decline.canned` — with attributes (route, retry_count, chunk_count, grounded, citations_ok, durations).
 - **OTLP logs** — Python `logging` records flow to the OTel backend in parallel with the existing stderr handler, with `trace_id`/`span_id` enrichment via `LoggingInstrumentor`.
@@ -278,7 +278,9 @@ The PoC is built in 5 incremental phases (full detail in [docs/PoC_scope.md](doc
 
 #### Enabling observability
 
-Pick **one** backend — both expose traces and logs in a web UI. The defaults in [poc/.env.example](poc/.env.example) target **Option A (OpenObserve)** — change `OTEL_PROTOCOL`, `OTEL_ENDPOINT`, `OTEL_HEADERS`, and `OTEL_UI_URL` if you go with Option B.
+OTel is **on by default** (`OTEL_ENABLED=true` in [.env.example](poc/.env.example)) and targets **Option A (OpenObserve)**. If the backend isn't running when the API/UI start, the SDK self-disables and logs a one-line warning — no app crash, no noisy connection retries. Just start the backend and restart the API/UI to pick it up.
+
+Pick **one** backend — both expose traces and logs in a web UI. To use Option B (Aspire) instead, edit the relevant `OTEL_*` lines in your `.env`.
 
 ##### Option A — OpenObserve (native binary in WSL, no Docker)  ⭐ default
 

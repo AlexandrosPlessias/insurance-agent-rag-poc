@@ -38,7 +38,10 @@ class Settings(BaseSettings):
     retrieval_k: int = 5
 
     # --- Observability (Phase 5) ---
-    otel_enabled: bool = False
+    # Default ON. setup_otel() probes the backend first and self-disables
+    # if it can't reach OTEL_ENDPOINT, so the app stays usable when the
+    # observability backend isn't running.
+    otel_enabled: bool = True
     # "grpc" -> OTLP gRPC (default; Aspire Dashboard, Jaeger)
     # "http" -> OTLP HTTP/protobuf (OpenObserve, generic OTLP HTTP)
     otel_protocol: str = "grpc"

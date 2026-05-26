@@ -11,12 +11,31 @@ Supports two OTLP protocols, picked by `OTEL_PROTOCOL`:
 when `OTEL_ENABLED=false`.
 """
 import logging
+import socket
 from typing import Any
+from urllib.parse import urlparse
 
 from app.config import settings
 
 _INSTALLED = False
 _log = logging.getLogger(__name__)
+
+
+def _backend_reachable(timeout_s: float = 1.0) -> bool:
+    """TCP-probe OTEL_ENDPOINT so we don't init OTel when nothing's home."""
+    parsed = urlparse(settings.otel_endpoint)
+    host = parsed.hostname or "localhost"
+    if parsed.port is not None:
+        port = parsed.port
+    elif settings.otel_protocol == "grpc":
+        port = 4317
+    else:
+        port = 80 if parsed.scheme == "http" else 443
+    try:
+        with socket.create_connection((host, port), timeout=timeout_s):
+            return True
+    except OSError:
+        return False
 
 
 def _parse_headers(s: str) -> dict[str, str]:
@@ -139,6 +158,16 @@ def setup_otel(
         return
     if not settings.otel_enabled:
         _log.info("OTel disabled (OTEL_ENABLED=false)")
+        return
+
+    if not _backend_reachable():
+        _log.warning(
+            "OTel enabled but backend at %s is unreachable - "
+            "skipping setup. Start the backend "
+            "(`bash scripts/run_observability_native.sh`) and "
+            "restart this process to enable tracing.",
+            settings.otel_endpoint,
+        )
         return
 
     try:
