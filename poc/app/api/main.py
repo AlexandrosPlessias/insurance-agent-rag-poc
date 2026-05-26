@@ -2,13 +2,13 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import chat, health, sources
+from app.api.routes import chat, conversations, health, sources
 from app.config import settings
 from app.observability.logging import get_logger
 
 log = get_logger(__name__)
 
-app = FastAPI(title="Insurance Assistant PoC", version="0.1.0")
+app = FastAPI(title="Insurance Assistant PoC", version="0.4.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -19,11 +19,13 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(chat.router)
+app.include_router(conversations.router)
 app.include_router(sources.router)
 
 log.info(
-    "FastAPI ready - model=%s embed=%s chroma=%s",
+    "FastAPI ready - model=%s embed=%s chroma=%s sqlite=%s",
     settings.llm_model,
     settings.embed_model,
     settings.chroma_persist_dir,
+    settings.sqlite_path,
 )

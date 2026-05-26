@@ -1,10 +1,9 @@
-"""Streamlit frontend - Phase 3.
+"""Streamlit frontend - Phase 4.
 
-Adds dynamic progress stepper that adapts to the route:
-  - rag:          Supervisor -> RAG -> Validator
-  - report:       Supervisor -> Report
-  - out_of_scope: Supervisor
-Reports render as Markdown with embedded charts.
+Adds:
+  - User ID sidebar input (persists per-browser via session state).
+  - Conversation list with click-to-switch + "New conversation" button.
+  - Loads + replays past messages when a conversation is selected.
 """
 import sys
 from pathlib import Path
@@ -14,7 +13,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 import streamlit as st  # noqa: E402
 
 from app.ui.api_client import (  # noqa: E402
+    create_conversation,
     get_health,
+    get_messages,
+    list_conversations,
     source_url,
     stream_chat,
 )
@@ -42,7 +44,93 @@ STAGE_SETS = {
     ],
 }
 
+# --- Session-state defaults ---
+if "user_id" not in st.session_state:
+    st.session_state.user_id = "default_user"
+if "conversation_id" not in st.session_state:
+    st.session_state.conversation_id = None
+if "history" not in st.session_state:
+    st.session_state.history = []
+
+
+def _load_history(conv_id: int) -> list[dict]:
+    """Convert backend messages into the local history format."""
+    try:
+        raw = get_messages(conv_id)
+    except Exception as e:
+        st.error(f"Failed to load messages: {e}")
+        return []
+    history: list[dict] = []
+    for m in raw:
+        entry: dict = {
+            "role": m["role"],
+            "content": m["content"],
+        }
+        if m["role"] == "assistant":
+            entry.update(
+                {
+                    "route": m.get("route") or "",
+                    "citations": m.get("citations") or [],
+                    "validated": True,
+                    "critique": "",
+                    "reformulated_query": "",
+                    "original_question": "",
+                }
+            )
+        history.append(entry)
+    return history
+
+
+def _switch_conversation(conv_id: int) -> None:
+    st.session_state.conversation_id = conv_id
+    st.session_state.history = _load_history(conv_id)
+
+
+def _start_new_conversation() -> None:
+    st.session_state.conversation_id = None
+    st.session_state.history = []
+
+
+# --- Sidebar ---
 with st.sidebar:
+    st.subheader("User")
+    new_user = st.text_input(
+        "User ID",
+        value=st.session_state.user_id,
+        help="Identifies the owner of conversations and long-term memory.",
+    )
+    if new_user != st.session_state.user_id:
+        st.session_state.user_id = new_user
+        _start_new_conversation()
+
+    st.divider()
+    st.subheader("Conversations")
+    if st.button("+ New conversation", use_container_width=True):
+        _start_new_conversation()
+        st.rerun()
+
+    try:
+        convos = list_conversations(st.session_state.user_id)
+    except Exception as e:
+        convos = []
+        st.error(f"Failed to list conversations: {e}")
+
+    if not convos:
+        st.caption("No saved conversations yet.")
+    for c in convos:
+        is_current = c["id"] == st.session_state.conversation_id
+        label = c.get("title") or f"Conversation {c['id']}"
+        if is_current:
+            label = f"* {label}"
+        if st.button(
+            label,
+            key=f"conv_{c['id']}",
+            use_container_width=True,
+        ):
+            _switch_conversation(c["id"])
+            st.rerun()
+
+    st.divider()
     st.subheader("Backend status")
     try:
         h = get_health()
@@ -50,13 +138,14 @@ with st.sidebar:
     except Exception as e:
         st.error(f"API unreachable: {e}")
     st.caption(
-        "Phase 1: reformulation + streaming RAG.\n"
-        "Phase 2: supervisor + validator with 1-retry loop.\n"
-        "Phase 3: report agent (Markdown + embedded chart)."
+        "Phase 1: streaming RAG with citations.\n"
+        "Phase 2: supervisor + validator + retry.\n"
+        "Phase 3: report agent (Markdown + charts).\n"
+        "Phase 4: SQLite long-term memory."
     )
 
-if "history" not in st.session_state:
-    st.session_state.history = []
+
+# --- Render helpers ---
 
 
 def render_stepper(slot, stages: dict, route: str = "_default") -> None:
@@ -109,14 +198,6 @@ def render_reformulation(reformulated: str, original: str) -> None:
         st.code(reformulated, language="text")
 
 
-def render_answer(content: str, route: str) -> None:
-    if route == "report":
-        # Reports are full Markdown with embedded images.
-        st.markdown(content, unsafe_allow_html=False)
-    else:
-        st.write(content)
-
-
 # --- Replay prior turns ---
 for entry in st.session_state.history:
     with st.chat_message(entry["role"]):
@@ -127,16 +208,18 @@ for entry in st.session_state.history:
                     entry.get("reformulated_query", ""),
                     entry.get("original_question", ""),
                 )
-        render_answer(entry["content"], route) if entry[
-            "role"
-        ] == "assistant" else st.write(entry["content"])
-        if entry["role"] == "assistant":
+            if route == "report":
+                st.markdown(entry["content"], unsafe_allow_html=False)
+            else:
+                st.write(entry["content"])
             if route == "rag":
                 render_validation(
                     entry.get("validated", True),
                     entry.get("critique", ""),
                 )
             render_citations(entry.get("citations", []))
+        else:
+            st.write(entry["content"])
 
 question = st.chat_input("Ask about a policy, or request a report...")
 if question:
@@ -161,9 +244,17 @@ if question:
         report_holder = {"value": ""}
 
         def token_stream():
-            for event in stream_chat(question):
+            for event in stream_chat(
+                question,
+                user_id=st.session_state.user_id,
+                conversation_id=st.session_state.conversation_id,
+            ):
                 etype = event.get("type")
-                if etype == "stage":
+                if etype == "conversation":
+                    cid = event.get("conversation_id")
+                    if cid is not None:
+                        st.session_state.conversation_id = int(cid)
+                elif etype == "stage":
                     node = event["node"]
                     status = (
                         "running"
@@ -198,7 +289,6 @@ if question:
                         )
                 elif etype == "token":
                     if route_holder["value"] == "report":
-                        # Buffer report content - render as Markdown later.
                         report_holder["value"] += event["value"]
                     else:
                         yield event["value"]
@@ -211,7 +301,9 @@ if question:
                         "critique", ""
                     )
                     if not route_holder["value"]:
-                        route_holder["value"] = event.get("route", "")
+                        route_holder["value"] = event.get(
+                            "route", ""
+                        )
                 elif etype == "error":
                     error_holder["value"] = event.get("value", "")
 
@@ -221,7 +313,6 @@ if question:
             answer = ""
             error_holder["value"] = str(e)
 
-        # Reports were buffered, not streamed - render now.
         if route_holder["value"] == "report" and report_holder["value"]:
             answer = report_holder["value"]
             st.markdown(answer, unsafe_allow_html=False)

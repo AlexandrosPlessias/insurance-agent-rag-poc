@@ -2,6 +2,7 @@
 
 Mirrors `app.graph.builder` but emits `stage` events around each node
 and streams tokens INSIDE the RAG node. Used by `/chat/stream`.
+Accepts optional `history` and `user_activity` for Phase 4 memory.
 """
 from typing import Iterator
 
@@ -34,9 +35,10 @@ def _run_rag_streaming(state: dict) -> Iterator[dict]:
     question = state["question"]
     retry_count = state.get("retry_count", 0)
     critique = state.get("last_critique", "")
+    history = state.get("history", [])
 
     if retry_count == 0:
-        reformulated = reformulate_question(question)
+        reformulated = reformulate_question(question, history=history)
         chunks = retrieve(reformulated)
         state["reformulated_query"] = reformulated
         state["chunks"] = chunks
@@ -56,7 +58,9 @@ def _run_rag_streaming(state: dict) -> Iterator[dict]:
             ),
         }
 
-    prompt = build_rag_prompt(chunks, critique=critique)
+    prompt = build_rag_prompt(
+        chunks, critique=critique, history=history,
+    )
     messages = [
         SystemMessage(content=prompt),
         HumanMessage(content=question),
@@ -81,9 +85,18 @@ def _run_validator(state: dict) -> Iterator[dict]:
     yield _stage("validator", "done", info=info)
 
 
-def stream_graph(question: str) -> Iterator[dict]:
+def stream_graph(
+    question: str,
+    history: list[dict] | None = None,
+    user_activity: list[dict] | None = None,
+) -> Iterator[dict]:
     """Walk supervisor -> (decline | rag+validator | report)."""
-    state: dict = {"question": question, "retry_count": 0}
+    state: dict = {
+        "question": question,
+        "retry_count": 0,
+        "history": history or [],
+        "user_activity": user_activity or [],
+    }
 
     try:
         # --- Supervisor ---
@@ -115,7 +128,9 @@ def stream_graph(question: str) -> Iterator[dict]:
             chunks_out = state.get("final_citations") or []
             yield {
                 "type": "done",
-                "citations": [citation_payload(c) for c in chunks_out],
+                "citations": [
+                    citation_payload(c) for c in chunks_out
+                ],
                 "validated": True,
                 "retry_count": 0,
                 "critique": "",

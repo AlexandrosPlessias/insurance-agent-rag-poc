@@ -236,7 +236,7 @@ The PoC is built in 5 incremental phases (full detail in [docs/PoC_scope.md](doc
 | **1** | ✅ implemented | Basic RAG validation + streaming + citations | [poc/app/rag/](poc/app/rag/), [poc/app/agents/rag_agent.py](poc/app/agents/rag_agent.py) |
 | **2** | ✅ implemented | LangGraph supervisor + validator with retry loop | [poc/app/graph/](poc/app/graph/), [poc/app/agents/validator_agent.py](poc/app/agents/validator_agent.py) |
 | **3** | ✅ implemented | Reporting autonomy (Markdown + embedded charts) | [poc/app/reporting/](poc/app/reporting/), [poc/app/agents/report_agent.py](poc/app/agents/report_agent.py) |
-| **4** | ⏳ pending | SQLite long-term memory | [poc/app/memory/](poc/app/memory/), [poc/app/agents/memory_agent.py](poc/app/agents/memory_agent.py) |
+| **4** | ✅ implemented | SQLite long-term memory + per-user conversations | [poc/app/memory/](poc/app/memory/), [poc/app/agents/memory_agent.py](poc/app/agents/memory_agent.py) |
 | **5** | ⏳ pending | Observability (Langfuse / OTel) | [poc/app/observability/](poc/app/observability/) |
 
 ### Phase 2 features
@@ -255,6 +255,15 @@ The PoC is built in 5 incremental phases (full detail in [docs/PoC_scope.md](doc
 - **Markdown formatter** ([poc/app/reporting/markdown.py](poc/app/reporting/markdown.py)) stitches sections: policy table → coverage table → premium block (+ chart) → claims → exclusions → sources.
 - **Dynamic UI stepper** adapts to the route: `Supervisor → Report` for reports, `Supervisor → RAG → Validator` for rag, just `Supervisor` for declines.
 - Reports **bypass the validator** in Phase 3 — they're synthesised from structured extraction rather than free-form generation.
+
+### Phase 4 features
+
+- **SQLite memory store** ([poc/app/memory/](poc/app/memory/)): two tables (`conversations`, `messages`) at `poc/data/memory.sqlite`. `MemoryStore` opens a connection per method (safe under FastAPI threading).
+- **Per-user conversations**: each turn is keyed by a `user_id`; conversations have auto-generated titles from the first user message.
+- **API surface**: `POST /chat` and `POST /chat/stream` accept optional `user_id` + `conversation_id` and persist both turns. New `GET /conversations`, `POST /conversations`, `GET /conversations/{id}/messages`.
+- **Conversational RAG**: `rag_node` and `reformulate_question` receive the last 3 turns and prepend them to the prompt — follow-up questions stay coherent.
+- **Long-term memory in reports**: `report_node` reads the user's last 10 cross-conversation messages and renders them in a **User Activity** section at the top of the report.
+- **Sidebar UI**: user-ID text input, clickable conversation list with auto-titles, **+ New conversation** button. Selecting a past conversation replays its messages from SQLite.
 
 ---
 

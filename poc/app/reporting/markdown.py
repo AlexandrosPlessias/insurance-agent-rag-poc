@@ -12,10 +12,31 @@ def build_policy_report(
     data: dict,
     chunks: list[RetrievedChunk],
     chart_b64: str = "",
+    user_activity_bullets: list[str] | None = None,
 ) -> str:
-    """Render a Markdown policy summary with optional embedded chart."""
+    """Render a Markdown policy summary.
+
+    Sections:
+      - Header (title + timestamp)
+      - User Activity (Phase 4, if provided)
+      - Policy Details, Coverage, Premium (+ chart), Claims, Exclusions
+      - Sources
+    """
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    sections: list[str] = ["# Policy Summary Report", f"*Generated: {now}*", ""]
+    sections: list[str] = [
+        "# Policy Summary Report",
+        f"*Generated: {now}*",
+        "",
+    ]
+
+    # --- User Activity (long-term memory) ---
+    if user_activity_bullets:
+        sections.append("## User Activity (Long-Term Memory)")
+        sections.append(
+            "Recent questions from this user across all conversations:"
+        )
+        sections.extend(user_activity_bullets)
+        sections.append("")
 
     # --- Policy details ---
     meta = data.get("policy", {}) or {}
@@ -54,7 +75,9 @@ def build_policy_report(
     if premium:
         sections.append("## Premium")
         if premium.get("annual"):
-            sections.append(f"- **Annual (lump sum)**: {premium['annual']}")
+            sections.append(
+                f"- **Annual (lump sum)**: {premium['annual']}"
+            )
         if premium.get("installment_amount") and premium.get(
             "installment_count"
         ):

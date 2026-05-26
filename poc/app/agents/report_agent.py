@@ -1,10 +1,12 @@
-"""Report agent (Phase 3).
+"""Report agent (Phase 3+4).
 
 Pipeline:
   1. retrieve(question, k=10) - wide context for structured extraction.
   2. LLM extracts a JSON object of policy fields.
   3. reporting.charts renders a matplotlib chart -> base64 PNG.
-  4. reporting.markdown stitches everything into a Markdown report.
+  4. reporting.markdown stitches everything into a Markdown report,
+     including (Phase 4) a "User Activity" section sourced from
+     state.user_activity.
 """
 import json
 import re
@@ -12,6 +14,7 @@ import time
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from app.agents.memory_agent import format_user_activity
 from app.graph.state import GraphState
 from app.llm import load_prompt
 from app.llm.ollama_client import get_llm
@@ -74,7 +77,12 @@ def _extract_policy_data(chunks: list[RetrievedChunk]) -> dict:
 def report_node(state: GraphState) -> dict:
     """Build a Markdown policy report. Skips validation."""
     question = state["question"]
-    log.info("Report agent invoked: %r", question[:80])
+    user_activity = state.get("user_activity", []) or []
+    log.info(
+        "Report agent invoked: %r (user_activity=%d items)",
+        question[:80],
+        len(user_activity),
+    )
     t_total = time.perf_counter()
 
     chunks = retrieve(question, k=REPORT_K)
@@ -83,7 +91,8 @@ def report_node(state: GraphState) -> dict:
         markdown = (
             "# Policy Summary Report\n\n"
             "No indexed documents to summarise. "
-            "Ingest a policy PDF first via `python scripts/ingest_pdfs.py`."
+            "Ingest a policy PDF first via "
+            "`python scripts/ingest_pdfs.py`."
         )
         return {
             "chunks": [],
@@ -96,19 +105,27 @@ def report_node(state: GraphState) -> dict:
 
     data = _extract_policy_data(chunks)
     chart_b64 = render_premium_chart(data)
-    markdown = build_policy_report(data, chunks, chart_b64=chart_b64)
+    activity_bullets = format_user_activity(user_activity)
+    markdown = build_policy_report(
+        data,
+        chunks,
+        chart_b64=chart_b64,
+        user_activity_bullets=activity_bullets,
+    )
 
     log.info(
-        "Report done: %.2fs total, %d-char markdown, chart=%s",
+        "Report done: %.2fs total, %d-char markdown, "
+        "chart=%s, activity_items=%d",
         time.perf_counter() - t_total,
         len(markdown),
         "yes" if chart_b64 else "no",
+        len(activity_bullets),
     )
     return {
         "chunks": chunks,
         "draft_answer": markdown,
         "final_answer": markdown,
         "final_citations": chunks,
-        "validated": True,  # reports bypass the validator in Phase 3
+        "validated": True,
         "retry_count": 0,
     }
