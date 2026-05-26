@@ -1,12 +1,8 @@
 """Streaming orchestrator that walks the same nodes as the compiled graph.
 
-Why a separate walker instead of `graph.stream(...)` ?
-  - We want token-level streaming INSIDE the RAG node.
-  - We want explicit `stage` events around each node.
-LangGraph's built-in streaming modes can do both with `astream_events`,
-but going async would ripple through FastAPI + httpx. For a PoC, this
-manual walker is simpler and shares all node logic with the compiled
-graph (see `app.graph.builder`).
+Mirrors `app.graph.builder` but emits `stage` events around each node
+and streams tokens INSIDE the RAG node. Used by `/chat/stream`.
+Accepts optional `history` and `user_activity` for Phase 4 memory.
 """
 from typing import Iterator
 
@@ -17,6 +13,7 @@ from app.agents.rag_agent import (
     citation_payload,
     reformulate_question,
 )
+from app.agents.report_agent import report_node
 from app.agents.validator_agent import validator_node
 from app.graph.supervisor import decline_node, supervisor_node
 from app.llm.ollama_client import get_llm
@@ -38,9 +35,10 @@ def _run_rag_streaming(state: dict) -> Iterator[dict]:
     question = state["question"]
     retry_count = state.get("retry_count", 0)
     critique = state.get("last_critique", "")
+    history = state.get("history", [])
 
     if retry_count == 0:
-        reformulated = reformulate_question(question)
+        reformulated = reformulate_question(question, history=history)
         chunks = retrieve(reformulated)
         state["reformulated_query"] = reformulated
         state["chunks"] = chunks
@@ -60,7 +58,9 @@ def _run_rag_streaming(state: dict) -> Iterator[dict]:
             ),
         }
 
-    prompt = build_rag_prompt(chunks, critique=critique)
+    prompt = build_rag_prompt(
+        chunks, critique=critique, history=history,
+    )
     messages = [
         SystemMessage(content=prompt),
         HumanMessage(content=question),
@@ -85,22 +85,28 @@ def _run_validator(state: dict) -> Iterator[dict]:
     yield _stage("validator", "done", info=info)
 
 
-def stream_graph(question: str) -> Iterator[dict]:
-    """Walk supervisor -> (decline | rag -> validator [-> rag -> validator])."""
-    state: dict = {"question": question, "retry_count": 0}
+def stream_graph(
+    question: str,
+    history: list[dict] | None = None,
+    user_activity: list[dict] | None = None,
+) -> Iterator[dict]:
+    """Walk supervisor -> (decline | rag+validator | report)."""
+    state: dict = {
+        "question": question,
+        "retry_count": 0,
+        "history": history or [],
+        "user_activity": user_activity or [],
+    }
 
     try:
         # --- Supervisor ---
         yield _stage("supervisor", "started")
         state.update(supervisor_node(state))
-        yield _stage(
-            "supervisor",
-            "done",
-            info=f"route={state['route']}",
-        )
+        route = state["route"]
+        yield _stage("supervisor", "done", info=f"route={route}")
 
         # --- Out-of-scope branch ---
-        if state["route"] == "out_of_scope":
+        if route == "out_of_scope":
             state.update(decline_node(state))
             yield {"type": "token", "value": state["final_answer"]}
             yield {
@@ -109,27 +115,41 @@ def stream_graph(question: str) -> Iterator[dict]:
                 "validated": True,
                 "retry_count": 0,
                 "critique": "",
+                "route": route,
             }
             return
 
-        # --- Initial RAG attempt ---
+        # --- Report branch ---
+        if route == "report":
+            yield _stage("report", "started")
+            state.update(report_node(state))
+            yield _stage("report", "done")
+            yield {"type": "token", "value": state["final_answer"]}
+            chunks_out = state.get("final_citations") or []
+            yield {
+                "type": "done",
+                "citations": [
+                    citation_payload(c) for c in chunks_out
+                ],
+                "validated": True,
+                "retry_count": 0,
+                "critique": "",
+                "route": route,
+            }
+            return
+
+        # --- RAG branch (with validator + 1-retry loop) ---
         yield _stage("rag", "started")
         yield from _run_rag_streaming(state)
         yield _stage("rag", "done")
-
-        # --- Validation ---
         yield from _run_validator(state)
 
-        # --- Retry path (max 1) ---
-        # validator_node sets final_answer when terminal, otherwise bumps
-        # retry_count and stores last_critique.
         if "final_answer" not in state:
             yield _stage("rag", "started", info="retry")
             yield from _run_rag_streaming(state)
             yield _stage("rag", "done")
             yield from _run_validator(state)
 
-        # --- Final event ---
         chunks = (
             state.get("final_citations")
             or state.get("chunks")
@@ -145,6 +165,7 @@ def stream_graph(question: str) -> Iterator[dict]:
             "validated": validated,
             "retry_count": state.get("retry_count", 0),
             "critique": critique,
+            "route": route,
         }
     except Exception as exc:  # noqa: BLE001
         log.exception("stream_graph error")

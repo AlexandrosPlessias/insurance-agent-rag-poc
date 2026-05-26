@@ -1,16 +1,14 @@
 """RAG agent helpers, sync `rag_node`, and a thin `answer_question`.
 
-Consumers:
-  - app/graph/builder.py: imports rag_node for the compiled graph.
-  - app/graph/streaming.py: imports reformulate_question, build_rag_prompt,
-    citation_payload to drive the streaming walker.
-  - smoke_test.py: imports answer_question for end-to-end demos.
+Phase 4: injects recent conversation history into the prompt so
+follow-up questions stay coherent across turns.
 """
 import time
 from dataclasses import dataclass, field
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from app.agents.memory_agent import format_history_for_prompt
 from app.graph.state import GraphState
 from app.llm import load_prompt
 from app.llm.ollama_client import get_llm
@@ -33,13 +31,21 @@ class RagResponse:
     route: str = ""
 
 
-def reformulate_question(question: str) -> str:
+def reformulate_question(question: str, history: list[dict] | None = None) -> str:
     log.info("Reformulating: %r", question[:80])
     t0 = time.perf_counter()
+    history_block = format_history_for_prompt(history or [], max_turns=2)
+    user_content = question
+    if history_block:
+        user_content = (
+            f"{history_block}\n"
+            f"Now rewrite this question, resolving references to the "
+            f"conversation above when needed:\n{question}"
+        )
     result = get_llm().invoke(
         [
             SystemMessage(content=REFORMULATE_PROMPT),
-            HumanMessage(content=question),
+            HumanMessage(content=user_content),
         ]
     )
     rewritten = str(result.content).strip().strip('"').strip("'")
@@ -63,8 +69,12 @@ def _format_context(chunks: list[RetrievedChunk]) -> str:
 def build_rag_prompt(
     chunks: list[RetrievedChunk],
     critique: str = "",
+    history: list[dict] | None = None,
 ) -> str:
     prompt = SYSTEM_PROMPT.format(context=_format_context(chunks))
+    history_block = format_history_for_prompt(history or [], max_turns=3)
+    if history_block:
+        prompt = f"{history_block}\n{prompt}"
     if critique:
         prompt += (
             "\n\nPREVIOUS ATTEMPT WAS REJECTED. Validator critique:\n"
@@ -88,10 +98,11 @@ def rag_node(state: GraphState) -> dict:
     question = state["question"]
     retry_count = state.get("retry_count", 0)
     critique = state.get("last_critique", "")
+    history = state.get("history", [])
 
     if retry_count == 0:
         log.info("RAG node (initial): %r", question[:80])
-        reformulated = reformulate_question(question)
+        reformulated = reformulate_question(question, history=history)
         chunks = retrieve(reformulated)
     else:
         log.info(
@@ -101,7 +112,7 @@ def rag_node(state: GraphState) -> dict:
         reformulated = state.get("reformulated_query", question)
         chunks = state.get("chunks", [])
 
-    prompt = build_rag_prompt(chunks, critique=critique)
+    prompt = build_rag_prompt(chunks, critique=critique, history=history)
     messages = [
         SystemMessage(content=prompt),
         HumanMessage(content=question),
@@ -118,11 +129,22 @@ def rag_node(state: GraphState) -> dict:
     }
 
 
-def answer_question(question: str) -> RagResponse:
+def answer_question(
+    question: str,
+    user_id: str = "default_user",
+    history: list[dict] | None = None,
+    user_activity: list[dict] | None = None,
+) -> RagResponse:
     """Run the full LangGraph and return a sync RagResponse."""
     from app.graph.builder import get_graph  # lazy import (break cycle)
 
-    state = get_graph().invoke({"question": question})
+    initial: dict = {
+        "question": question,
+        "user_id": user_id,
+        "history": history or [],
+        "user_activity": user_activity or [],
+    }
+    state = get_graph().invoke(initial)
     return RagResponse(
         answer=state.get("final_answer", state.get("draft_answer", "")),
         citations=state.get("final_citations")

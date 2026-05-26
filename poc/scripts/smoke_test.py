@@ -1,14 +1,16 @@
 """End-to-end smoke test (no external PDFs needed).
 
-Phase 2 demo:
-  - Synthesises a small ACME insurance policy PDF and ingests it.
-  - Runs 3 in-scope questions through the full LangGraph
-    (supervisor -> rag -> validator).
-  - Runs 1 out-of-scope question to demonstrate supervisor routing
-    to the decline branch.
+Phase 4 demo:
+  - Synthesises an ACME insurance policy PDF and ingests it.
+  - Creates a user-scoped conversation in SQLite.
+  - Runs 3 RAG questions (each persisted as messages).
+  - Asks for a personalized report - the report agent reads the user's
+    activity from SQLite and includes a "User Activity" section.
+  - Runs 1 out-of-scope question (decline path).
 
 Run from poc/:  python scripts/smoke_test.py
 """
+import re
 import sys
 import time
 from pathlib import Path
@@ -18,6 +20,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import fitz  # PyMuPDF  # noqa: E402
 
 from app.agents.rag_agent import answer_question  # noqa: E402
+from app.config import settings  # noqa: E402
+from app.memory.store import MemoryStore  # noqa: E402
 from app.observability.logging import (  # noqa: E402
     configure_logging,
     get_logger,
@@ -70,8 +74,11 @@ SAMPLE_QUESTIONS = [
     ("rag", "What is the deductible for collision claims?"),
     ("rag", "How many days do I have to report a claim?"),
     ("rag", "What is the annual premium and can I pay in installments?"),
+    ("report", "Give me a personalized summary report of the policy"),
     ("out_of_scope", "What is 2 + 2?"),
 ]
+
+USER_ID = "smoke_user"
 
 
 def build_sample_pdf(path: Path) -> None:
@@ -85,9 +92,17 @@ def build_sample_pdf(path: Path) -> None:
     doc.close()
 
 
+def _strip_data_uri_images(markdown: str) -> str:
+    return re.sub(
+        r"!\[([^\]]*)\]\(data:image/[^)]+\)",
+        r"![\1](embedded chart, base64 omitted)",
+        markdown,
+    )
+
+
 def main() -> int:
     print("\n" + "=" * 72)
-    print("Phase 2 smoke test - LangGraph (supervisor + RAG + validator)")
+    print("Phase 4 smoke test - supervisor + RAG + report + SQLite memory")
     print("=" * 72 + "\n")
 
     build_sample_pdf(SAMPLE_PDF)
@@ -98,30 +113,76 @@ def main() -> int:
     except Exception as e:
         log.warning("reset_collection failed (probably first run): %s", e)
 
+    # Reset SQLite memory for a clean cross-session demo.
+    if settings.sqlite_path.exists():
+        log.info("Removing SQLite memory at %s", settings.sqlite_path)
+        settings.sqlite_path.unlink()
+
     documents = load_pdf(SAMPLE_PDF)
     chunks = chunk_documents(documents)
     add_documents(chunks)
+
+    store = MemoryStore(settings.sqlite_path)
+    conv_id = store.create_conversation(USER_ID, title=None)
+    log.info("Created conversation %d for user %r", conv_id, USER_ID)
 
     for expected_route, q in SAMPLE_QUESTIONS:
         print("\n" + "-" * 72)
         print(f"Q: {q}")
         print(f"   (expected route: {expected_route})")
         print("-" * 72)
+
+        # Mimic the API route: load memory, persist user msg, invoke graph.
+        history = store.get_messages(conv_id, limit=6)
+        activity = store.get_user_activity(USER_ID, limit=10)
+        store.add_message(conv_id, "user", q)
+
         t0 = time.perf_counter()
-        result = answer_question(q)
+        result = answer_question(
+            q,
+            user_id=USER_ID,
+            history=history,
+            user_activity=activity,
+        )
         dt = time.perf_counter() - t0
-        print(f"A: {result.answer}\n")
+
+        store.add_message(
+            conv_id,
+            "assistant",
+            result.answer,
+            route=result.route,
+            citations=[
+                {
+                    "source": c.source,
+                    "page": c.page,
+                    "content": c.content,
+                    "download_url": f"/sources/{c.source}",
+                }
+                for c in result.citations
+            ],
+        )
+
+        printable = (
+            _strip_data_uri_images(result.answer)
+            if result.route == "report"
+            else result.answer
+        )
+        print(f"A:\n{printable}\n")
         print(f"Route       : {result.route}")
+        print(f"Memory      : {len(history)} history msgs, "
+              f"{len(activity)} activity msgs")
         if result.route == "rag":
             print(f"Validated   : {result.validated}")
             print(f"Retries     : {result.retry_count}")
+        if result.route in ("rag", "report"):
             print("Citations   :")
             for c in result.citations:
                 print(f"  - {c.as_citation()}")
         print(f"\n[elapsed: {dt:.1f}s]")
 
     print("\n" + "=" * 72)
-    print("Smoke test complete.")
+    print(f"Smoke test complete. Conversation id={conv_id} for user "
+          f"{USER_ID!r} persisted in SQLite.")
     print("=" * 72 + "\n")
     return 0
 

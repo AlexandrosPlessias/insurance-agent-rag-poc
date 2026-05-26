@@ -14,8 +14,14 @@ class GraphState(TypedDict, total=False):
     # --- input ---
     question: str
 
+    # --- persistent memory (Phase 4) ---
+    user_id: str
+    conversation_id: int
+    history: list[dict]          # last N turns of THIS conversation
+    user_activity: list[dict]    # recent msgs ACROSS user's conversations
+
     # --- supervisor output ---
-    route: Literal["rag", "out_of_scope"]
+    route: Literal["rag", "report", "out_of_scope"]
 
     # --- rag node output ---
     reformulated_query: str
