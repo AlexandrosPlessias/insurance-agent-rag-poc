@@ -1,7 +1,11 @@
 """End-to-end smoke test (no external PDFs needed).
 
-Synthesises a small ACME insurance policy PDF, ingests it, runs 3 sample
-queries through the RAG agent, and prints answers + citations.
+Phase 2 demo:
+  - Synthesises a small ACME insurance policy PDF and ingests it.
+  - Runs 3 in-scope questions through the full LangGraph
+    (supervisor -> rag -> validator).
+  - Runs 1 out-of-scope question to demonstrate supervisor routing
+    to the decline branch.
 
 Run from poc/:  python scripts/smoke_test.py
 """
@@ -14,7 +18,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import fitz  # PyMuPDF  # noqa: E402
 
 from app.agents.rag_agent import answer_question  # noqa: E402
-from app.observability.logging import configure_logging, get_logger  # noqa: E402
+from app.observability.logging import (  # noqa: E402
+    configure_logging,
+    get_logger,
+)
 from app.rag.chunker import chunk_documents  # noqa: E402
 from app.rag.loader import load_pdf  # noqa: E402
 from app.rag.vectorstore import add_documents, reset_collection  # noqa: E402
@@ -60,9 +67,10 @@ in writing 30 days prior.""",
 ]
 
 SAMPLE_QUESTIONS = [
-    "What is the deductible for collision claims?",
-    "How many days do I have to report a claim?",
-    "What is the annual premium and can I pay in installments?",
+    ("rag", "What is the deductible for collision claims?"),
+    ("rag", "How many days do I have to report a claim?"),
+    ("rag", "What is the annual premium and can I pay in installments?"),
+    ("out_of_scope", "What is 2 + 2?"),
 ]
 
 
@@ -78,9 +86,9 @@ def build_sample_pdf(path: Path) -> None:
 
 
 def main() -> int:
-    print("\n" + "=" * 70)
-    print("Phase 1 smoke test — local RAG over a synthetic insurance policy")
-    print("=" * 70 + "\n")
+    print("\n" + "=" * 72)
+    print("Phase 2 smoke test - LangGraph (supervisor + RAG + validator)")
+    print("=" * 72 + "\n")
 
     build_sample_pdf(SAMPLE_PDF)
 
@@ -94,22 +102,27 @@ def main() -> int:
     chunks = chunk_documents(documents)
     add_documents(chunks)
 
-    for q in SAMPLE_QUESTIONS:
-        print("\n" + "-" * 70)
+    for expected_route, q in SAMPLE_QUESTIONS:
+        print("\n" + "-" * 72)
         print(f"Q: {q}")
-        print("-" * 70)
+        print(f"   (expected route: {expected_route})")
+        print("-" * 72)
         t0 = time.perf_counter()
         result = answer_question(q)
         dt = time.perf_counter() - t0
         print(f"A: {result.answer}\n")
-        print("Citations:")
-        for c in result.citations:
-            print(f"  - {c.as_citation()}")
+        print(f"Route       : {result.route}")
+        if result.route == "rag":
+            print(f"Validated   : {result.validated}")
+            print(f"Retries     : {result.retry_count}")
+            print("Citations   :")
+            for c in result.citations:
+                print(f"  - {c.as_citation()}")
         print(f"\n[elapsed: {dt:.1f}s]")
 
-    print("\n" + "=" * 70)
+    print("\n" + "=" * 72)
     print("Smoke test complete.")
-    print("=" * 70 + "\n")
+    print("=" * 72 + "\n")
     return 0
 
 

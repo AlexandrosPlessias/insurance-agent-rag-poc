@@ -1,9 +1,9 @@
-"""Chat endpoints.
+"""Chat endpoints (Phase 2 - LangGraph-backed).
 
-POST /chat         - non-streaming, returns full answer + citations.
-POST /chat/stream  - NDJSON stream of {meta, token..., done} events.
-
-Phase 1: direct RAG agent. Phase 2 swaps it for a LangGraph supervisor.
+POST /chat         - invokes the compiled graph and returns the final state.
+POST /chat/stream  - NDJSON stream from the manual graph walker, which
+                     mirrors the compiled graph but emits stage and token
+                     events for richer UX.
 """
 import json
 from typing import Iterator
@@ -11,12 +11,13 @@ from typing import Iterator
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
-from app.agents.rag_agent import answer_question, answer_question_stream
 from app.api.schemas import (
     ChatRequest,
     ChatResponse,
     Citation,
 )
+from app.graph.builder import get_graph
+from app.graph.streaming import stream_graph
 from app.observability.logging import get_logger
 
 log = get_logger(__name__)
@@ -26,7 +27,9 @@ router = APIRouter()
 @router.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest) -> ChatResponse:
     log.info("POST /chat: %r", request.question[:80])
-    result = answer_question(request.question)
+    state = get_graph().invoke({"question": request.question})
+    answer = state.get("final_answer", state.get("draft_answer", ""))
+    chunks = state.get("final_citations") or state.get("chunks") or []
     citations = [
         Citation(
             source=c.source,
@@ -34,22 +37,24 @@ def chat(request: ChatRequest) -> ChatResponse:
             content=c.content,
             download_url=f"/sources/{c.source}",
         )
-        for c in result.citations
+        for c in chunks
     ]
     log.info(
-        "POST /chat -> %d citations, %d-char answer",
+        "POST /chat -> route=%s validated=%s retries=%d cits=%d",
+        state.get("route"),
+        state.get("validated"),
+        state.get("retry_count", 0),
         len(citations),
-        len(result.answer),
     )
     return ChatResponse(
-        answer=result.answer,
+        answer=answer,
         citations=citations,
-        reformulated_query=result.reformulated_query,
+        reformulated_query=state.get("reformulated_query", ""),
     )
 
 
 def _ndjson(question: str) -> Iterator[bytes]:
-    for event in answer_question_stream(question):
+    for event in stream_graph(question):
         yield (json.dumps(event) + "\n").encode("utf-8")
 
 

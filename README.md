@@ -233,11 +233,19 @@ The PoC is built in 5 incremental phases (full detail in [docs/PoC_scope.md](doc
 
 | Phase | Status | Focus | Key Modules |
 |---|---|---|---|
-| **1** | ✅ implemented | Basic RAG validation | [poc/app/rag/](poc/app/rag/), [poc/app/agents/rag_agent.py](poc/app/agents/rag_agent.py) |
-| **2** | ⏳ pending | LangGraph supervisor + validator | [poc/app/graph/](poc/app/graph/), [poc/app/agents/validator_agent.py](poc/app/agents/validator_agent.py) |
+| **1** | ✅ implemented | Basic RAG validation + streaming + citations | [poc/app/rag/](poc/app/rag/), [poc/app/agents/rag_agent.py](poc/app/agents/rag_agent.py) |
+| **2** | ✅ implemented | LangGraph supervisor + validator with retry loop | [poc/app/graph/](poc/app/graph/), [poc/app/agents/validator_agent.py](poc/app/agents/validator_agent.py) |
 | **3** | ⏳ pending | Reporting autonomy (Markdown + charts) | [poc/app/reporting/](poc/app/reporting/), [poc/app/agents/report_agent.py](poc/app/agents/report_agent.py) |
 | **4** | ⏳ pending | SQLite long-term memory | [poc/app/memory/](poc/app/memory/), [poc/app/agents/memory_agent.py](poc/app/agents/memory_agent.py) |
 | **5** | ⏳ pending | Observability (Langfuse / OTel) | [poc/app/observability/](poc/app/observability/) |
+
+### Phase 2 features
+
+- **Supervisor** routes each question to `rag` (insurance / policy) or `out_of_scope` (greetings, math, unrelated).
+- **Validator** uses the LLM as a judge to check groundedness + citation correctness, returning JSON `{grounded, citations_ok, critique}`.
+- **Retry loop** — on validator failure the critique is fed back into the RAG prompt for one retry. After retry, the answer is shown with a `Unverified` badge if validation still fails.
+- **Progress stepper** in the Streamlit UI lights up Supervisor → RAG → Validator as `stage` events arrive.
+- **Externalized prompts** live in [poc/app/llm/prompts/](poc/app/llm/prompts/) (`supervisor.txt`, `rag.txt`, `reformulate.txt`, `validator.txt`) — tune without touching code.
 
 ---
 

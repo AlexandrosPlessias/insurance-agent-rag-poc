@@ -1,9 +1,8 @@
-"""Streamlit frontend - entrypoint for `streamlit run`.
+"""Streamlit frontend - Phase 2.
 
-Features:
-  - Token-streamed answers via st.write_stream.
-  - Shows the reformulated query (transparency).
-  - Each citation gets a "View chunk" popover and a "Download PDF" link.
+Adds a progress stepper (Supervisor -> RAG -> Validator) and a
+validation badge after the answer. Token streaming, citation popovers,
+and PDF download links from Phase 1 are preserved.
 """
 import sys
 from pathlib import Path
@@ -21,6 +20,12 @@ from app.ui.api_client import (  # noqa: E402
 st.set_page_config(page_title="Insurance Assistant", layout="wide")
 st.title("Insurance Assistant - Local RAG PoC")
 
+STAGE_LABELS = [
+    ("supervisor", "Supervisor"),
+    ("rag", "RAG"),
+    ("validator", "Validator"),
+]
+
 with st.sidebar:
     st.subheader("Backend status")
     try:
@@ -29,12 +34,26 @@ with st.sidebar:
     except Exception as e:
         st.error(f"API unreachable: {e}")
     st.caption(
-        "Phase 1: reformulation + streaming RAG. "
-        "Phase 2 will add the LangGraph supervisor."
+        "Phase 1: reformulation + streaming RAG.\n"
+        "Phase 2: supervisor routes RAG vs out-of-scope, "
+        "validator checks groundedness with 1-retry loop."
     )
 
 if "history" not in st.session_state:
     st.session_state.history = []
+
+
+def render_stepper(slot, stages: dict) -> None:
+    with slot.container():
+        cols = st.columns(len(STAGE_LABELS))
+        for col, (key, label) in zip(cols, STAGE_LABELS):
+            status = stages.get(key, "pending")
+            if status == "done":
+                col.success(f"+ {label}")
+            elif status == "running":
+                col.info(f"~ {label}")
+            else:
+                col.caption(f"o {label}")
 
 
 def render_citations(citations: list[dict]) -> None:
@@ -56,6 +75,16 @@ def render_citations(citations: list[dict]) -> None:
             st.text(c.get("content", "") or "(no content captured)")
 
 
+def render_validation(validated: bool, critique: str) -> None:
+    if validated:
+        st.success("Validated - grounded and citations correct")
+    else:
+        msg = "Unverified - validator failed after retry"
+        if critique:
+            msg += f"\n\nCritique: {critique}"
+        st.warning(msg)
+
+
 def render_reformulation(reformulated: str, original: str) -> None:
     if not reformulated or reformulated.strip() == original.strip():
         return
@@ -63,7 +92,7 @@ def render_reformulation(reformulated: str, original: str) -> None:
         st.code(reformulated, language="text")
 
 
-# Replay prior turns
+# --- Replay prior turns ---
 for entry in st.session_state.history:
     with st.chat_message(entry["role"]):
         if entry["role"] == "assistant":
@@ -73,6 +102,11 @@ for entry in st.session_state.history:
             )
         st.write(entry["content"])
         if entry["role"] == "assistant":
+            if entry.get("route") != "out_of_scope":
+                render_validation(
+                    entry.get("validated", True),
+                    entry.get("critique", ""),
+                )
             render_citations(entry.get("citations", []))
 
 question = st.chat_input("Ask about a policy...")
@@ -84,27 +118,58 @@ if question:
         st.write(question)
 
     with st.chat_message("assistant"):
+        stepper_slot = st.empty()
         meta_slot = st.empty()
+        stages = {k: "pending" for k, _ in STAGE_LABELS}
+        render_stepper(stepper_slot, stages)
+
         citations: list[dict] = []
+        validated_holder = {"value": True}
+        critique_holder = {"value": ""}
         reformulated_holder = {"value": ""}
+        route_holder = {"value": ""}
         error_holder = {"value": ""}
 
         def token_stream():
             for event in stream_chat(question):
                 etype = event.get("type")
-                if etype == "meta":
+                if etype == "stage":
+                    node = event["node"]
+                    status = (
+                        "running"
+                        if event["status"] == "started"
+                        else "done"
+                    )
+                    stages[node] = status
+                    render_stepper(stepper_slot, stages)
+                    if (
+                        node == "supervisor"
+                        and event.get("status") == "done"
+                    ):
+                        info = event.get("info", "")
+                        if "out_of_scope" in info:
+                            route_holder["value"] = "out_of_scope"
+                        elif "rag" in info:
+                            route_holder["value"] = "rag"
+                elif etype == "meta":
                     reformulated_holder["value"] = event.get(
                         "reformulated_query", ""
                     )
                     if reformulated_holder["value"]:
                         meta_slot.info(
-                            "Reformulated query used for retrieval: "
+                            "Reformulated query: "
                             f"_{reformulated_holder['value']}_"
                         )
                 elif etype == "token":
                     yield event["value"]
                 elif etype == "done":
                     citations.extend(event.get("citations", []))
+                    validated_holder["value"] = event.get(
+                        "validated", True
+                    )
+                    critique_holder["value"] = event.get(
+                        "critique", ""
+                    )
                 elif etype == "error":
                     error_holder["value"] = event.get("value", "")
 
@@ -117,6 +182,11 @@ if question:
         if error_holder["value"]:
             st.error(f"Backend error: {error_holder['value']}")
 
+        if route_holder["value"] != "out_of_scope":
+            render_validation(
+                validated_holder["value"],
+                critique_holder["value"],
+            )
         render_citations(citations)
 
         st.session_state.history.append(
@@ -126,5 +196,8 @@ if question:
                 "citations": citations,
                 "reformulated_query": reformulated_holder["value"],
                 "original_question": question,
+                "validated": validated_holder["value"],
+                "critique": critique_holder["value"],
+                "route": route_holder["value"],
             }
         )
