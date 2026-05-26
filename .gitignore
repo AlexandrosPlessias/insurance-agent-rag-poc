@@ -216,3 +216,18 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- Project-specific (insurance-agent-rag-poc) ---
+# Local data stores: PDFs, parsed artifacts, vector/SQLite indexes
+poc/data/raw/*
+!poc/data/raw/.gitkeep
+poc/data/processed/*
+!poc/data/processed/.gitkeep
+poc/data/chroma_db/
+poc/data/memory.sqlite
+poc/data/*.sqlite-journal
+poc/tests/fixtures/*
+!poc/tests/fixtures/.gitkeep
+poc/.venv/
+poc/app/memory/summarizer.py
+memory/*
