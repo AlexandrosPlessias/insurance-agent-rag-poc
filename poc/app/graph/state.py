@@ -15,7 +15,7 @@ class GraphState(TypedDict, total=False):
     question: str
 
     # --- supervisor output ---
-    route: Literal["rag", "out_of_scope"]
+    route: Literal["rag", "report", "out_of_scope"]
 
     # --- rag node output ---
     reformulated_query: str

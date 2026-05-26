@@ -1,8 +1,10 @@
-"""Streamlit frontend - Phase 2.
+"""Streamlit frontend - Phase 3.
 
-Adds a progress stepper (Supervisor -> RAG -> Validator) and a
-validation badge after the answer. Token streaming, citation popovers,
-and PDF download links from Phase 1 are preserved.
+Adds dynamic progress stepper that adapts to the route:
+  - rag:          Supervisor -> RAG -> Validator
+  - report:       Supervisor -> Report
+  - out_of_scope: Supervisor
+Reports render as Markdown with embedded charts.
 """
 import sys
 from pathlib import Path
@@ -20,11 +22,25 @@ from app.ui.api_client import (  # noqa: E402
 st.set_page_config(page_title="Insurance Assistant", layout="wide")
 st.title("Insurance Assistant - Local RAG PoC")
 
-STAGE_LABELS = [
-    ("supervisor", "Supervisor"),
-    ("rag", "RAG"),
-    ("validator", "Validator"),
-]
+STAGE_SETS = {
+    "rag": [
+        ("supervisor", "Supervisor"),
+        ("rag", "RAG"),
+        ("validator", "Validator"),
+    ],
+    "report": [
+        ("supervisor", "Supervisor"),
+        ("report", "Report"),
+    ],
+    "out_of_scope": [
+        ("supervisor", "Supervisor"),
+    ],
+    "_default": [
+        ("supervisor", "Supervisor"),
+        ("rag", "RAG"),
+        ("validator", "Validator"),
+    ],
+}
 
 with st.sidebar:
     st.subheader("Backend status")
@@ -35,18 +51,19 @@ with st.sidebar:
         st.error(f"API unreachable: {e}")
     st.caption(
         "Phase 1: reformulation + streaming RAG.\n"
-        "Phase 2: supervisor routes RAG vs out-of-scope, "
-        "validator checks groundedness with 1-retry loop."
+        "Phase 2: supervisor + validator with 1-retry loop.\n"
+        "Phase 3: report agent (Markdown + embedded chart)."
     )
 
 if "history" not in st.session_state:
     st.session_state.history = []
 
 
-def render_stepper(slot, stages: dict) -> None:
+def render_stepper(slot, stages: dict, route: str = "_default") -> None:
+    labels = STAGE_SETS.get(route, STAGE_SETS["_default"])
     with slot.container():
-        cols = st.columns(len(STAGE_LABELS))
-        for col, (key, label) in zip(cols, STAGE_LABELS):
+        cols = st.columns(len(labels))
+        for col, (key, label) in zip(cols, labels):
             status = stages.get(key, "pending")
             if status == "done":
                 col.success(f"+ {label}")
@@ -92,24 +109,36 @@ def render_reformulation(reformulated: str, original: str) -> None:
         st.code(reformulated, language="text")
 
 
+def render_answer(content: str, route: str) -> None:
+    if route == "report":
+        # Reports are full Markdown with embedded images.
+        st.markdown(content, unsafe_allow_html=False)
+    else:
+        st.write(content)
+
+
 # --- Replay prior turns ---
 for entry in st.session_state.history:
     with st.chat_message(entry["role"]):
+        route = entry.get("route", "")
         if entry["role"] == "assistant":
-            render_reformulation(
-                entry.get("reformulated_query", ""),
-                entry.get("original_question", ""),
-            )
-        st.write(entry["content"])
+            if route == "rag":
+                render_reformulation(
+                    entry.get("reformulated_query", ""),
+                    entry.get("original_question", ""),
+                )
+        render_answer(entry["content"], route) if entry[
+            "role"
+        ] == "assistant" else st.write(entry["content"])
         if entry["role"] == "assistant":
-            if entry.get("route") != "out_of_scope":
+            if route == "rag":
                 render_validation(
                     entry.get("validated", True),
                     entry.get("critique", ""),
                 )
             render_citations(entry.get("citations", []))
 
-question = st.chat_input("Ask about a policy...")
+question = st.chat_input("Ask about a policy, or request a report...")
 if question:
     st.session_state.history.append(
         {"role": "user", "content": question}
@@ -120,8 +149,8 @@ if question:
     with st.chat_message("assistant"):
         stepper_slot = st.empty()
         meta_slot = st.empty()
-        stages = {k: "pending" for k, _ in STAGE_LABELS}
-        render_stepper(stepper_slot, stages)
+        stages: dict[str, str] = {}
+        render_stepper(stepper_slot, stages, route="_default")
 
         citations: list[dict] = []
         validated_holder = {"value": True}
@@ -129,6 +158,7 @@ if question:
         reformulated_holder = {"value": ""}
         route_holder = {"value": ""}
         error_holder = {"value": ""}
+        report_holder = {"value": ""}
 
         def token_stream():
             for event in stream_chat(question):
@@ -141,7 +171,6 @@ if question:
                         else "done"
                     )
                     stages[node] = status
-                    render_stepper(stepper_slot, stages)
                     if (
                         node == "supervisor"
                         and event.get("status") == "done"
@@ -149,8 +178,15 @@ if question:
                         info = event.get("info", "")
                         if "out_of_scope" in info:
                             route_holder["value"] = "out_of_scope"
+                        elif "report" in info:
+                            route_holder["value"] = "report"
                         elif "rag" in info:
                             route_holder["value"] = "rag"
+                    render_stepper(
+                        stepper_slot,
+                        stages,
+                        route=route_holder["value"] or "_default",
+                    )
                 elif etype == "meta":
                     reformulated_holder["value"] = event.get(
                         "reformulated_query", ""
@@ -161,7 +197,11 @@ if question:
                             f"_{reformulated_holder['value']}_"
                         )
                 elif etype == "token":
-                    yield event["value"]
+                    if route_holder["value"] == "report":
+                        # Buffer report content - render as Markdown later.
+                        report_holder["value"] += event["value"]
+                    else:
+                        yield event["value"]
                 elif etype == "done":
                     citations.extend(event.get("citations", []))
                     validated_holder["value"] = event.get(
@@ -170,6 +210,8 @@ if question:
                     critique_holder["value"] = event.get(
                         "critique", ""
                     )
+                    if not route_holder["value"]:
+                        route_holder["value"] = event.get("route", "")
                 elif etype == "error":
                     error_holder["value"] = event.get("value", "")
 
@@ -179,10 +221,15 @@ if question:
             answer = ""
             error_holder["value"] = str(e)
 
+        # Reports were buffered, not streamed - render now.
+        if route_holder["value"] == "report" and report_holder["value"]:
+            answer = report_holder["value"]
+            st.markdown(answer, unsafe_allow_html=False)
+
         if error_holder["value"]:
             st.error(f"Backend error: {error_holder['value']}")
 
-        if route_holder["value"] != "out_of_scope":
+        if route_holder["value"] == "rag":
             render_validation(
                 validated_holder["value"],
                 critique_holder["value"],

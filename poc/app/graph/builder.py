@@ -1,11 +1,13 @@
 """Compile the LangGraph state machine.
 
-Topology:
+Topology (Phase 3):
 
     START
       |
       v
-    supervisor ---(out_of_scope)---> decline ----> END
+    supervisor ---(out_of_scope)---> decline --------> END
+      |    \\
+      |     \\---(report)----> report -----------------> END
       |
       v (rag)
     rag --------------------------+
@@ -21,6 +23,7 @@ from functools import lru_cache
 from langgraph.graph import END, START, StateGraph
 
 from app.agents.rag_agent import rag_node
+from app.agents.report_agent import report_node
 from app.agents.validator_agent import validator_node
 from app.graph.edges import route_from_supervisor, route_from_validator
 from app.graph.state import GraphState
@@ -39,14 +42,20 @@ def get_graph():
     builder.add_node("decline", decline_node)
     builder.add_node("rag", rag_node)
     builder.add_node("validator", validator_node)
+    builder.add_node("report", report_node)
 
     builder.add_edge(START, "supervisor")
     builder.add_conditional_edges(
         "supervisor",
         route_from_supervisor,
-        {"rag": "rag", "out_of_scope": "decline"},
+        {
+            "rag": "rag",
+            "report": "report",
+            "out_of_scope": "decline",
+        },
     )
     builder.add_edge("decline", END)
+    builder.add_edge("report", END)
     builder.add_edge("rag", "validator")
     builder.add_conditional_edges(
         "validator",

@@ -9,7 +9,7 @@ log = get_logger(__name__)
 
 def route_from_supervisor(
     state: GraphState,
-) -> Literal["rag", "out_of_scope"]:
+) -> Literal["rag", "report", "out_of_scope"]:
     return state.get("route", "rag")
 
 

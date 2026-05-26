@@ -1,14 +1,14 @@
 """End-to-end smoke test (no external PDFs needed).
 
-Phase 2 demo:
-  - Synthesises a small ACME insurance policy PDF and ingests it.
-  - Runs 3 in-scope questions through the full LangGraph
-    (supervisor -> rag -> validator).
-  - Runs 1 out-of-scope question to demonstrate supervisor routing
-    to the decline branch.
+Phase 3 demo:
+  - Synthesises an ACME insurance policy PDF and ingests it.
+  - 3 in-scope RAG questions (supervisor -> rag -> validator).
+  - 1 report request (supervisor -> report).
+  - 1 out-of-scope question (supervisor -> decline).
 
 Run from poc/:  python scripts/smoke_test.py
 """
+import re
 import sys
 import time
 from pathlib import Path
@@ -70,6 +70,7 @@ SAMPLE_QUESTIONS = [
     ("rag", "What is the deductible for collision claims?"),
     ("rag", "How many days do I have to report a claim?"),
     ("rag", "What is the annual premium and can I pay in installments?"),
+    ("report", "Give me a summary report of the policy"),
     ("out_of_scope", "What is 2 + 2?"),
 ]
 
@@ -85,9 +86,18 @@ def build_sample_pdf(path: Path) -> None:
     doc.close()
 
 
+def _strip_data_uri_images(markdown: str) -> str:
+    """Replace embedded base64 PNGs so terminal output stays readable."""
+    return re.sub(
+        r"!\[([^\]]*)\]\(data:image/[^)]+\)",
+        r"![\1](embedded chart, base64 omitted)",
+        markdown,
+    )
+
+
 def main() -> int:
     print("\n" + "=" * 72)
-    print("Phase 2 smoke test - LangGraph (supervisor + RAG + validator)")
+    print("Phase 3 smoke test - supervisor + RAG/validator + report agent")
     print("=" * 72 + "\n")
 
     build_sample_pdf(SAMPLE_PDF)
@@ -110,11 +120,17 @@ def main() -> int:
         t0 = time.perf_counter()
         result = answer_question(q)
         dt = time.perf_counter() - t0
-        print(f"A: {result.answer}\n")
+        printable = (
+            _strip_data_uri_images(result.answer)
+            if result.route == "report"
+            else result.answer
+        )
+        print(f"A:\n{printable}\n")
         print(f"Route       : {result.route}")
         if result.route == "rag":
             print(f"Validated   : {result.validated}")
             print(f"Retries     : {result.retry_count}")
+        if result.route in ("rag", "report"):
             print("Citations   :")
             for c in result.citations:
                 print(f"  - {c.as_citation()}")

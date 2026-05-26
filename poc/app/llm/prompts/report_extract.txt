@@ -1,0 +1,25 @@
+Extract structured policy data from the provided context. Respond with ONLY a JSON object. Omit fields that aren't present in the context.
+
+Use this shape:
+{
+  "policy": {
+    "policy_number": "...",
+    "effective_date": "...",
+    "insurer": "..."
+  },
+  "coverage": [
+    {"type": "...", "limit": "...", "deductible": "...", "notes": "..."}
+  ],
+  "premium": {
+    "annual": "EUR 850",
+    "installment_amount": "EUR 220",
+    "installment_count": 4
+  },
+  "claims": {
+    "reporting_window": "14 days",
+    "required_documents": ["...", "..."]
+  },
+  "exclusions": ["...", "..."]
+}
+
+Return ONLY the JSON object on a single line. No markdown fences, no prose, no explanation.

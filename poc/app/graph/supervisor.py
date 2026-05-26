@@ -1,8 +1,10 @@
 """Supervisor + decline nodes.
 
-Supervisor classifies the user's question as `rag` (insurance/policy)
-or `out_of_scope` (greetings, unrelated). Decline returns a templated
-refusal for the out-of-scope branch.
+Supervisor classifies the user's question as:
+  - `rag`          : Q&A about policies (Phase 2)
+  - `report`       : structured report request (Phase 3)
+  - `out_of_scope` : greetings, unrelated
+Decline returns a templated refusal for the out-of-scope branch.
 """
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -33,8 +35,14 @@ def supervisor_node(state: GraphState) -> dict:
         ]
     )
     raw = str(result.content).strip().lower()
-    if "out_of_scope" in raw or "out-of-scope" in raw or "out of scope" in raw:
+    if (
+        "out_of_scope" in raw
+        or "out-of-scope" in raw
+        or "out of scope" in raw
+    ):
         route: str = "out_of_scope"
+    elif "report" in raw:
+        route = "report"
     elif "rag" in raw:
         route = "rag"
     else:
