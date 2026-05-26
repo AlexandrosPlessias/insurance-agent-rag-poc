@@ -1,0 +1,2 @@
+-- SQLite schema for episodic user memory (Phase 4).
+-- Applied on first run by app.memory.store.
