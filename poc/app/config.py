@@ -37,5 +37,18 @@ class Settings(BaseSettings):
     chunk_overlap: int = 150
     retrieval_k: int = 5
 
+    # --- Observability (Phase 5) ---
+    otel_enabled: bool = False
+    # "grpc" -> OTLP gRPC (default; Aspire Dashboard, Jaeger)
+    # "http" -> OTLP HTTP/protobuf (OpenObserve, generic OTLP HTTP)
+    otel_protocol: str = "grpc"
+    # gRPC: full endpoint URL incl. port (e.g. http://localhost:4317)
+    # HTTP: base URL; /v1/traces and /v1/logs are appended automatically
+    otel_endpoint: str = "http://localhost:4317"
+    # Comma-separated "key=value,key=value" (e.g. for HTTP basic auth)
+    otel_headers: str = ""
+    otel_service_name: str = "insurance-rag-poc"
+    otel_ui_url: str = "http://localhost:18888"
+
 
 settings = Settings()

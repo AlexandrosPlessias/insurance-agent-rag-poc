@@ -237,7 +237,7 @@ The PoC is built in 5 incremental phases (full detail in [docs/PoC_scope.md](doc
 | **2** | ✅ implemented | LangGraph supervisor + validator with retry loop | [poc/app/graph/](poc/app/graph/), [poc/app/agents/validator_agent.py](poc/app/agents/validator_agent.py) |
 | **3** | ✅ implemented | Reporting autonomy (Markdown + embedded charts) | [poc/app/reporting/](poc/app/reporting/), [poc/app/agents/report_agent.py](poc/app/agents/report_agent.py) |
 | **4** | ✅ implemented | SQLite long-term memory + per-user conversations | [poc/app/memory/](poc/app/memory/), [poc/app/agents/memory_agent.py](poc/app/agents/memory_agent.py) |
-| **5** | ⏳ pending | Observability (Langfuse / OTel) | [poc/app/observability/](poc/app/observability/) |
+| **5** | ✅ implemented | OpenTelemetry traces + logs (Aspire Dashboard backend) | [poc/app/observability/](poc/app/observability/), [poc/scripts/run_observability.sh](poc/scripts/run_observability.sh) |
 
 ### Phase 2 features
 
@@ -265,6 +265,85 @@ The PoC is built in 5 incremental phases (full detail in [docs/PoC_scope.md](doc
 - **Long-term memory in reports**: `report_node` reads the user's last 10 cross-conversation messages and renders them in a **User Activity** section at the top of the report.
 - **Sidebar UI**: user-ID text input, clickable conversation list with auto-titles, **+ New conversation** button. Selecting a past conversation replays its messages from SQLite.
 
+### Phase 5 features
+
+- **OpenTelemetry SDK** wired into both the FastAPI backend and the Streamlit UI ([poc/app/observability/tracing.py](poc/app/observability/tracing.py)). `setup_otel()` is a no-op when `OTEL_ENABLED=false`, so the rest of the PoC stays untouched if you don't want it.
+- **Auto-instrumentation** of FastAPI (server spans + request attributes) and httpx (client spans). A request from Streamlit → API → graph nodes shows up as a single connected trace.
+- **Manual spans** on every graph node — `supervisor.classify`, `rag.node`, `rag.reformulate`, `rag.llm.invoke`, `rag.retrieve`, `validator.judge`, `report.node`, `report.extract`, `decline.canned` — with attributes (route, retry_count, chunk_count, grounded, citations_ok, durations).
+- **OTLP logs** — Python `logging` records flow to the OTel backend in parallel with the existing stderr handler, with `trace_id`/`span_id` enrichment via `LoggingInstrumentor`.
+- **Pluggable backend** — exporter switches between OTLP **HTTP** and **gRPC** via `OTEL_PROTOCOL` in `.env`. Two ready-to-run launchers:
+  - **OpenObserve** ([poc/scripts/run_observability_native.sh](poc/scripts/run_observability_native.sh)) — single native binary in WSL (no Docker), HTTP OTLP, UI at `http://localhost:5080`. **This is the default config in [.env.example](poc/.env.example).**
+  - **Aspire Dashboard** ([poc/scripts/run_observability.sh](poc/scripts/run_observability.sh)) — single Docker container, gRPC OTLP, UI at `http://localhost:18888`.
+- **Sidebar link** to whichever dashboard is configured appears in the Streamlit UI when `OTEL_ENABLED=true`.
+
+#### Enabling observability
+
+Pick **one** backend — both expose traces and logs in a web UI. The defaults in [poc/.env.example](poc/.env.example) target **Option A (OpenObserve)** — change `OTEL_PROTOCOL`, `OTEL_ENDPOINT`, `OTEL_HEADERS`, and `OTEL_UI_URL` if you go with Option B.
+
+##### Option A — OpenObserve (native binary in WSL, no Docker)  ⭐ default
+
+```bash
+# 1. Download + run the OpenObserve binary (runs in foreground).
+bash poc/scripts/run_observability_native.sh
+```
+
+The script prints an env block. **Paste it into `poc/.env`** (it sets `OTEL_ENABLED=true`, the HTTP endpoint, the Basic-auth header, and the UI URL):
+
+```bash
+OTEL_ENABLED=true
+OTEL_PROTOCOL=http
+OTEL_ENDPOINT=http://localhost:5080/api/default
+OTEL_HEADERS=Authorization=Basic YWRtaW5AZXhhbXBsZS5jb206Q29tcGxleHBhc3MjMTIz
+OTEL_UI_URL=http://localhost:5080
+```
+
+```bash
+# 2. Reinstall deps to pick up the OTel packages.
+cd poc && source .venv/bin/activate
+pip install -r requirements.txt
+
+# 3. Restart the API and UI; the sidebar links to OpenObserve.
+bash scripts/run_api.sh    # terminal A
+bash scripts/run_ui.sh     # terminal B
+```
+
+The binary lives in `poc/.openobserve/` (gitignored) and runs as a regular WSL process. To run it as a background service you can wrap it with `systemd-run --user`, `nohup`, or a systemd unit — for example:
+
+```bash
+nohup bash poc/scripts/run_observability_native.sh > openobserve.log 2>&1 &
+```
+
+In the OpenObserve UI:
+- **Streams** → filter by `service.name = insurance-rag-poc-api` for logs.
+- **Traces** → click a trace to see the supervisor → rag → validator chain with span attributes.
+
+##### Option B — Aspire Dashboard (Docker, gRPC)
+
+```bash
+# Requires Docker on WSL.
+bash poc/scripts/run_observability.sh
+```
+
+Then override the OpenObserve defaults in `poc/.env`:
+
+```bash
+OTEL_ENABLED=true
+OTEL_PROTOCOL=grpc
+OTEL_ENDPOINT=http://localhost:4317
+OTEL_HEADERS=
+OTEL_UI_URL=http://localhost:18888
+```
+
+Restart API + UI as in Option A.
+
+##### Stopping
+
+| Backend | Stop command |
+|---|---|
+| OpenObserve (foreground) | `Ctrl+C` in the script's terminal |
+| OpenObserve (`nohup`) | `pkill -f openobserve` |
+| Aspire Dashboard | `docker stop aspire-dashboard` |
+
 ---
 
 ## 🧰 Troubleshooting
@@ -279,6 +358,9 @@ The PoC is built in 5 incremental phases (full detail in [docs/PoC_scope.md](doc
 | Streamlit can't reach API | Check that `run_api.sh` is running and `UI_API_URL` in `.env` matches |
 | Out of memory pulling `qwen2.5:7b` | Use the lighter fallback: `ollama pull llama3.1:8b` and set `LLM_MODEL=llama3.1:8b` |
 | Slow first inference | Cold-start cost — Ollama loads the model into RAM on first request; subsequent calls are fast |
+| OTel data not appearing in OpenObserve | Check the `OTEL_HEADERS` value matches the script's printed `Authorization=Basic ...` line; the API and UI must be restarted after editing `.env` |
+| `ConnectionError` from the OTel exporter | Backend isn't running — `bash poc/scripts/run_observability_native.sh` (OpenObserve) or `bash poc/scripts/run_observability.sh` (Aspire) |
+| `ModuleNotFoundError: No module named 'opentelemetry'` | `pip install -r poc/requirements.txt` again after enabling OTel for the first time |
 
 ---
 

@@ -1,7 +1,6 @@
 """RAG agent helpers, sync `rag_node`, and a thin `answer_question`.
 
-Phase 4: injects recent conversation history into the prompt so
-follow-up questions stay coherent across turns.
+Phase 5: each step (reformulate, retrieve, generate) gets its own span.
 """
 import time
 from dataclasses import dataclass, field
@@ -13,9 +12,11 @@ from app.graph.state import GraphState
 from app.llm import load_prompt
 from app.llm.ollama_client import get_llm
 from app.observability.logging import get_logger
+from app.observability.tracing import get_tracer
 from app.rag.retriever import RetrievedChunk, retrieve
 
 log = get_logger(__name__)
+tracer = get_tracer(__name__)
 
 SYSTEM_PROMPT = load_prompt("rag")
 REFORMULATE_PROMPT = load_prompt("reformulate")
@@ -31,30 +32,39 @@ class RagResponse:
     route: str = ""
 
 
-def reformulate_question(question: str, history: list[dict] | None = None) -> str:
-    log.info("Reformulating: %r", question[:80])
-    t0 = time.perf_counter()
-    history_block = format_history_for_prompt(history or [], max_turns=2)
-    user_content = question
-    if history_block:
-        user_content = (
-            f"{history_block}\n"
-            f"Now rewrite this question, resolving references to the "
-            f"conversation above when needed:\n{question}"
+def reformulate_question(
+    question: str, history: list[dict] | None = None
+) -> str:
+    with tracer.start_as_current_span("rag.reformulate") as span:
+        span.set_attribute("question.preview", question[:80])
+        log.info("Reformulating: %r", question[:80])
+        t0 = time.perf_counter()
+        history_block = format_history_for_prompt(
+            history or [], max_turns=2
         )
-    result = get_llm().invoke(
-        [
-            SystemMessage(content=REFORMULATE_PROMPT),
-            HumanMessage(content=user_content),
-        ]
-    )
-    rewritten = str(result.content).strip().strip('"').strip("'")
-    log.info(
-        "  -> reformulated in %.2fs: %r",
-        time.perf_counter() - t0,
-        rewritten[:100],
-    )
-    return rewritten or question
+        user_content = question
+        if history_block:
+            user_content = (
+                f"{history_block}\n"
+                f"Now rewrite this question, resolving references to the "
+                f"conversation above when needed:\n{question}"
+            )
+        result = get_llm().invoke(
+            [
+                SystemMessage(content=REFORMULATE_PROMPT),
+                HumanMessage(content=user_content),
+            ]
+        )
+        rewritten = str(result.content).strip().strip('"').strip("'")
+        span.set_attribute(
+            "reformulated.preview", (rewritten or question)[:100]
+        )
+        log.info(
+            "  -> reformulated in %.2fs: %r",
+            time.perf_counter() - t0,
+            rewritten[:100],
+        )
+        return rewritten or question
 
 
 def _format_context(chunks: list[RetrievedChunk]) -> str:
@@ -100,33 +110,47 @@ def rag_node(state: GraphState) -> dict:
     critique = state.get("last_critique", "")
     history = state.get("history", [])
 
-    if retry_count == 0:
-        log.info("RAG node (initial): %r", question[:80])
-        reformulated = reformulate_question(question, history=history)
-        chunks = retrieve(reformulated)
-    else:
-        log.info(
-            "RAG node (retry %d) - reusing previous retrieval",
-            retry_count,
+    with tracer.start_as_current_span("rag.node") as span:
+        span.set_attribute("rag.retry_count", retry_count)
+        span.set_attribute("rag.has_critique", bool(critique))
+        span.set_attribute("rag.history_msgs", len(history))
+
+        if retry_count == 0:
+            log.info("RAG node (initial): %r", question[:80])
+            reformulated = reformulate_question(question, history=history)
+            chunks = retrieve(reformulated)
+        else:
+            log.info(
+                "RAG node (retry %d) - reusing previous retrieval",
+                retry_count,
+            )
+            reformulated = state.get("reformulated_query", question)
+            chunks = state.get("chunks", [])
+        span.set_attribute("rag.chunk_count", len(chunks))
+
+        prompt = build_rag_prompt(
+            chunks, critique=critique, history=history
         )
-        reformulated = state.get("reformulated_query", question)
-        chunks = state.get("chunks", [])
+        messages = [
+            SystemMessage(content=prompt),
+            HumanMessage(content=question),
+        ]
+        log.info("Calling LLM with %d chunk(s) ...", len(chunks))
+        with tracer.start_as_current_span("rag.llm.invoke") as llm_span:
+            t0 = time.perf_counter()
+            result = get_llm().invoke(messages)
+            elapsed = time.perf_counter() - t0
+            llm_span.set_attribute("llm.duration_s", round(elapsed, 3))
+            llm_span.set_attribute(
+                "llm.answer_chars", len(str(result.content))
+            )
+        log.info("  -> LLM responded in %.2fs", elapsed)
 
-    prompt = build_rag_prompt(chunks, critique=critique, history=history)
-    messages = [
-        SystemMessage(content=prompt),
-        HumanMessage(content=question),
-    ]
-    log.info("Calling LLM with %d chunk(s) ...", len(chunks))
-    t0 = time.perf_counter()
-    result = get_llm().invoke(messages)
-    log.info("  -> LLM responded in %.2fs", time.perf_counter() - t0)
-
-    return {
-        "reformulated_query": reformulated,
-        "chunks": chunks,
-        "draft_answer": str(result.content),
-    }
+        return {
+            "reformulated_query": reformulated,
+            "chunks": chunks,
+            "draft_answer": str(result.content),
+        }
 
 
 def answer_question(
