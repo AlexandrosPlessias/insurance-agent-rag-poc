@@ -235,8 +235,8 @@ The PoC is built in 5 incremental phases (full detail in [docs/PoC_scope.md](doc
 |---|---|---|---|
 | **1** | ✅ implemented | Basic RAG validation + streaming + citations | [poc/app/rag/](poc/app/rag/), [poc/app/agents/rag_agent.py](poc/app/agents/rag_agent.py) |
 | **2** | ✅ implemented | LangGraph supervisor + validator with retry loop | [poc/app/graph/](poc/app/graph/), [poc/app/agents/validator_agent.py](poc/app/agents/validator_agent.py) |
-| **3** | ⏳ pending | Reporting autonomy (Markdown + charts) | [poc/app/reporting/](poc/app/reporting/), [poc/app/agents/report_agent.py](poc/app/agents/report_agent.py) |
-| **4** | ⏳ pending | SQLite long-term memory | [poc/app/memory/](poc/app/memory/), [poc/app/agents/memory_agent.py](poc/app/agents/memory_agent.py) |
+| **3** | ✅ implemented | Reporting autonomy (Markdown + embedded charts) | [poc/app/reporting/](poc/app/reporting/), [poc/app/agents/report_agent.py](poc/app/agents/report_agent.py) |
+| **4** | ✅ implemented | SQLite long-term memory + per-user conversations | [poc/app/memory/](poc/app/memory/), [poc/app/agents/memory_agent.py](poc/app/agents/memory_agent.py) |
 | **5** | ⏳ pending | Observability (Langfuse / OTel) | [poc/app/observability/](poc/app/observability/) |
 
 ### Phase 2 features
@@ -246,6 +246,24 @@ The PoC is built in 5 incremental phases (full detail in [docs/PoC_scope.md](doc
 - **Retry loop** — on validator failure the critique is fed back into the RAG prompt for one retry. After retry, the answer is shown with a `Unverified` badge if validation still fails.
 - **Progress stepper** in the Streamlit UI lights up Supervisor → RAG → Validator as `stage` events arrive.
 - **Externalized prompts** live in [poc/app/llm/prompts/](poc/app/llm/prompts/) (`supervisor.txt`, `rag.txt`, `reformulate.txt`, `validator.txt`) — tune without touching code.
+
+### Phase 3 features
+
+- **Third route** `report` joins `rag` and `out_of_scope`. The supervisor recognises summary/report/breakdown intents.
+- **Report agent** ([poc/app/agents/report_agent.py](poc/app/agents/report_agent.py)) retrieves with `k=10`, asks the LLM to extract structured fields as JSON (policy / coverage / premium / claims / exclusions), then builds a Markdown report.
+- **Embedded charts** — [poc/app/reporting/charts.py](poc/app/reporting/charts.py) renders a matplotlib bar chart (lump-sum vs installment total) as a base64 PNG and inlines it into the Markdown via `data:image/png;base64,...`.
+- **Markdown formatter** ([poc/app/reporting/markdown.py](poc/app/reporting/markdown.py)) stitches sections: policy table → coverage table → premium block (+ chart) → claims → exclusions → sources.
+- **Dynamic UI stepper** adapts to the route: `Supervisor → Report` for reports, `Supervisor → RAG → Validator` for rag, just `Supervisor` for declines.
+- Reports **bypass the validator** in Phase 3 — they're synthesised from structured extraction rather than free-form generation.
+
+### Phase 4 features
+
+- **SQLite memory store** ([poc/app/memory/](poc/app/memory/)): two tables (`conversations`, `messages`) at `poc/data/memory.sqlite`. `MemoryStore` opens a connection per method (safe under FastAPI threading).
+- **Per-user conversations**: each turn is keyed by a `user_id`; conversations have auto-generated titles from the first user message.
+- **API surface**: `POST /chat` and `POST /chat/stream` accept optional `user_id` + `conversation_id` and persist both turns. New `GET /conversations`, `POST /conversations`, `GET /conversations/{id}/messages`.
+- **Conversational RAG**: `rag_node` and `reformulate_question` receive the last 3 turns and prepend them to the prompt — follow-up questions stay coherent.
+- **Long-term memory in reports**: `report_node` reads the user's last 10 cross-conversation messages and renders them in a **User Activity** section at the top of the report.
+- **Sidebar UI**: user-ID text input, clickable conversation list with auto-titles, **+ New conversation** button. Selecting a past conversation replays its messages from SQLite.
 
 ---
 
