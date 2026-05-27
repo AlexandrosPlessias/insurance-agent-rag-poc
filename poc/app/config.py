@@ -37,5 +37,13 @@ class Settings(BaseSettings):
     chunk_overlap: int = 150
     retrieval_k: int = 5
 
+    # --- Observability (Phase 5, Aspire Dashboard via OTLP gRPC) ---
+    # Default ON. setup_otel() probes the endpoint at startup and
+    # self-disables (logs a warning) if Aspire isn't reachable.
+    otel_enabled: bool = True
+    otel_endpoint: str = "http://localhost:4317"
+    otel_service_name: str = "insurance-rag-poc"
+    otel_ui_url: str = "http://localhost:18888"
+
 
 settings = Settings()
