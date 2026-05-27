@@ -6,9 +6,11 @@ from langchain_core.documents import Document
 
 from app.config import settings
 from app.observability.logging import get_logger
+from app.observability.tracing import get_tracer
 from app.rag.vectorstore import get_vectorstore
 
 log = get_logger(__name__)
+tracer = get_tracer(__name__)
 
 
 @dataclass
@@ -23,15 +25,25 @@ class RetrievedChunk:
 
 def retrieve(query: str, k: int | None = None) -> list[RetrievedChunk]:
     k = k or settings.retrieval_k
-    log.info("Retrieving top-%d for query: %r", k, query[:80])
-    t0 = time.perf_counter()
-    docs: list[Document] = get_vectorstore().similarity_search(query, k=k)
-    log.info("  → retrieved %d chunks in %.2fs", len(docs), time.perf_counter() - t0)
-    return [
-        RetrievedChunk(
-            content=d.page_content,
-            source=d.metadata.get("source", "unknown"),
-            page=int(d.metadata.get("page", 0)),
+    with tracer.start_as_current_span("rag.retrieve") as span:
+        span.set_attribute("retrieve.k", k)
+        span.set_attribute("retrieve.query_preview", query[:80])
+        log.info("Retrieving top-%d for query: %r", k, query[:80])
+        t0 = time.perf_counter()
+        docs: list[Document] = get_vectorstore().similarity_search(
+            query, k=k
         )
-        for d in docs
-    ]
+        elapsed = time.perf_counter() - t0
+        span.set_attribute("retrieve.result_count", len(docs))
+        span.set_attribute("retrieve.duration_s", round(elapsed, 3))
+        log.info(
+            "  -> retrieved %d chunks in %.2fs", len(docs), elapsed
+        )
+        return [
+            RetrievedChunk(
+                content=d.page_content,
+                source=d.metadata.get("source", "unknown"),
+                page=int(d.metadata.get("page", 0)),
+            )
+            for d in docs
+        ]

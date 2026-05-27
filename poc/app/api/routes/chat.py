@@ -10,6 +10,7 @@ from typing import Iterator
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
+from opentelemetry import trace
 
 from app.api.dependencies import get_memory_store
 from app.api.schemas import (
@@ -21,6 +22,7 @@ from app.graph.builder import get_graph
 from app.graph.streaming import stream_graph
 from app.memory.store import MemoryStore
 from app.observability.logging import get_logger
+from app.observability.tracing import annotate_request_span
 
 log = get_logger(__name__)
 router = APIRouter()
@@ -75,6 +77,11 @@ def chat(
     )
     conv_id = _ensure_conversation(
         store, request.user_id, request.conversation_id
+    )
+    annotate_request_span(
+        trace.get_current_span(),
+        user_id=request.user_id,
+        conversation_id=conv_id,
     )
     history, activity = _load_memory(store, request.user_id, conv_id)
     store.add_message(conv_id, "user", request.question)
@@ -180,6 +187,11 @@ def chat_stream(
     )
     conv_id = _ensure_conversation(
         store, request.user_id, request.conversation_id
+    )
+    annotate_request_span(
+        trace.get_current_span(),
+        user_id=request.user_id,
+        conversation_id=conv_id,
     )
     history, activity = _load_memory(store, request.user_id, conv_id)
     return StreamingResponse(

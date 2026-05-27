@@ -1,9 +1,8 @@
-"""Streamlit frontend - Phase 4.
+"""Streamlit frontend - Phase 5.
 
 Adds:
-  - User ID sidebar input (persists per-browser via session state).
-  - Conversation list with click-to-switch + "New conversation" button.
-  - Loads + replays past messages when a conversation is selected.
+  - setup_otel() so httpx calls to the backend are traced.
+  - "Aspire Dashboard" link in the sidebar when OTEL_ENABLED=true.
 """
 import sys
 from pathlib import Path
@@ -12,14 +11,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 import streamlit as st  # noqa: E402
 
+from app.config import settings  # noqa: E402
+from app.observability.tracing import setup_otel  # noqa: E402
 from app.ui.api_client import (  # noqa: E402
-    create_conversation,
     get_health,
     get_messages,
     list_conversations,
     source_url,
     stream_chat,
 )
+
+# Initialise OTel for the UI process - no-op if OTEL_ENABLED=false.
+setup_otel(service_suffix="ui")
 
 st.set_page_config(page_title="Insurance Assistant", layout="wide")
 st.title("Insurance Assistant - Local RAG PoC")
@@ -137,11 +140,26 @@ with st.sidebar:
         st.success(f"API reachable - Ollama: {h['ollama_reachable']}")
     except Exception as e:
         st.error(f"API unreachable: {e}")
+
+    if settings.otel_enabled:
+        st.divider()
+        st.subheader("Observability")
+        st.link_button(
+            "Open Aspire Dashboard",
+            settings.otel_ui_url,
+            use_container_width=True,
+        )
+        st.caption(
+            "OTel is on - traces and logs stream to "
+            f"`{settings.otel_endpoint}`."
+        )
+
     st.caption(
         "Phase 1: streaming RAG with citations.\n"
         "Phase 2: supervisor + validator + retry.\n"
         "Phase 3: report agent (Markdown + charts).\n"
-        "Phase 4: SQLite long-term memory."
+        "Phase 4: SQLite long-term memory.\n"
+        "Phase 5: OpenTelemetry (traces + logs)."
     )
 
 

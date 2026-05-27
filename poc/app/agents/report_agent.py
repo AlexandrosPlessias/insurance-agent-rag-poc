@@ -1,13 +1,4 @@
-"""Report agent (Phase 3+4).
-
-Pipeline:
-  1. retrieve(question, k=10) - wide context for structured extraction.
-  2. LLM extracts a JSON object of policy fields.
-  3. reporting.charts renders a matplotlib chart -> base64 PNG.
-  4. reporting.markdown stitches everything into a Markdown report,
-     including (Phase 4) a "User Activity" section sourced from
-     state.user_activity.
-"""
+"""Report agent (Phase 3+4+5)."""
 import json
 import re
 import time
@@ -19,11 +10,14 @@ from app.graph.state import GraphState
 from app.llm import load_prompt
 from app.llm.ollama_client import get_llm
 from app.observability.logging import get_logger
+from app.observability.metrics import record_rag_chunks, track_node
+from app.observability.tracing import annotate_request_span, get_tracer
 from app.rag.retriever import RetrievedChunk, retrieve
 from app.reporting.charts import render_premium_chart
 from app.reporting.markdown import build_policy_report
 
 log = get_logger(__name__)
+tracer = get_tracer(__name__)
 
 EXTRACT_PROMPT = load_prompt("report_extract")
 REPORT_K = 10
@@ -54,78 +48,98 @@ def _parse_json_fallback(raw: str) -> dict:
 
 
 def _extract_policy_data(chunks: list[RetrievedChunk]) -> dict:
-    log.info(
-        "Extracting structured policy data from %d chunks ...",
-        len(chunks),
-    )
-    t0 = time.perf_counter()
-    result = get_llm().invoke(
-        [
-            SystemMessage(content=EXTRACT_PROMPT),
-            HumanMessage(content=f"POLICY CONTEXT:\n{_format_context(chunks)}"),
-        ]
-    )
-    parsed = _parse_json_fallback(str(result.content))
-    log.info(
-        "  -> extracted %d top-level keys in %.2fs",
-        len(parsed),
-        time.perf_counter() - t0,
-    )
-    return parsed
+    with tracer.start_as_current_span("report.extract") as span:
+        log.info(
+            "Extracting structured policy data from %d chunks ...",
+            len(chunks),
+        )
+        t0 = time.perf_counter()
+        result = get_llm().invoke(
+            [
+                SystemMessage(content=EXTRACT_PROMPT),
+                HumanMessage(
+                    content=f"POLICY CONTEXT:\n{_format_context(chunks)}"
+                ),
+            ]
+        )
+        parsed = _parse_json_fallback(str(result.content))
+        elapsed = time.perf_counter() - t0
+        span.set_attribute("report.extract_keys", len(parsed))
+        span.set_attribute("report.extract_duration_s", round(elapsed, 3))
+        log.info(
+            "  -> extracted %d top-level keys in %.2fs",
+            len(parsed),
+            elapsed,
+        )
+        return parsed
 
 
 def report_node(state: GraphState) -> dict:
     """Build a Markdown policy report. Skips validation."""
     question = state["question"]
     user_activity = state.get("user_activity", []) or []
-    log.info(
-        "Report agent invoked: %r (user_activity=%d items)",
-        question[:80],
-        len(user_activity),
-    )
-    t_total = time.perf_counter()
 
-    chunks = retrieve(question, k=REPORT_K)
-    if not chunks:
-        log.warning("Report: no chunks retrieved")
-        markdown = (
-            "# Policy Summary Report\n\n"
-            "No indexed documents to summarise. "
-            "Ingest a policy PDF first via "
-            "`python scripts/ingest_pdfs.py`."
+    with tracer.start_as_current_span("report.node") as span, \
+            track_node("report", route="report"):
+        annotate_request_span(
+            span,
+            user_id=state.get("user_id"),
+            conversation_id=state.get("conversation_id"),
+        )
+        span.set_attribute("question.preview", question[:80])
+        span.set_attribute("report.user_activity_items", len(user_activity))
+        log.info(
+            "Report agent invoked: %r (user_activity=%d items)",
+            question[:80],
+            len(user_activity),
+        )
+        t_total = time.perf_counter()
+
+        chunks = retrieve(question, k=REPORT_K)
+        span.set_attribute("report.chunk_count", len(chunks))
+        record_rag_chunks(len(chunks), route="report")
+        if not chunks:
+            log.warning("Report: no chunks retrieved")
+            markdown = (
+                "# Policy Summary Report\n\n"
+                "No indexed documents to summarise. "
+                "Ingest a policy PDF first via "
+                "`python scripts/ingest_pdfs.py`."
+            )
+            return {
+                "chunks": [],
+                "draft_answer": markdown,
+                "final_answer": markdown,
+                "final_citations": [],
+                "validated": True,
+                "retry_count": 0,
+            }
+
+        data = _extract_policy_data(chunks)
+        chart_b64 = render_premium_chart(data)
+        activity_bullets = format_user_activity(user_activity)
+        markdown = build_policy_report(
+            data,
+            chunks,
+            chart_b64=chart_b64,
+            user_activity_bullets=activity_bullets,
+        )
+
+        span.set_attribute("report.chart_present", bool(chart_b64))
+        span.set_attribute("report.markdown_chars", len(markdown))
+        log.info(
+            "Report done: %.2fs total, %d-char markdown, "
+            "chart=%s, activity_items=%d",
+            time.perf_counter() - t_total,
+            len(markdown),
+            "yes" if chart_b64 else "no",
+            len(activity_bullets),
         )
         return {
-            "chunks": [],
+            "chunks": chunks,
             "draft_answer": markdown,
             "final_answer": markdown,
-            "final_citations": [],
+            "final_citations": chunks,
             "validated": True,
             "retry_count": 0,
         }
-
-    data = _extract_policy_data(chunks)
-    chart_b64 = render_premium_chart(data)
-    activity_bullets = format_user_activity(user_activity)
-    markdown = build_policy_report(
-        data,
-        chunks,
-        chart_b64=chart_b64,
-        user_activity_bullets=activity_bullets,
-    )
-
-    log.info(
-        "Report done: %.2fs total, %d-char markdown, "
-        "chart=%s, activity_items=%d",
-        time.perf_counter() - t_total,
-        len(markdown),
-        "yes" if chart_b64 else "no",
-        len(activity_bullets),
-    )
-    return {
-        "chunks": chunks,
-        "draft_answer": markdown,
-        "final_answer": markdown,
-        "final_citations": chunks,
-        "validated": True,
-        "retry_count": 0,
-    }
