@@ -11,7 +11,8 @@ from app.graph.state import GraphState
 from app.llm import load_prompt
 from app.llm.ollama_client import get_llm
 from app.observability.logging import get_logger
-from app.observability.tracing import get_tracer
+from app.observability.metrics import record_validator_outcome, track_node
+from app.observability.tracing import annotate_request_span, get_tracer
 from app.rag.retriever import RetrievedChunk
 
 log = get_logger(__name__)
@@ -52,7 +53,13 @@ def validator_node(state: GraphState) -> dict:
     question = state.get("question", "")
     retry_count = state.get("retry_count", 0)
 
-    with tracer.start_as_current_span("validator.judge") as span:
+    with tracer.start_as_current_span("validator.judge") as span, \
+            track_node("validator", route="rag"):
+        annotate_request_span(
+            span,
+            user_id=state.get("user_id"),
+            conversation_id=state.get("conversation_id"),
+        )
         span.set_attribute("validator.answer_chars", len(answer))
         span.set_attribute("validator.chunk_count", len(chunks))
         span.set_attribute("validator.retry_count", retry_count)
@@ -96,6 +103,7 @@ def validator_node(state: GraphState) -> dict:
         )
 
         passed = grounded and citations_ok
+        record_validator_outcome(passed=passed, retry_count=retry_count)
         update: dict = {
             "validation": {
                 "grounded": grounded,

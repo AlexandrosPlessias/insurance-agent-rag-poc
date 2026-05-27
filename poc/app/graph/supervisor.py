@@ -9,7 +9,8 @@ from app.graph.state import GraphState
 from app.llm import load_prompt
 from app.llm.ollama_client import get_llm
 from app.observability.logging import get_logger
-from app.observability.tracing import get_tracer
+from app.observability.metrics import track_node
+from app.observability.tracing import annotate_request_span, get_tracer
 
 log = get_logger(__name__)
 tracer = get_tracer(__name__)
@@ -26,7 +27,13 @@ DECLINE_MESSAGE = (
 
 def supervisor_node(state: GraphState) -> dict:
     question = state["question"]
-    with tracer.start_as_current_span("supervisor.classify") as span:
+    with tracer.start_as_current_span("supervisor.classify") as span, \
+            track_node("supervisor"):
+        annotate_request_span(
+            span,
+            user_id=state.get("user_id"),
+            conversation_id=state.get("conversation_id"),
+        )
         span.set_attribute("question.preview", question[:80])
         log.info("Supervisor classifying: %r", question[:80])
         result = get_llm().invoke(
@@ -58,7 +65,13 @@ def supervisor_node(state: GraphState) -> dict:
 
 
 def decline_node(state: GraphState) -> dict:
-    with tracer.start_as_current_span("decline.canned"):
+    with tracer.start_as_current_span("decline.canned") as span, \
+            track_node("decline", route="out_of_scope"):
+        annotate_request_span(
+            span,
+            user_id=state.get("user_id"),
+            conversation_id=state.get("conversation_id"),
+        )
         log.info("Decline node: returning canned response")
         return {
             "final_answer": DECLINE_MESSAGE,

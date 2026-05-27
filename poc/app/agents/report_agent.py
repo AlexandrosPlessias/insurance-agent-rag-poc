@@ -10,7 +10,8 @@ from app.graph.state import GraphState
 from app.llm import load_prompt
 from app.llm.ollama_client import get_llm
 from app.observability.logging import get_logger
-from app.observability.tracing import get_tracer
+from app.observability.metrics import record_rag_chunks, track_node
+from app.observability.tracing import annotate_request_span, get_tracer
 from app.rag.retriever import RetrievedChunk, retrieve
 from app.reporting.charts import render_premium_chart
 from app.reporting.markdown import build_policy_report
@@ -78,7 +79,13 @@ def report_node(state: GraphState) -> dict:
     question = state["question"]
     user_activity = state.get("user_activity", []) or []
 
-    with tracer.start_as_current_span("report.node") as span:
+    with tracer.start_as_current_span("report.node") as span, \
+            track_node("report", route="report"):
+        annotate_request_span(
+            span,
+            user_id=state.get("user_id"),
+            conversation_id=state.get("conversation_id"),
+        )
         span.set_attribute("question.preview", question[:80])
         span.set_attribute("report.user_activity_items", len(user_activity))
         log.info(
@@ -90,6 +97,7 @@ def report_node(state: GraphState) -> dict:
 
         chunks = retrieve(question, k=REPORT_K)
         span.set_attribute("report.chunk_count", len(chunks))
+        record_rag_chunks(len(chunks), route="report")
         if not chunks:
             log.warning("Report: no chunks retrieved")
             markdown = (

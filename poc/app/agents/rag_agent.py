@@ -12,7 +12,8 @@ from app.graph.state import GraphState
 from app.llm import load_prompt
 from app.llm.ollama_client import get_llm
 from app.observability.logging import get_logger
-from app.observability.tracing import get_tracer
+from app.observability.metrics import record_rag_chunks, track_node
+from app.observability.tracing import annotate_request_span, get_tracer
 from app.rag.retriever import RetrievedChunk, retrieve
 
 log = get_logger(__name__)
@@ -110,7 +111,13 @@ def rag_node(state: GraphState) -> dict:
     critique = state.get("last_critique", "")
     history = state.get("history", [])
 
-    with tracer.start_as_current_span("rag.node") as span:
+    with tracer.start_as_current_span("rag.node") as span, \
+            track_node("rag", route="rag"):
+        annotate_request_span(
+            span,
+            user_id=state.get("user_id"),
+            conversation_id=state.get("conversation_id"),
+        )
         span.set_attribute("rag.retry_count", retry_count)
         span.set_attribute("rag.has_critique", bool(critique))
         span.set_attribute("rag.history_msgs", len(history))
@@ -119,6 +126,7 @@ def rag_node(state: GraphState) -> dict:
             log.info("RAG node (initial): %r", question[:80])
             reformulated = reformulate_question(question, history=history)
             chunks = retrieve(reformulated)
+            record_rag_chunks(len(chunks))
         else:
             log.info(
                 "RAG node (retry %d) - reusing previous retrieval",

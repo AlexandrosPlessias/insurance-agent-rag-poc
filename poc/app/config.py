@@ -37,19 +37,11 @@ class Settings(BaseSettings):
     chunk_overlap: int = 150
     retrieval_k: int = 5
 
-    # --- Observability (Phase 5) ---
-    # Default ON. setup_otel() probes the backend first and self-disables
-    # if it can't reach OTEL_ENDPOINT, so the app stays usable when the
-    # observability backend isn't running.
+    # --- Observability (Phase 5, Aspire Dashboard via OTLP gRPC) ---
+    # Default ON. setup_otel() probes the endpoint at startup and
+    # self-disables (logs a warning) if Aspire isn't reachable.
     otel_enabled: bool = True
-    # "grpc" -> OTLP gRPC (default; Aspire Dashboard, Jaeger)
-    # "http" -> OTLP HTTP/protobuf (OpenObserve, generic OTLP HTTP)
-    otel_protocol: str = "grpc"
-    # gRPC: full endpoint URL incl. port (e.g. http://localhost:4317)
-    # HTTP: base URL; /v1/traces and /v1/logs are appended automatically
     otel_endpoint: str = "http://localhost:4317"
-    # Comma-separated "key=value,key=value" (e.g. for HTTP basic auth)
-    otel_headers: str = ""
     otel_service_name: str = "insurance-rag-poc"
     otel_ui_url: str = "http://localhost:18888"
 

@@ -41,6 +41,9 @@ opentelemetry-exporter-otlp>=1.27.0
 opentelemetry-instrumentation-fastapi>=0.48b0
 opentelemetry-instrumentation-httpx>=0.48b0
 opentelemetry-instrumentation-logging>=0.48b0
+# Langfuse-style LLM/chain detail (prompts, completions, tokens, retrievals).
+# Auto-emits OTel spans for every LangChain invocation.
+openinference-instrumentation-langchain>=0.1.30
 
 # --- Testing ---
 pytest>=8.3.0

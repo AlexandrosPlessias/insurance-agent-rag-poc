@@ -1,14 +1,13 @@
-"""OpenTelemetry setup for traces + logs (Phase 5).
+"""OpenTelemetry setup for traces + logs + metrics (Phase 5).
 
-Supports two OTLP protocols, picked by `OTEL_PROTOCOL`:
-  - "grpc" (default): full endpoint URL is `OTEL_ENDPOINT`
-    Pairs well with Aspire Dashboard or Jaeger (port 4317).
-  - "http": `OTEL_ENDPOINT` is treated as a base URL; `/v1/traces` and
-    `/v1/logs` are appended automatically. Pairs well with OpenObserve
-    (set `OTEL_ENDPOINT=http://localhost:5080/api/default`).
+Targets Aspire Dashboard via OTLP gRPC on `OTEL_ENDPOINT`
+(default `http://localhost:4317`). Start the backend with:
 
-`setup_otel(app=None, service_suffix=None)` is idempotent and a no-op
-when `OTEL_ENABLED=false`.
+    bash scripts/run_observability.sh
+
+`setup_otel(app=None, service_suffix=None)` is idempotent. It probes
+the endpoint at startup and self-disables (logs a warning) when
+Aspire isn't reachable, so a stopped backend never breaks the app.
 """
 import logging
 import socket
@@ -22,29 +21,15 @@ _log = logging.getLogger(__name__)
 
 
 def _backend_reachable(timeout_s: float = 1.0) -> bool:
-    """TCP-probe OTEL_ENDPOINT so we don't init OTel when nothing's home."""
+    """TCP-probe the OTLP endpoint; skip OTel init if no one's home."""
     parsed = urlparse(settings.otel_endpoint)
     host = parsed.hostname or "localhost"
-    if parsed.port is not None:
-        port = parsed.port
-    elif settings.otel_protocol == "grpc":
-        port = 4317
-    else:
-        port = 80 if parsed.scheme == "http" else 443
+    port = parsed.port or 4317
     try:
         with socket.create_connection((host, port), timeout=timeout_s):
             return True
     except OSError:
         return False
-
-
-def _parse_headers(s: str) -> dict[str, str]:
-    out: dict[str, str] = {}
-    for part in s.split(","):
-        if "=" in part:
-            k, v = part.split("=", 1)
-            out[k.strip()] = v.strip()
-    return out
 
 
 def _resource(service_suffix: str | None):
@@ -62,47 +47,33 @@ def _resource(service_suffix: str | None):
 
 
 def _trace_exporter():
-    headers = _parse_headers(settings.otel_headers)
-    if settings.otel_protocol == "http":
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
-            OTLPSpanExporter,
-        )
-
-        endpoint = settings.otel_endpoint.rstrip("/") + "/v1/traces"
-        kwargs: dict[str, Any] = {"endpoint": endpoint}
-        if headers:
-            kwargs["headers"] = headers
-        return OTLPSpanExporter(**kwargs)
     from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
         OTLPSpanExporter,
     )
 
-    kwargs = {"endpoint": settings.otel_endpoint, "insecure": True}
-    if headers:
-        kwargs["headers"] = headers
-    return OTLPSpanExporter(**kwargs)
+    return OTLPSpanExporter(
+        endpoint=settings.otel_endpoint, insecure=True
+    )
 
 
 def _log_exporter():
-    headers = _parse_headers(settings.otel_headers)
-    if settings.otel_protocol == "http":
-        from opentelemetry.exporter.otlp.proto.http._log_exporter import (
-            OTLPLogExporter,
-        )
-
-        endpoint = settings.otel_endpoint.rstrip("/") + "/v1/logs"
-        kwargs: dict[str, Any] = {"endpoint": endpoint}
-        if headers:
-            kwargs["headers"] = headers
-        return OTLPLogExporter(**kwargs)
     from opentelemetry.exporter.otlp.proto.grpc._log_exporter import (
         OTLPLogExporter,
     )
 
-    kwargs = {"endpoint": settings.otel_endpoint, "insecure": True}
-    if headers:
-        kwargs["headers"] = headers
-    return OTLPLogExporter(**kwargs)
+    return OTLPLogExporter(
+        endpoint=settings.otel_endpoint, insecure=True
+    )
+
+
+def _metric_exporter():
+    from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (
+        OTLPMetricExporter,
+    )
+
+    return OTLPMetricExporter(
+        endpoint=settings.otel_endpoint, insecure=True
+    )
 
 
 def _setup_traces(resource) -> None:
@@ -131,6 +102,23 @@ def _setup_logs(resource) -> None:
     logging.getLogger().addHandler(handler)
 
 
+def _setup_metrics(resource) -> None:
+    from opentelemetry import metrics
+    from opentelemetry.sdk.metrics import MeterProvider
+    from opentelemetry.sdk.metrics.export import (
+        PeriodicExportingMetricReader,
+    )
+
+    reader = PeriodicExportingMetricReader(
+        _metric_exporter(),
+        export_interval_millis=5000,
+    )
+    provider = MeterProvider(
+        resource=resource, metric_readers=[reader]
+    )
+    metrics.set_meter_provider(provider)
+
+
 def _instrument_fastapi(app: Any) -> None:
     from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
@@ -149,6 +137,50 @@ def _instrument_logging() -> None:
     LoggingInstrumentor().instrument(set_logging_format=False)
 
 
+def _instrument_langchain() -> None:
+    """OpenInference auto-instrumentor for LangChain.
+
+    Emits OTel spans for every chain / LLM / embedding / retriever
+    invocation, including prompt + completion previews, model name,
+    token usage. Renders as Langfuse-style detail in Aspire.
+    """
+    try:
+        from openinference.instrumentation.langchain import (
+            LangChainInstrumentor,
+        )
+    except ImportError:
+        _log.warning(
+            "openinference-instrumentation-langchain not installed; "
+            "LangChain spans (prompt/completion detail) won't appear. "
+            "Reinstall: pip install -r requirements.txt"
+        )
+        return
+    LangChainInstrumentor().instrument()
+
+
+def annotate_request_span(
+    span,
+    *,
+    user_id: str | None = None,
+    conversation_id: int | None = None,
+) -> None:
+    """Tag a span with user.id and conversation.id when known.
+
+    Safe to call with None values - the corresponding attribute is just
+    skipped. Use from route handlers (root HTTP span) and from each
+    graph node so the IDs are visible everywhere in Aspire.
+    """
+    if span is None:
+        return
+    if user_id:
+        span.set_attribute("user.id", str(user_id))
+    if conversation_id:
+        try:
+            span.set_attribute("conversation.id", int(conversation_id))
+        except (TypeError, ValueError):
+            pass
+
+
 def setup_otel(
     app: Any | None = None,
     service_suffix: str | None = None,
@@ -163,9 +195,9 @@ def setup_otel(
     if not _backend_reachable():
         _log.warning(
             "OTel enabled but backend at %s is unreachable - "
-            "skipping setup. Start the backend "
-            "(`bash scripts/run_observability_native.sh`) and "
-            "restart this process to enable tracing.",
+            "skipping setup. Start Aspire with "
+            "`bash scripts/run_observability.sh` (or use run_all.sh) "
+            "and restart this process.",
             settings.otel_endpoint,
         )
         return
@@ -174,14 +206,15 @@ def setup_otel(
         resource = _resource(service_suffix)
         _setup_traces(resource)
         _setup_logs(resource)
+        _setup_metrics(resource)
         _instrument_logging()
         _instrument_httpx()
+        _instrument_langchain()
         if app is not None:
             _instrument_fastapi(app)
         _INSTALLED = True
         _log.info(
-            "OTel enabled: protocol=%s endpoint=%s service=%s ui=%s",
-            settings.otel_protocol,
+            "OTel enabled: endpoint=%s service=%s ui=%s",
             settings.otel_endpoint,
             settings.otel_service_name
             + (f"-{service_suffix}" if service_suffix else ""),

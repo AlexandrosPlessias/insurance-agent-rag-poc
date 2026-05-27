@@ -229,6 +229,5 @@ poc/data/*.sqlite-journal
 poc/tests/fixtures/*
 !poc/tests/fixtures/.gitkeep
 poc/.venv/
-poc/.openobserve/
 poc/app/memory/summarizer.py
 memory/*

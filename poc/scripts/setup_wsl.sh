@@ -2,7 +2,7 @@
 # One-shot WSL2 Ubuntu bootstrap for the insurance-agent-rag-poc PoC.
 # Run from anywhere:  bash poc/scripts/setup_wsl.sh
 #
-# Skip the OpenObserve download with:
+# Skip the Aspire Docker image pre-pull with:
 #   SKIP_OBSERVABILITY=true bash poc/scripts/setup_wsl.sh
 set -euo pipefail
 
@@ -12,6 +12,7 @@ cd "$(dirname "$0")/.."
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 VENV_DIR="${VENV_DIR:-.venv}"
 SKIP_OBSERVABILITY="${SKIP_OBSERVABILITY:-false}"
+ASPIRE_IMAGE="${ASPIRE_IMAGE:-mcr.microsoft.com/dotnet/aspire-dashboard:9.0}"
 
 echo "[1/6] Installing system packages..."
 sudo apt-get update
@@ -42,16 +43,19 @@ echo "[5/6] Pulling local models (this can take a while)..."
 ollama pull qwen2.5:7b
 ollama pull nomic-embed-text
 
-echo "[6/6] Pre-downloading OpenObserve binary (Phase 5 observability)..."
+echo "[6/6] Pre-pulling Aspire Dashboard image (Phase 5 observability)..."
 if [ "$SKIP_OBSERVABILITY" = "true" ]; then
-  echo "  Skipped (SKIP_OBSERVABILITY=true). Run later with:"
-  echo "    bash scripts/run_observability_native.sh"
+  echo "  Skipped (SKIP_OBSERVABILITY=true). Pull later with:"
+  echo "    docker pull $ASPIRE_IMAGE"
+elif ! command -v docker >/dev/null 2>&1; then
+  echo "  Docker not found - skipping. Install Docker Desktop (with WSL"
+  echo "  integration) to enable the Aspire observability backend, or"
+  echo "  set OTEL_ENABLED=false in .env to silence the startup warning."
 else
-  if bash scripts/run_observability_native.sh --download-only; then
-    echo "  OK - binary cached at poc/.openobserve/openobserve"
+  if docker pull "$ASPIRE_IMAGE"; then
+    echo "  OK - image cached"
   else
-    echo "  WARN: download failed; retry with:" >&2
-    echo "    bash scripts/run_observability_native.sh" >&2
+    echo "  WARN: docker pull failed; run_observability.sh will retry" >&2
   fi
 fi
 
@@ -66,11 +70,12 @@ echo
 echo "2) Copy the example env:"
 echo "     cp .env.example .env"
 echo
-echo "3) Run the API + UI (in two terminals):"
-echo "     bash scripts/run_api.sh"
-echo "     bash scripts/run_ui.sh"
+echo "3) Start everything in ONE terminal (Aspire + API + UI):"
+echo "     bash scripts/run_all.sh"
+echo "   Ctrl+C stops the whole stack."
 echo
-echo "4) (Optional) Phase 5 observability:"
-echo "     bash scripts/run_observability_native.sh"
-echo "   Paste the printed OTEL_* block into .env, then restart API + UI."
+echo "   Or run individual pieces:"
+echo "     bash scripts/run_observability.sh   # Aspire (Docker)"
+echo "     bash scripts/run_api.sh             # FastAPI"
+echo "     bash scripts/run_ui.sh              # Streamlit"
 echo
