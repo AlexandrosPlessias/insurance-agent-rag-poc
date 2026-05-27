@@ -1,0 +1,43 @@
+{
+    "python.defaultInterpreterPath": ".venv/bin/python",
+    "editor.formatOnSave": true,
+    "editor.rulers": [
+        88,
+        120
+    ],
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.black-formatter",
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+        }
+    },
+    "black-formatter.args": [
+        "--line-length",
+        "88"
+    ],
+    "isort.args": [
+        "--profile",
+        "black"
+    ],
+    "editor.renderWhitespace": "boundary",
+    "editor.tabSize": 4,
+    "editor.insertSpaces": true,
+    "files.trimTrailingWhitespace": true,
+    "files.insertFinalNewline": true,
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.autoImportCompletions": true,
+    "cSpell.words": [
+        "Agentic",
+        "chunker",
+        "nomic",
+        "Ollama",
+        "pdfs",
+        "pipefail",
+        "pydantic",
+        "qwen",
+        "Streamlit",
+        "synthesises",
+        "vectorstore",
+        "venv"
+    ]
+}
