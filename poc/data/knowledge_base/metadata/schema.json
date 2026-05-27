@@ -1,0 +1,69 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "KnowledgeBaseDocumentMetadata",
+    "type": "object",
+    "properties": {
+        "title": {
+            "type": "string"
+        },
+        "description": {
+            "type": "string"
+        },
+        "chunk": {
+            "type": "string"
+        },
+        "vector": {
+            "type": "array",
+            "items": {
+                "type": "number"
+            }
+        },
+        "keywords": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        },
+        "user_group": {
+            "type": "string"
+        },
+        "year": {
+            "type": "integer"
+        },
+        "language": {
+            "type": "string",
+            "pattern": "^[a-z]{2}$"
+        },
+        "document_category": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            }
+        },
+        "channel": {
+            "type": "string"
+        },
+        "ingestion_date_time": {
+            "type": "string",
+            "format": "date-time"
+        },
+        "activation_date_time": {
+            "type": "string",
+            "format": "date"
+        },
+        "source_url": {
+            "type": "string",
+            "format": "uri"
+        }
+    },
+    "required": [
+        "title",
+        "year",
+        "description",
+        "chunk",
+        "vector",
+        "keywords",
+        "ingestion_date_time"
+    ],
+    "additionalProperties": false
+}
