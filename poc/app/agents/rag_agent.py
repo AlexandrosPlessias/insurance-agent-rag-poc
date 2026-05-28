@@ -101,6 +101,8 @@ def citation_payload(c: RetrievedChunk) -> dict:
         "page": c.page,
         "content": c.content,
         "download_url": f"/sources/{c.source}",
+        "section": c.section,
+        "section_title": c.section_title,
     }
 
 

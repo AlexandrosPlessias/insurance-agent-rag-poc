@@ -93,6 +93,7 @@ Built in 5 incremental phases — all implemented. Full detail in [docs/PoC_scop
 | **3** ✅ | Reporting autonomy (Markdown + embedded charts) | [poc/app/reporting/](poc/app/reporting/), [poc/app/agents/report_agent.py](poc/app/agents/report_agent.py) |
 | **4** ✅ | SQLite long-term memory + per-user conversations | [poc/app/memory/](poc/app/memory/), [poc/app/agents/memory_agent.py](poc/app/agents/memory_agent.py) |
 | **5** ✅ | OpenTelemetry traces + logs + metrics (Aspire Dashboard) | [poc/app/observability/](poc/app/observability/), [poc/scripts/run_observability.sh](poc/scripts/run_observability.sh) |
+| **6** ✅ | Per-document ingestion pipeline: PDF → Markdown → metadata sidecar → ChromaDB. Same flow used by the batch script and the `POST /ingest` endpoint for UI uploads | [poc/app/ingestion/](poc/app/ingestion/), [poc/data/knowledge_base/](poc/data/knowledge_base/) |
 
 ### Phase 1 — Basic RAG
 PyMuPDF loader (page-level documents) → RecursiveCharacterTextSplitter with page metadata preserved → Chroma persisted to disk → token-streamed answers via `/chat/stream` (NDJSON). Each citation in the UI carries a **Download PDF** link and a **View chunk** popover showing the retrieved text.
@@ -108,6 +109,31 @@ SQLite (`conversations`, `messages`) at `poc/data/memory.sqlite` via [poc/app/me
 
 ### Phase 5 — Observability (Aspire Dashboard)
 OTel SDK wired into both the API and the UI ([poc/app/observability/tracing.py](poc/app/observability/tracing.py)). **Enabled by default** — `setup_otel()` TCP-probes `OTEL_ENDPOINT` at startup and self-disables (one-line warning) when Aspire isn't running.
+
+### Phase 6 — Per-document ingestion pipeline
+PDF → Markdown (via `pymupdf4llm`, layout-preserving) → metadata sidecar (validated against [poc/data/knowledge_base/metadata/schema.json](poc/data/knowledge_base/metadata/schema.json)) → ChromaDB with rich chunk metadata. Single entry point `ingest_document(pdf_path, extra_metadata)` powers three callers: the batch script `python scripts/ingest_pdfs.py`, the smoke test, and the **`POST /ingest`** endpoint that accepts file uploads from the (upcoming) UI form. Each ingested chunk carries `title`, `year`, `keywords`, `language`, `document_category`, `source`, `page`, etc. — filterable in Aspire and queryable in the retriever.
+
+**Chunking strategy.** One Markdown file per PDF (with `<!-- page N -->` boundary markers). `RecursiveCharacterTextSplitter` runs on the **whole** body so clauses that straddle pages stay together; per-chunk metadata records the chunk's starting page (and a `pages` list when it spans more than one).
+
+#### Why `chunk_size=1200`, `chunk_overlap=200`
+
+| Setting | Value | Why |
+|---|---|---|
+| `chunk_size` | **1200** chars | A typical "Section X — …" block from an insurance policy (a clause + its surrounding context) fits comfortably. Small enough that retrieval stays precise — chunks don't drown the embedding in unrelated text. |
+| `chunk_overlap` | **200** chars (≈17 %) | Standard 15–20 % overlap. A sentence ending near a chunk boundary is re-presented in the next chunk's prefix, so retrieval still wins on it. |
+
+Tuning knobs (single env var change in `poc/.env`):
+
+| Profile | size / overlap | When |
+|---|---|---|
+| Conservative | 800 / 120 | Smaller LLM context window, or you want stricter chunk-to-citation precision. More chunks total → slower retrieval. |
+| **Recommended** | **1200 / 200** | Default. Tuned for insurance/legal/policy PDFs. |
+| Aggressive | 1800 / 300 | Long-form regulations or reports where you want broad context per hit. Risk: noisier retrieval. |
+
+Symptoms → action:
+- "Answers miss details I know are in the doc" → chunks may be too small; bump to 1500 / 250.
+- "Answers wander, include unrelated facts" → chunks may be too large; drop to 900 / 150.
+- After changing, always **reset + re-ingest**: `python scripts/reset_stores.py && python scripts/ingest_pdfs.py`.
 
 What's instrumented:
 - **Auto-instrumentation** of FastAPI and httpx — a request from Streamlit → API → graph nodes shows up as a single connected trace.

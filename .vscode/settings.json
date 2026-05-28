@@ -1,5 +1,7 @@
 {
-    "python.defaultInterpreterPath": ".venv/bin/python",
+    "python.venvFolders": [
+        "poc/.venv"
+    ],
     "editor.formatOnSave": true,
     "editor.rulers": [
         88,
@@ -39,5 +41,6 @@
         "synthesises",
         "vectorstore",
         "venv"
-    ]
+    ],
+    "python-envs.defaultEnvManager": "ms-python.python:system"
 }

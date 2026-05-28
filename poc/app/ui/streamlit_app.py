@@ -154,12 +154,14 @@ with st.sidebar:
             f"`{settings.otel_endpoint}`."
         )
 
-    st.caption(
-        "Phase 1: streaming RAG with citations.\n"
-        "Phase 2: supervisor + validator + retry.\n"
-        "Phase 3: report agent (Markdown + charts).\n"
-        "Phase 4: SQLite long-term memory.\n"
-        "Phase 5: OpenTelemetry (traces + logs)."
+    st.markdown(
+        "**Implemented phases**\n"
+        "- 1 · streaming RAG with citations\n"
+        "- 2 · supervisor + validator + retry\n"
+        "- 3 · report agent (Markdown + charts)\n"
+        "- 4 · SQLite long-term memory\n"
+        "- 5 · OpenTelemetry (traces + logs + metrics)\n"
+        "- 6 · per-document ingestion (PDF -> Markdown -> Chroma)"
     )
 
 
@@ -185,8 +187,25 @@ def render_citations(citations: list[dict]) -> None:
         return
     st.markdown("**Sources**")
     for i, c in enumerate(citations, start=1):
+        # Prefer the cleaned section_title (e.g. "Refund Policy"); fall
+        # back to the verbatim section (e.g. "1. Refund Policy") so we
+        # still show something for chunks that lack section_title.
+        section = (c.get("section") or "").strip()
+        section_title = (c.get("section_title") or "").strip()
+        section_display = section_title or section
+        page = c.get("page", 0)
+
+        # Build the caption text. Page is shown only when present and
+        # > 0 (older indexed chunks may still have it).
+        bits = [f"[{i}] {c['source']}"]
+        if page:
+            bits.append(f"p.{page}")
+        if section_display:
+            bits.append(section_display)
+        caption_text = "  ·  ".join(bits)
+
         cols = st.columns([4, 2, 2])
-        cols[0].caption(f"[{i}] {c['source']} - page {c['page']}")
+        cols[0].caption(caption_text)
         cols[1].link_button(
             "Download PDF",
             source_url(c["source"]),
@@ -195,7 +214,12 @@ def render_citations(citations: list[dict]) -> None:
         with cols[2].popover(
             f"View chunk {i}", use_container_width=True
         ):
-            st.markdown(f"**{c['source']} (p. {c['page']})**")
+            header = f"**{c['source']}**"
+            if page:
+                header += f" (p. {page})"
+            if section_display:
+                header += f"  \n_Section: {section_display}_"
+            st.markdown(header)
             st.text(c.get("content", "") or "(no content captured)")
 
 

@@ -73,7 +73,7 @@ Defaults work out of the box. Adjust only what you need:
 | `OTEL_ENDPOINT` | `http://localhost:4317` | Aspire OTLP gRPC receiver |
 | `OTEL_UI_URL` | `http://localhost:18888` | Aspire web UI |
 
-> ⚠ `poc/data/raw/`, `poc/data/chroma_db/`, `poc/data/memory.sqlite`, and `poc/.venv/` are gitignored — your policy documents and local state never enter version control.
+> ⚠ Gitignored (local-only state): `poc/data/chroma_db/`, `poc/data/memory.sqlite`, `poc/data/knowledge_base/processed/`, `poc/data/knowledge_base/metadata/*.json`, `poc/.venv/`. **Tracked**: `poc/data/knowledge_base/raw/` (seed PDFs ship with the repo) and `poc/data/knowledge_base/metadata/schema.json`.
 
 ---
 

@@ -59,6 +59,8 @@ def _citation_dicts(state: dict) -> list[dict]:
             "page": c.page,
             "content": c.content,
             "download_url": f"/sources/{c.source}",
+            "section": getattr(c, "section", "") or "",
+            "section_title": getattr(c, "section_title", "") or "",
         }
         for c in chunks
     ]

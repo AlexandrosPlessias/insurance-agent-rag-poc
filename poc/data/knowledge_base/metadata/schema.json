@@ -1,22 +1,29 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "KnowledgeBaseDocumentMetadata",
+    "description": "Schema for the per-document JSON sidecars in poc/data/knowledge_base/metadata/. Chunk-level metadata in ChromaDB derives from this (with `page` added per chunk).",
     "type": "object",
     "properties": {
+        "doc_id": {
+            "type": "string",
+            "description": "Stable identifier for the document (defaults to PDF filename stem)."
+        },
+        "source": {
+            "type": "string",
+            "description": "Original PDF filename (used for the citation download URL)."
+        },
+        "source_path": {
+            "type": "string",
+            "description": "Path to the source PDF at ingestion time."
+        },
         "title": {
             "type": "string"
         },
         "description": {
             "type": "string"
         },
-        "chunk": {
-            "type": "string"
-        },
-        "vector": {
-            "type": "array",
-            "items": {
-                "type": "number"
-            }
+        "year": {
+            "type": "integer"
         },
         "keywords": {
             "type": "array",
@@ -24,11 +31,60 @@
                 "type": "string"
             }
         },
+        "ingestion_date_time": {
+            "type": "string",
+            "format": "date-time"
+        },
+        "page": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Chunk-only: 1-indexed page number this chunk came from."
+        },
+        "pages": {
+            "type": "string",
+            "description": "Chunk-only: comma-separated page numbers when a chunk spans more than one page (e.g. \"3,4\")."
+        },
+        "h1": {
+            "type": "string",
+            "description": "Chunk-only: enclosing h1 heading text (verbatim)."
+        },
+        "h2": {
+            "type": "string",
+            "description": "Chunk-only: enclosing h2 heading text (verbatim)."
+        },
+        "h3": {
+            "type": "string",
+            "description": "Chunk-only: enclosing h3 heading text (verbatim)."
+        },
+        "h4": {
+            "type": "string",
+            "description": "Chunk-only: enclosing h4 heading text (verbatim)."
+        },
+        "section": {
+            "type": "string",
+            "description": "Chunk-only: deepest non-empty header text, verbatim (e.g. \"1. Refund Policy\", \"**2. Theft & Incident Handling**\")."
+        },
+        "section_title": {
+            "type": "string",
+            "description": "Chunk-only: section header with markdown formatting and leading numbering stripped (e.g. \"Refund Policy\", \"Theft & Incident Handling\"). Use as the primary topical anchor for semantic search filters - stable across documents regardless of numbering."
+        },
+        "page_count": {
+            "type": "integer",
+            "minimum": 1
+        },
+        "chunk": {
+            "type": "string",
+            "description": "Optional: chunk text. Normally stored as Chroma document content, not in metadata."
+        },
+        "vector": {
+            "type": "array",
+            "items": {
+                "type": "number"
+            },
+            "description": "Optional: embedding vector. Normally stored as Chroma embedding, not in metadata."
+        },
         "user_group": {
             "type": "string"
-        },
-        "year": {
-            "type": "integer"
         },
         "language": {
             "type": "string",
@@ -43,10 +99,6 @@
         "channel": {
             "type": "string"
         },
-        "ingestion_date_time": {
-            "type": "string",
-            "format": "date-time"
-        },
         "activation_date_time": {
             "type": "string",
             "format": "date"
@@ -60,10 +112,9 @@
         "title",
         "year",
         "description",
-        "chunk",
-        "vector",
         "keywords",
-        "ingestion_date_time"
+        "ingestion_date_time",
+        "source"
     ],
     "additionalProperties": false
 }

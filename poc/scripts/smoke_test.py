@@ -1,7 +1,9 @@
 """End-to-end smoke test (no external PDFs needed).
 
-Phase 4 demo:
-  - Synthesises an ACME insurance policy PDF and ingests it.
+Phase 4 + Phase 6 demo:
+  - Synthesises an ACME insurance policy PDF.
+  - Runs it through `ingest_document()` (PDF -> Markdown -> metadata
+    sidecar -> ChromaDB) - same pipeline the UI upload route uses.
   - Creates a user-scoped conversation in SQLite.
   - Runs 3 RAG questions (each persisted as messages).
   - Asks for a personalized report - the report agent reads the user's
@@ -21,14 +23,13 @@ import fitz  # PyMuPDF  # noqa: E402
 
 from app.agents.rag_agent import answer_question  # noqa: E402
 from app.config import settings  # noqa: E402
+from app.ingestion.pipeline import ingest_document  # noqa: E402
 from app.memory.store import MemoryStore  # noqa: E402
 from app.observability.logging import (  # noqa: E402
     configure_logging,
     get_logger,
 )
-from app.rag.chunker import chunk_documents  # noqa: E402
-from app.rag.loader import load_pdf  # noqa: E402
-from app.rag.vectorstore import add_documents, reset_collection  # noqa: E402
+from app.rag.vectorstore import reset_collection  # noqa: E402
 
 configure_logging("INFO")
 log = get_logger("smoke_test")
@@ -102,7 +103,7 @@ def _strip_data_uri_images(markdown: str) -> str:
 
 def main() -> int:
     print("\n" + "=" * 72)
-    print("Phase 4 smoke test - supervisor + RAG + report + SQLite memory")
+    print("Phase 4+6 smoke test - ingestion pipeline + supervisor + memory")
     print("=" * 72 + "\n")
 
     build_sample_pdf(SAMPLE_PDF)
@@ -118,9 +119,26 @@ def main() -> int:
         log.info("Removing SQLite memory at %s", settings.sqlite_path)
         settings.sqlite_path.unlink()
 
-    documents = load_pdf(SAMPLE_PDF)
-    chunks = chunk_documents(documents)
-    add_documents(chunks)
+    # Run the same per-document ingestion pipeline used by the API and
+    # the upcoming UI upload form (Phase 6: PDF -> Markdown -> metadata
+    # sidecar -> ChromaDB).
+    ingest_result = ingest_document(
+        SAMPLE_PDF,
+        extra_metadata={
+            "title": "ACME Auto Policy (smoke test fixture)",
+            "year": 2026,
+            "description": "Synthetic insurance policy for end-to-end testing.",
+            "keywords": ["smoke-test", "auto", "policy"],
+            "language": "en",
+            "document_category": ["policy", "smoke-test"],
+        },
+    )
+    log.info(
+        "Ingest: %d pages -> %d chunks (%s)",
+        ingest_result.page_count,
+        ingest_result.chunks_indexed,
+        ingest_result.markdown_path.name,
+    )
 
     store = MemoryStore(settings.sqlite_path)
     conv_id = store.create_conversation(USER_ID, title=None)
