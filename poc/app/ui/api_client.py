@@ -89,3 +89,44 @@ def get_messages(conversation_id: int) -> list[dict]:
     )
     r.raise_for_status()
     return r.json()
+
+
+# --- Ingestion (Phase 6) ---
+
+
+def upload_document(
+    filename: str,
+    content: bytes,
+    *,
+    title: str | None = None,
+    description: str | None = None,
+    year: int | None = None,
+    keywords: str | None = None,
+    language: str | None = None,
+    document_category: str | None = None,
+) -> dict:
+    """POST a PDF (+ optional metadata) to /ingest. Returns server JSON."""
+    files = {"file": (filename, content, "application/pdf")}
+    data: dict = {}
+    if title:
+        data["title"] = title
+    if description:
+        data["description"] = description
+    if year is not None:
+        data["year"] = str(year)
+    if keywords:
+        data["keywords"] = keywords
+    if language:
+        data["language"] = language
+    if document_category:
+        data["document_category"] = document_category
+    r = httpx.post(
+        f"{_base()}/ingest",
+        files=files,
+        data=data,
+        # Ingestion does a summariser LLM call + embedding pass; allow
+        # plenty of time on a cold model.
+        timeout=300.0,
+    )
+    r.raise_for_status()
+    return r.json()

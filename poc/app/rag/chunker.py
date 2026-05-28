@@ -38,8 +38,10 @@ from langchain_text_splitters import (
 
 from app.config import settings
 from app.observability.logging import get_logger
+from app.observability.tracing import get_tracer
 
 log = get_logger(__name__)
+tracer = get_tracer(__name__)
 
 # Markdown header levels we treat as section anchors.
 _HEADERS_TO_SPLIT_ON = [
@@ -136,77 +138,90 @@ def chunk_markdown_doc(
     # Lazy import - avoids a cycle (ingestion -> rag -> ingestion).
     from app.ingestion.metadata import chunk_metadata
 
-    log.info(
-        "Chunking full markdown (size=%d, overlap=%d, %d chars) ...",
-        settings.chunk_size,
-        settings.chunk_overlap,
-        len(full_markdown),
-    )
+    with tracer.start_as_current_span("chunker.split_markdown") as span:
+        span.set_attribute("chunker.source", doc_meta.get("source", ""))
+        span.set_attribute("chunker.chunk_size", settings.chunk_size)
+        span.set_attribute("chunker.chunk_overlap", settings.chunk_overlap)
+        span.set_attribute("chunker.input_chars", len(full_markdown))
 
-    md_splitter = MarkdownHeaderTextSplitter(
-        headers_to_split_on=_HEADERS_TO_SPLIT_ON,
-        strip_headers=False,
-    )
-    sections = md_splitter.split_text(full_markdown)
-    char_chunks = _make_splitter().split_documents(sections)
-    log.info(
-        "  -> %d sections -> %d char chunks (pre-filter)",
-        len(sections),
-        len(char_chunks),
-    )
-
-    out: list[Document] = []
-    skipped_header_only = 0
-    skipped_too_small = 0
-
-    for chunk in char_chunks:
-        cleaned = chunk.page_content.strip()
-        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
-
-        if not cleaned:
-            continue
-        if _is_header_only(cleaned):
-            skipped_header_only += 1
-            continue
-        if len(cleaned) < _MIN_CHUNK_CHARS:
-            skipped_too_small += 1
-            continue
-
-        # Header levels from MarkdownHeaderTextSplitter metadata.
-        header_levels: dict[int, str] = {}
-        for level, key in enumerate(("h1", "h2", "h3", "h4"), start=1):
-            val = chunk.metadata.get(key)
-            if val:
-                header_levels[level] = str(val).strip()
-
-        section = (
-            header_levels[max(header_levels)]
-            if header_levels
-            else ""
+        log.info(
+            "Chunking full markdown (size=%d, overlap=%d, %d chars) ...",
+            settings.chunk_size,
+            settings.chunk_overlap,
+            len(full_markdown),
         )
 
-        meta = chunk_metadata(doc_meta)
-        for level, val in header_levels.items():
-            meta[f"h{level}"] = val
-        if section:
-            meta["section"] = section
-            title = _clean_section_title(section)
-            if title:
-                meta["section_title"] = title
+        md_splitter = MarkdownHeaderTextSplitter(
+            headers_to_split_on=_HEADERS_TO_SPLIT_ON,
+            strip_headers=False,
+        )
+        sections = md_splitter.split_text(full_markdown)
+        char_chunks = _make_splitter().split_documents(sections)
+        log.info(
+            "  -> %d sections -> %d char chunks (pre-filter)",
+            len(sections),
+            len(char_chunks),
+        )
 
-        # Prepend section context unless the chunk already begins with
-        # a heading (e.g. the first chunk of a section, which keeps its
-        # original heading thanks to strip_headers=False).
-        if header_levels and not cleaned.lstrip().startswith("#"):
-            prefix = _build_header_prefix(header_levels)
-            cleaned = f"{prefix}\n\n{cleaned}"
+        out: list[Document] = []
+        skipped_header_only = 0
+        skipped_too_small = 0
 
-        out.append(Document(page_content=cleaned, metadata=meta))
+        for chunk in char_chunks:
+            cleaned = chunk.page_content.strip()
+            cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
 
-    log.info(
-        "  -> %d kept chunks (filtered: %d header-only, %d too-small)",
-        len(out),
-        skipped_header_only,
-        skipped_too_small,
-    )
-    return out
+            if not cleaned:
+                continue
+            if _is_header_only(cleaned):
+                skipped_header_only += 1
+                continue
+            if len(cleaned) < _MIN_CHUNK_CHARS:
+                skipped_too_small += 1
+                continue
+
+            # Header levels from MarkdownHeaderTextSplitter metadata.
+            header_levels: dict[int, str] = {}
+            for level, key in enumerate(("h1", "h2", "h3", "h4"), start=1):
+                val = chunk.metadata.get(key)
+                if val:
+                    header_levels[level] = str(val).strip()
+
+            section = (
+                header_levels[max(header_levels)]
+                if header_levels
+                else ""
+            )
+
+            meta = chunk_metadata(doc_meta)
+            for level, val in header_levels.items():
+                meta[f"h{level}"] = val
+            if section:
+                meta["section"] = section
+                title = _clean_section_title(section)
+                if title:
+                    meta["section_title"] = title
+
+            # Prepend section context unless the chunk already begins with
+            # a heading (e.g. the first chunk of a section, which keeps
+            # its original heading thanks to strip_headers=False).
+            if header_levels and not cleaned.lstrip().startswith("#"):
+                prefix = _build_header_prefix(header_levels)
+                cleaned = f"{prefix}\n\n{cleaned}"
+
+            out.append(Document(page_content=cleaned, metadata=meta))
+
+        span.set_attribute("chunker.sections", len(sections))
+        span.set_attribute("chunker.chunks_raw", len(char_chunks))
+        span.set_attribute("chunker.chunks_kept", len(out))
+        span.set_attribute(
+            "chunker.skipped_header_only", skipped_header_only
+        )
+        span.set_attribute("chunker.skipped_too_small", skipped_too_small)
+        log.info(
+            "  -> %d kept chunks (filtered: %d header-only, %d too-small)",
+            len(out),
+            skipped_header_only,
+            skipped_too_small,
+        )
+        return out

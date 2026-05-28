@@ -12,6 +12,8 @@ The PoC runs **100% locally** on WSL2 — no external LLM API calls, no cloud de
 |---|---|
 | **[SETUP.md](SETUP.md)** | First-time install — WSL2 prerequisites, bootstrap script, configuration, verification |
 | **[USAGE.md](USAGE.md)** | Day-to-day operation — running the stack, ingesting policy PDFs, observability in Aspire, troubleshooting |
+| **[GRAPH.md](GRAPH.md)** | LangGraph state diagram + per-node + edge reference |
+| [docs/ingestion.md](docs/ingestion.md) | Phase 6 ingestion & chunking pipeline (design + tuning) |
 | [docs/PoC_scope.md](docs/PoC_scope.md) | Original scope & 5-phase plan |
 | [docs/insurance_rag_strategic_roadmap.md](docs/insurance_rag_strategic_roadmap.md) | Strategic roadmap |
 
@@ -94,6 +96,16 @@ Built in 5 incremental phases — all implemented. Full detail in [docs/PoC_scop
 | **4** ✅ | SQLite long-term memory + per-user conversations | [poc/app/memory/](poc/app/memory/), [poc/app/agents/memory_agent.py](poc/app/agents/memory_agent.py) |
 | **5** ✅ | OpenTelemetry traces + logs + metrics (Aspire Dashboard) | [poc/app/observability/](poc/app/observability/), [poc/scripts/run_observability.sh](poc/scripts/run_observability.sh) |
 | **6** ✅ | Per-document ingestion pipeline: PDF → Markdown → metadata sidecar → ChromaDB. Same flow used by the batch script and the `POST /ingest` endpoint for UI uploads | [poc/app/ingestion/](poc/app/ingestion/), [poc/data/knowledge_base/](poc/data/knowledge_base/) |
+| **7** 🟡 planned | Better answering: clarifier node for ambiguous queries · filtered semantic search (by `section_title`, `year`, …) · golden-example few-shot prompting + eval set | (new) `poc/app/graph/clarifier.py`, `poc/app/eval/`, retriever filter params |
+| **8** 🟡 planned | Report templates v2: pluggable report types (policy summary, year-comparison, KPI dashboard) · numeric KPI extraction · chart variety (line / pie / comparison) | extends [poc/app/reporting/](poc/app/reporting/), new `poc/app/reporting/templates/` |
+| **9** 🟡 planned | PoC slide deck — `python-pptx`-driven generator with sections per phase, screenshots, demo flow | (new) `poc/scripts/build_pptx.py`, `docs/slides.pptx` output |
+
+### Nice-to-have (not on the roadmap)
+
+Lower-priority items that improve quality but aren't gating the PoC:
+
+- **Table extraction from PDFs** — `pymupdf4llm` handles simple tables but complex multi-page tables sometimes render messily. Fall back to `tabula-py` or `unstructured.io` only for table-heavy docs would yield cleaner chunks for KPI-style retrieval.
+- **Unit test coverage** — `tests/unit/test_imports.py` catches gross breakage. Adding focused unit tests for the pure functions (`_clean_section_title`, `_smart_join_pages`, `_parse_validation`, `chunk_metadata`) would lock the chunking + parsing logic against regressions.
 
 ### Phase 1 — Basic RAG
 PyMuPDF loader (page-level documents) → RecursiveCharacterTextSplitter with page metadata preserved → Chroma persisted to disk → token-streamed answers via `/chat/stream` (NDJSON). Each citation in the UI carries a **Download PDF** link and a **View chunk** popover showing the retrieved text.

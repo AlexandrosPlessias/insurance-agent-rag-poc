@@ -19,6 +19,7 @@ from app.ui.api_client import (  # noqa: E402
     list_conversations,
     source_url,
     stream_chat,
+    upload_document,
 )
 
 # Initialise OTel for the UI process - no-op if OTEL_ENABLED=false.
@@ -134,6 +135,62 @@ with st.sidebar:
             st.rerun()
 
     st.divider()
+    with st.expander("📤 Upload document", expanded=False):
+        uploaded_file = st.file_uploader(
+            "PDF",
+            type=["pdf"],
+            label_visibility="collapsed",
+            key="ingest_uploader",
+        )
+        up_title = st.text_input(
+            "Title", placeholder="e.g. ACME Auto Policy 2025"
+        )
+        up_year_str = st.text_input(
+            "Year", placeholder="e.g. 2025"
+        )
+        up_keywords = st.text_input(
+            "Keywords", placeholder="comma-separated"
+        )
+        up_category = st.text_input(
+            "Document category", placeholder="e.g. policy, guidelines"
+        )
+        if st.button(
+            "Ingest",
+            disabled=uploaded_file is None,
+            use_container_width=True,
+        ) and uploaded_file is not None:
+            up_year: int | None = None
+            if up_year_str.strip():
+                try:
+                    up_year = int(up_year_str.strip())
+                except ValueError:
+                    st.warning("Year must be an integer; ignoring.")
+            with st.spinner(f"Ingesting {uploaded_file.name} ..."):
+                try:
+                    result = upload_document(
+                        uploaded_file.name,
+                        uploaded_file.getvalue(),
+                        title=up_title or None,
+                        year=up_year,
+                        keywords=up_keywords or None,
+                        document_category=up_category or None,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    st.error(f"Upload failed: {exc}")
+                else:
+                    # `st.toast` survives the rerun (st.success would
+                    # be wiped). Toast pops at the bottom-right; the
+                    # rerun then refreshes the conversation list and
+                    # any downstream queries pick up the new chunks.
+                    st.toast(
+                        f"Indexed {result.get('chunks_indexed', '?')} "
+                        f"chunks from {uploaded_file.name} "
+                        f"({result.get('page_count', '?')} pages)",
+                        icon="✅",
+                    )
+                    st.rerun()
+
+    st.divider()
     st.subheader("Backend status")
     try:
         h = get_health()
@@ -193,13 +250,8 @@ def render_citations(citations: list[dict]) -> None:
         section = (c.get("section") or "").strip()
         section_title = (c.get("section_title") or "").strip()
         section_display = section_title or section
-        page = c.get("page", 0)
 
-        # Build the caption text. Page is shown only when present and
-        # > 0 (older indexed chunks may still have it).
         bits = [f"[{i}] {c['source']}"]
-        if page:
-            bits.append(f"p.{page}")
         if section_display:
             bits.append(section_display)
         caption_text = "  ·  ".join(bits)
@@ -215,8 +267,6 @@ def render_citations(citations: list[dict]) -> None:
             f"View chunk {i}", use_container_width=True
         ):
             header = f"**{c['source']}**"
-            if page:
-                header += f" (p. {page})"
             if section_display:
                 header += f"  \n_Section: {section_display}_"
             st.markdown(header)

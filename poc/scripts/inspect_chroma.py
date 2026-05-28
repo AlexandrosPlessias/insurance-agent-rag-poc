@@ -42,10 +42,7 @@ def _format_chunk(doc: str, meta: dict, idx: int, show_meta: bool) -> None:
     section = (
         meta.get("section_title") or meta.get("section") or ""
     ).strip()
-    page = meta.get("page")
     bits = [f"[{idx}] {src}"]
-    if page:
-        bits.append(f"p. {page}")
     if section:
         bits.append(section)
     print("\n" + "  ·  ".join(bits))
@@ -156,10 +153,7 @@ def _render_report(source: str, docs: list[str], metas: list[dict]) -> str:
         section = (
             meta.get("section_title") or meta.get("section") or ""
         )
-        page = meta.get("page")
         title_bits = [f"Chunk {i}"]
-        if page:
-            title_bits.append(f"page {page}")
         if section:
             title_bits.append(section)
         lines.append("### " + "  ·  ".join(title_bits))

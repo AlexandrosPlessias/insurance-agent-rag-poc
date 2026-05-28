@@ -26,8 +26,12 @@ from app.observability.logging import (  # noqa: E402
     configure_logging,
     get_logger,
 )
+from app.observability.tracing import setup_otel  # noqa: E402
 
 configure_logging()
+# Emit traces / logs to Aspire when OTEL_ENABLED=true. No-op otherwise,
+# so the CLI works the same as before when observability is off.
+setup_otel(service_suffix="ingest")
 log = get_logger("ingest_pdfs")
 
 DEFAULT_WORKERS = int(os.getenv("INGEST_WORKERS", "4"))

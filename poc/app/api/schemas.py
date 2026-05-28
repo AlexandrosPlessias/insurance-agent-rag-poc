@@ -13,10 +13,6 @@ class ChatRequest(BaseModel):
 
 class Citation(BaseModel):
     source: str
-    # `page` is a legacy field; newer chunks don't carry a page number
-    # (page tracking was removed to keep cross-page sentences intact).
-    # UI / smoke test hide it when 0.
-    page: int = 0
     content: str = ""
     download_url: str = ""
     section: str = ""

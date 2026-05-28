@@ -1,26 +1,23 @@
 """GET /sources/{filename} - download an indexed source PDF.
 
-Allow-listed to data/raw/ and tests/fixtures/ to prevent path traversal.
+Allow-listed to data/knowledge_base/raw/ to prevent path traversal.
 """
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
-from app.config import POC_ROOT, settings
+from app.config import settings
 from app.observability.logging import get_logger
 
 log = get_logger(__name__)
 router = APIRouter()
 
-_FIXTURES_DIR = POC_ROOT / "tests" / "fixtures"
-
 
 def _safe_lookup(filename: str):
     if "/" in filename or "\\" in filename or ".." in filename:
         return None
-    for base in (settings.raw_pdf_dir, _FIXTURES_DIR):
-        candidate = base / filename
-        if candidate.is_file():
-            return candidate
+    candidate = settings.raw_pdf_dir / filename
+    if candidate.is_file():
+        return candidate
     return None
 
 

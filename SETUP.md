@@ -89,12 +89,12 @@ python scripts/smoke_test.py
 You should see Aspire-style log lines tagged by module name and a final answer for each question, e.g.:
 
 ```
-Q: What is the deductible for collision claims?
-A: The deductible for collision claims is EUR 500 per claim.
+Q: What is the refund window in the 2024 customer guidelines?
+A: Refunds are processed within 14 calendar days of an approved request.
 Route       : rag
 Validated   : True
 Citations   :
-  - sample_policy.pdf (p. 1)
+  - Enhanced_Customer_Guidelines_2024.pdf  ·  Refund Policy
 ```
 
 If that passes, you're done with setup. Head to [USAGE.md](USAGE.md).

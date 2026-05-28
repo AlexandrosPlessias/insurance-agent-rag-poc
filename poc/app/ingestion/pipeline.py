@@ -16,17 +16,19 @@ from app.config import settings
 from app.ingestion.metadata import build_document_metadata, write_metadata
 from app.ingestion.pdf_to_md import pdf_to_markdown_pages
 from app.observability.logging import get_logger
+from app.observability.tracing import get_tracer
 from app.rag.chunker import chunk_markdown_doc
-from app.rag.vectorstore import add_documents
+from app.rag.vectorstore import add_documents, delete_by_source
 
 log = get_logger(__name__)
+tracer = get_tracer(__name__)
 
 
 _BLOCK_START = re.compile(r"^(#{1,6}\s|[-*]\s|\d+\.\s|>|```)")
 
 
 def _smart_join_pages(pages: list[dict]) -> str:
-    """Concatenate page markdowns into one body, reuniting cross-page sentences.
+    """Concatenate pages into one body; reunite cross-page sentences.
 
     Heuristics (pymupdf4llm always emits clean per-page markdown):
       - Previous page ends with terminating punctuation OR next page starts
@@ -77,7 +79,7 @@ def ingest_document(
     ----------
     pdf_path:
         Path to the source PDF. Typically inside `data/knowledge_base/raw/`
-        but any readable path works (smoke test points at tests/fixtures/).
+        but any readable path works.
     extra_metadata:
         Optional overrides for the sidecar JSON - e.g. title, keywords,
         language, document_category. The UI upload form will populate
@@ -87,55 +89,65 @@ def ingest_document(
     if not pdf_path.is_file():
         raise FileNotFoundError(pdf_path)
 
-    t0 = time.perf_counter()
-    log.info("=== Ingesting %s ===", pdf_path.name)
+    with tracer.start_as_current_span("ingestion.pipeline") as span:
+        span.set_attribute("ingestion.source", pdf_path.name)
 
-    # 1. PDF -> per-page Markdown
-    pages = pdf_to_markdown_pages(pdf_path)
+        t0 = time.perf_counter()
+        log.info("=== Ingesting %s ===", pdf_path.name)
 
-    # 2. Write the full markdown to processed/ - one .md per PDF, no
-    #    page markers. Pages are joined "smartly": a clean paragraph
-    #    break between pages where the previous page ended cleanly
-    #    (terminating punctuation), or a single space where the
-    #    previous page ended mid-sentence (so the sentence is reunited
-    #    instead of being severed at the page boundary). This trades
-    #    page-level citations for clean text flow - chunks no longer
-    #    cut sentences at page transitions.
-    settings.processed_dir.mkdir(parents=True, exist_ok=True)
-    md_path = settings.processed_dir / (pdf_path.stem + ".md")
-    md_text = _smart_join_pages(pages)
-    md_path.write_text(md_text, encoding="utf-8")
-    log.info(
-        "  -> wrote %d-char markdown to processed/%s",
-        len(md_text),
-        md_path.name,
-    )
+        # 1. PDF -> per-page Markdown
+        pages = pdf_to_markdown_pages(pdf_path)
 
-    # 3. Document-level metadata sidecar (validated against schema.json)
-    doc_meta = build_document_metadata(pdf_path, pages, extra_metadata)
-    meta_path = settings.metadata_dir / (pdf_path.stem + ".json")
-    write_metadata(meta_path, doc_meta)
+        # 2. Write the full markdown to processed/ - one .md per PDF, no
+        #    page markers. Pages are joined "smartly": a clean paragraph
+        #    break between pages where the previous page ended cleanly
+        #    (terminating punctuation), or a single space where the
+        #    previous page ended mid-sentence (so the sentence is reunited
+        #    instead of being severed at the page boundary). This trades
+        #    page-level citations for clean text flow - chunks no longer
+        #    cut sentences at page transitions.
+        settings.processed_dir.mkdir(parents=True, exist_ok=True)
+        md_path = settings.processed_dir / (pdf_path.stem + ".md")
+        md_text = _smart_join_pages(pages)
+        md_path.write_text(md_text, encoding="utf-8")
+        span.set_attribute("ingestion.markdown_chars", len(md_text))
+        log.info(
+            "  -> wrote %d-char markdown to processed/%s",
+            len(md_text),
+            md_path.name,
+        )
 
-    # 4. Chunk the FULL document markdown (cross-page boundaries OK).
-    #    Each chunk's metadata records its starting page (and a `pages`
-    #    list when the chunk spans more than one).
-    chunks = chunk_markdown_doc(doc_meta, md_text)
-    n = add_documents(chunks)
+        # 3. Document-level metadata sidecar (validated against schema.json)
+        doc_meta = build_document_metadata(pdf_path, pages, extra_metadata)
+        meta_path = settings.metadata_dir / (pdf_path.stem + ".json")
+        write_metadata(meta_path, doc_meta)
 
-    elapsed = time.perf_counter() - t0
-    log.info(
-        "=== Done %s: %d pages, %d chunks indexed in %.2fs ===",
-        pdf_path.name,
-        len(pages),
-        n,
-        elapsed,
-    )
-    return IngestionResult(
-        doc_id=doc_meta["doc_id"],
-        source_path=pdf_path,
-        markdown_path=md_path,
-        metadata_path=meta_path,
-        page_count=len(pages),
-        chunks_indexed=n,
-        duration_s=elapsed,
-    )
+        # 4. Idempotent re-ingest: delete any existing chunks for this
+        #    source filename so a second `ingest_document(same_pdf)` call
+        #    replaces them instead of inserting duplicates.
+        delete_by_source(pdf_path.name)
+
+        # 5. Chunk the full Markdown body and index the new chunks.
+        chunks = chunk_markdown_doc(doc_meta, md_text)
+        n = add_documents(chunks)
+
+        elapsed = time.perf_counter() - t0
+        span.set_attribute("ingestion.page_count", len(pages))
+        span.set_attribute("ingestion.chunks_indexed", n)
+        span.set_attribute("ingestion.duration_s", round(elapsed, 3))
+        log.info(
+            "=== Done %s: %d pages, %d chunks indexed in %.2fs ===",
+            pdf_path.name,
+            len(pages),
+            n,
+            elapsed,
+        )
+        return IngestionResult(
+            doc_id=doc_meta["doc_id"],
+            source_path=pdf_path,
+            markdown_path=md_path,
+            metadata_path=meta_path,
+            page_count=len(pages),
+            chunks_indexed=n,
+            duration_s=elapsed,
+        )

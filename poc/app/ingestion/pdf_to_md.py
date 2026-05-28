@@ -6,8 +6,10 @@ text extraction used in earlier phases.
 from pathlib import Path
 
 from app.observability.logging import get_logger
+from app.observability.tracing import get_tracer
 
 log = get_logger(__name__)
+tracer = get_tracer(__name__)
 
 
 def pdf_to_markdown_pages(pdf_path: Path) -> list[dict]:
@@ -17,30 +19,34 @@ def pdf_to_markdown_pages(pdf_path: Path) -> list[dict]:
     either a string (when page_chunks=False) or a list of dicts with a
     `metadata` block (page index) and `text` field. We normalise both.
     """
-    import pymupdf4llm  # heavy import - kept lazy
+    with tracer.start_as_current_span("ingestion.pdf_to_md") as span:
+        span.set_attribute("ingestion.source", pdf_path.name)
 
-    log.info("PDF -> Markdown: %s", pdf_path.name)
-    raw = pymupdf4llm.to_markdown(
-        str(pdf_path),
-        page_chunks=True,
-        write_images=False,
-    )
+        import pymupdf4llm  # heavy import - kept lazy
 
-    pages: list[dict] = []
-    if isinstance(raw, str):
-        pages.append({"page": 1, "markdown": raw})
-    else:
-        for idx, item in enumerate(raw):
-            if isinstance(item, dict):
-                meta = item.get("metadata", {}) or {}
-                page = meta.get("page")
-                if page is None:
+        log.info("PDF -> Markdown: %s", pdf_path.name)
+        raw = pymupdf4llm.to_markdown(
+            str(pdf_path),
+            page_chunks=True,
+            write_images=False,
+        )
+
+        pages: list[dict] = []
+        if isinstance(raw, str):
+            pages.append({"page": 1, "markdown": raw})
+        else:
+            for idx, item in enumerate(raw):
+                if isinstance(item, dict):
+                    meta = item.get("metadata", {}) or {}
+                    page = meta.get("page")
+                    if page is None:
+                        page = idx + 1
+                    text = item.get("text") or item.get("markdown") or ""
+                else:
                     page = idx + 1
-                text = item.get("text") or item.get("markdown") or ""
-            else:
-                page = idx + 1
-                text = str(item)
-            pages.append({"page": int(page), "markdown": text})
+                    text = str(item)
+                pages.append({"page": int(page), "markdown": text})
 
-    log.info("  -> %d pages of markdown", len(pages))
-    return pages
+        span.set_attribute("ingestion.page_count", len(pages))
+        log.info("  -> %d pages of markdown", len(pages))
+        return pages

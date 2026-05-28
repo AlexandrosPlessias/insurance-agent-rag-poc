@@ -17,7 +17,6 @@ tracer = get_tracer(__name__)
 class RetrievedChunk:
     content: str
     source: str
-    page: int = 0  # legacy field; chunks no longer carry page metadata
     section: str = ""
     section_title: str = ""
 
@@ -48,9 +47,6 @@ def retrieve(query: str, k: int | None = None) -> list[RetrievedChunk]:
             RetrievedChunk(
                 content=d.page_content,
                 source=d.metadata.get("source", "unknown"),
-                # `page` is kept as a legacy field; older indexed chunks
-                # may still have it set, newer ones default to 0.
-                page=int(d.metadata.get("page", 0) or 0),
                 section=str(d.metadata.get("section", "") or ""),
                 section_title=str(
                     d.metadata.get("section_title", "") or ""
