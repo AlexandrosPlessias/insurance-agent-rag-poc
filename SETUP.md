@@ -73,7 +73,7 @@ Defaults work out of the box. Adjust only what you need:
 | `OTEL_ENDPOINT` | `http://localhost:4317` | Aspire OTLP gRPC receiver |
 | `OTEL_UI_URL` | `http://localhost:18888` | Aspire web UI |
 
-> ⚠ `poc/data/raw/`, `poc/data/chroma_db/`, `poc/data/memory.sqlite`, and `poc/.venv/` are gitignored — your policy documents and local state never enter version control.
+> ⚠ Gitignored (local-only state): `poc/data/chroma_db/`, `poc/data/memory.sqlite`, `poc/data/knowledge_base/processed/`, `poc/data/knowledge_base/metadata/*.json`, `poc/.venv/`. **Tracked**: `poc/data/knowledge_base/raw/` (seed PDFs ship with the repo) and `poc/data/knowledge_base/metadata/schema.json`.
 
 ---
 
@@ -89,12 +89,12 @@ python scripts/smoke_test.py
 You should see Aspire-style log lines tagged by module name and a final answer for each question, e.g.:
 
 ```
-Q: What is the deductible for collision claims?
-A: The deductible for collision claims is EUR 500 per claim.
+Q: What is the refund window in the 2024 customer guidelines?
+A: Refunds are processed within 14 calendar days of an approved request.
 Route       : rag
 Validated   : True
 Citations   :
-  - sample_policy.pdf (p. 1)
+  - Enhanced_Customer_Guidelines_2024.pdf  ·  Refund Policy
 ```
 
 If that passes, you're done with setup. Head to [USAGE.md](USAGE.md).

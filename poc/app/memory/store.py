@@ -134,6 +134,43 @@ class MemoryStore:
             rows = conn.execute(sql, params).fetchall()
         return [self._row_to_message(r) for r in rows]
 
+    def get_messages_with_summary(
+        self,
+        conversation_id: int,
+        recent_n: int = 6,
+    ) -> list[dict]:
+        """Return the last `recent_n` messages, prepended by an LLM-summary
+        of any older messages.
+
+        When the conversation has more than `recent_n` total messages,
+        the older slice is condensed by `app.memory.summarizer` into a
+        single synthetic system message:
+            {"role": "system", "content": "[Earlier in this
+             conversation: ...]"}
+        which is then prepended to the recent slice. Older messages are
+        not deleted from the DB - this is a *prompt-time* compression,
+        not a storage policy.
+        """
+        all_msgs = self.get_messages(conversation_id)
+        if len(all_msgs) <= recent_n:
+            return all_msgs
+        older = all_msgs[: -recent_n]
+        recent = all_msgs[-recent_n:]
+        # Lazy import - keeps `app.memory.store` LLM-agnostic for tests.
+        from app.memory.summarizer import summarize_messages
+
+        digest = summarize_messages(older)
+        if not digest:
+            # LLM unavailable or empty - just return the recent slice.
+            return recent
+        summary_msg = {
+            "role": "system",
+            "content": f"[Earlier in this conversation: {digest}]",
+            "created_at": "",
+            "citations": [],
+        }
+        return [summary_msg] + recent
+
     def get_user_activity(
         self, user_id: str, limit: int = 10
     ) -> list[dict]:

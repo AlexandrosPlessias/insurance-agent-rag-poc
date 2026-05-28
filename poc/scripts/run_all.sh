@@ -65,6 +65,29 @@ fi
 # shellcheck disable=SC1091
 source .venv/bin/activate
 
+# Auto-ingest seed PDFs the first time, or when explicitly reset.
+#   SKIP_AUTO_INGEST=true    -> never run ingestion here
+#   RESET_KNOWLEDGE=true     -> wipe ChromaDB then re-ingest before starting
+if [ "${RESET_KNOWLEDGE:-false}" = "true" ]; then
+  color "  RESET_KNOWLEDGE=true - wiping stores and re-ingesting ..."
+  python scripts/reset_stores.py || true
+  python scripts/ingest_pdfs.py || color "  WARN: ingestion failed - continuing"
+elif [ "${SKIP_AUTO_INGEST:-false}" != "true" ]; then
+  CHUNK_COUNT=$(python - <<'PY' 2>/dev/null || echo 0
+try:
+    from app.rag.vectorstore import get_vectorstore
+    print(get_vectorstore()._collection.count())
+except Exception:
+    print(0)
+PY
+)
+  PDF_COUNT=$(find data/knowledge_base/raw -maxdepth 1 -name '*.pdf' 2>/dev/null | wc -l)
+  if [ "${CHUNK_COUNT:-0}" = "0" ] && [ "${PDF_COUNT:-0}" -gt "0" ]; then
+    color "  Chroma is empty and ${PDF_COUNT} PDF(s) present - first-time ingestion ..."
+    python scripts/ingest_pdfs.py || color "  WARN: ingestion failed - continuing"
+  fi
+fi
+
 color "[2/3] Starting FastAPI on http://${API_HOST}:${API_PORT} ..."
 uvicorn app.api.main:app --reload \
   --host "$API_HOST" \

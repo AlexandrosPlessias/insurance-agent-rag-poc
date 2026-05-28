@@ -2,7 +2,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import chat, conversations, health, sources
+from app.api.routes import chat, conversations, health, ingest, sources
 from app.config import settings
 from app.observability.logging import get_logger
 from app.observability.tracing import setup_otel
@@ -25,6 +25,7 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(chat.router)
 app.include_router(conversations.router)
+app.include_router(ingest.router)
 app.include_router(sources.router)
 
 log.info(

@@ -46,7 +46,13 @@ def _ensure_conversation(
 def _load_memory(
     store: MemoryStore, user_id: str, conversation_id: int
 ) -> tuple[list[dict], list[dict]]:
-    history = store.get_messages(conversation_id, limit=HISTORY_TURNS)
+    # Rolling summarisation: any messages older than the last
+    # HISTORY_TURNS get condensed into a single synthetic
+    # "system" message so the prompt stays bounded but the model
+    # still sees earlier context.
+    history = store.get_messages_with_summary(
+        conversation_id, recent_n=HISTORY_TURNS
+    )
     activity = store.get_user_activity(user_id, limit=ACTIVITY_LIMIT)
     return history, activity
 
@@ -56,9 +62,10 @@ def _citation_dicts(state: dict) -> list[dict]:
     return [
         {
             "source": c.source,
-            "page": c.page,
             "content": c.content,
             "download_url": f"/sources/{c.source}",
+            "section": getattr(c, "section", "") or "",
+            "section_title": getattr(c, "section_title", "") or "",
         }
         for c in chunks
     ]
