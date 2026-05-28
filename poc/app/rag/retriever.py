@@ -17,10 +17,14 @@ tracer = get_tracer(__name__)
 class RetrievedChunk:
     content: str
     source: str
-    page: int
+    section: str = ""
+    section_title: str = ""
 
     def as_citation(self) -> str:
-        return f"{self.source} (p. {self.page})"
+        topic = self.section_title or self.section
+        if topic:
+            return f"{self.source}  -  {topic}"
+        return self.source
 
 
 def retrieve(query: str, k: int | None = None) -> list[RetrievedChunk]:
@@ -43,7 +47,10 @@ def retrieve(query: str, k: int | None = None) -> list[RetrievedChunk]:
             RetrievedChunk(
                 content=d.page_content,
                 source=d.metadata.get("source", "unknown"),
-                page=int(d.metadata.get("page", 0)),
+                section=str(d.metadata.get("section", "") or ""),
+                section_title=str(
+                    d.metadata.get("section_title", "") or ""
+                ),
             )
             for d in docs
         ]

@@ -19,6 +19,7 @@ from app.ui.api_client import (  # noqa: E402
     list_conversations,
     source_url,
     stream_chat,
+    upload_document,
 )
 
 # Initialise OTel for the UI process - no-op if OTEL_ENABLED=false.
@@ -134,6 +135,62 @@ with st.sidebar:
             st.rerun()
 
     st.divider()
+    with st.expander("📤 Upload document", expanded=False):
+        uploaded_file = st.file_uploader(
+            "PDF",
+            type=["pdf"],
+            label_visibility="collapsed",
+            key="ingest_uploader",
+        )
+        up_title = st.text_input(
+            "Title", placeholder="e.g. ACME Auto Policy 2025"
+        )
+        up_year_str = st.text_input(
+            "Year", placeholder="e.g. 2025"
+        )
+        up_keywords = st.text_input(
+            "Keywords", placeholder="comma-separated"
+        )
+        up_category = st.text_input(
+            "Document category", placeholder="e.g. policy, guidelines"
+        )
+        if st.button(
+            "Ingest",
+            disabled=uploaded_file is None,
+            use_container_width=True,
+        ) and uploaded_file is not None:
+            up_year: int | None = None
+            if up_year_str.strip():
+                try:
+                    up_year = int(up_year_str.strip())
+                except ValueError:
+                    st.warning("Year must be an integer; ignoring.")
+            with st.spinner(f"Ingesting {uploaded_file.name} ..."):
+                try:
+                    result = upload_document(
+                        uploaded_file.name,
+                        uploaded_file.getvalue(),
+                        title=up_title or None,
+                        year=up_year,
+                        keywords=up_keywords or None,
+                        document_category=up_category or None,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    st.error(f"Upload failed: {exc}")
+                else:
+                    # `st.toast` survives the rerun (st.success would
+                    # be wiped). Toast pops at the bottom-right; the
+                    # rerun then refreshes the conversation list and
+                    # any downstream queries pick up the new chunks.
+                    st.toast(
+                        f"Indexed {result.get('chunks_indexed', '?')} "
+                        f"chunks from {uploaded_file.name} "
+                        f"({result.get('page_count', '?')} pages)",
+                        icon="✅",
+                    )
+                    st.rerun()
+
+    st.divider()
     st.subheader("Backend status")
     try:
         h = get_health()
@@ -154,12 +211,14 @@ with st.sidebar:
             f"`{settings.otel_endpoint}`."
         )
 
-    st.caption(
-        "Phase 1: streaming RAG with citations.\n"
-        "Phase 2: supervisor + validator + retry.\n"
-        "Phase 3: report agent (Markdown + charts).\n"
-        "Phase 4: SQLite long-term memory.\n"
-        "Phase 5: OpenTelemetry (traces + logs)."
+    st.markdown(
+        "**Implemented phases**\n"
+        "- 1 · streaming RAG with citations\n"
+        "- 2 · supervisor + validator + retry\n"
+        "- 3 · report agent (Markdown + charts)\n"
+        "- 4 · SQLite long-term memory\n"
+        "- 5 · OpenTelemetry (traces + logs + metrics)\n"
+        "- 6 · per-document ingestion (PDF -> Markdown -> Chroma)"
     )
 
 
@@ -185,8 +244,20 @@ def render_citations(citations: list[dict]) -> None:
         return
     st.markdown("**Sources**")
     for i, c in enumerate(citations, start=1):
+        # Prefer the cleaned section_title (e.g. "Refund Policy"); fall
+        # back to the verbatim section (e.g. "1. Refund Policy") so we
+        # still show something for chunks that lack section_title.
+        section = (c.get("section") or "").strip()
+        section_title = (c.get("section_title") or "").strip()
+        section_display = section_title or section
+
+        bits = [f"[{i}] {c['source']}"]
+        if section_display:
+            bits.append(section_display)
+        caption_text = "  ·  ".join(bits)
+
         cols = st.columns([4, 2, 2])
-        cols[0].caption(f"[{i}] {c['source']} - page {c['page']}")
+        cols[0].caption(caption_text)
         cols[1].link_button(
             "Download PDF",
             source_url(c["source"]),
@@ -195,7 +266,10 @@ def render_citations(citations: list[dict]) -> None:
         with cols[2].popover(
             f"View chunk {i}", use_container_width=True
         ):
-            st.markdown(f"**{c['source']} (p. {c['page']})**")
+            header = f"**{c['source']}**"
+            if section_display:
+                header += f"  \n_Section: {section_display}_"
+            st.markdown(header)
             st.text(c.get("content", "") or "(no content captured)")
 
 

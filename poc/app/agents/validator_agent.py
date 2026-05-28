@@ -25,7 +25,7 @@ def _format_context(chunks: list[RetrievedChunk]) -> str:
     if not chunks:
         return "(no chunks were retrieved)"
     return "\n\n".join(
-        f"[{i + 1}] {c.source} (p. {c.page})\n{c.content}"
+        f"[{i + 1}] {c.source}\n{c.content}"
         for i, c in enumerate(chunks)
     )
 

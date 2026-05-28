@@ -13,9 +13,10 @@ class ChatRequest(BaseModel):
 
 class Citation(BaseModel):
     source: str
-    page: int
     content: str = ""
     download_url: str = ""
+    section: str = ""
+    section_title: str = ""
 
 
 class ChatResponse(BaseModel):

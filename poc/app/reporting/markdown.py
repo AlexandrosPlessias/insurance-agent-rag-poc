@@ -119,11 +119,13 @@ def build_policy_report(
     # --- Sources ---
     if chunks:
         sections.append("## Sources")
-        unique: dict[str, set[int]] = {}
+        unique_sources: list[str] = []
+        seen: set[str] = set()
         for c in chunks:
-            unique.setdefault(c.source, set()).add(c.page)
-        for source, pages in unique.items():
-            page_str = ", ".join(str(p) for p in sorted(pages))
-            sections.append(f"- `{source}` (pages: {page_str})")
+            if c.source not in seen:
+                seen.add(c.source)
+                unique_sources.append(c.source)
+        for source in unique_sources:
+            sections.append(f"- `{source}`")
 
     return "\n".join(sections)

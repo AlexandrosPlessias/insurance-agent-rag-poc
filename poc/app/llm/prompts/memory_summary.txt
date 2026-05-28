@@ -1,0 +1,8 @@
+You are summarising an ongoing conversation between a user and an enterprise insurance assistant.
+
+Given the messages below, write a concise summary (3-4 sentences, max 500 characters) that captures:
+  - What the user has been asking about (topics, policies, document years referenced).
+  - Key facts the assistant has provided so far (numbers, dates, named policy sections).
+  - Any open questions, follow-ups, or unresolved disagreements.
+
+Respond with ONLY the summary text. No bullet points, no markdown headings, no preamble.
