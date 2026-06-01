@@ -121,6 +121,10 @@ def _classify_with_llm(question: str, today: str, covered: list[int]) -> str:
         ]
     )
     raw = str(result.content).strip().lower()
+    # Order matters - check the more specific tokens first so 'data'
+    # doesn't accidentally swallow 'database' or similar, and so the
+    # ambiguous 'rag' word (which is also a substring of many things)
+    # only fires as a last resort.
     if (
         "out_of_scope" in raw
         or "out-of-scope" in raw
@@ -129,6 +133,8 @@ def _classify_with_llm(question: str, today: str, covered: list[int]) -> str:
         return "out_of_scope"
     if "report" in raw:
         return "report"
+    if "data" in raw:
+        return "data"
     if "rag" in raw:
         return "rag"
     log.warning(
@@ -139,7 +145,7 @@ def _classify_with_llm(question: str, today: str, covered: list[int]) -> str:
 
 
 def supervisor_node(state: GraphState) -> dict:
-    question = state["question"]
+    question = state.get("question") or ""
     history = state.get("history") or []
     today = state.get("today") or date.today().isoformat()
     covered = list(state.get("covered_years") or settings.kb_covered_years)

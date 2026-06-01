@@ -110,7 +110,7 @@ def citation_payload(c: RetrievedChunk) -> dict:
 
 def rag_node(state: GraphState) -> dict:
     """Sync RAG node used by the compiled LangGraph (non-streaming)."""
-    question = state["question"]
+    question = state.get("question") or ""
     retry_count = state.get("retry_count", 0)
     critique = state.get("last_critique", "")
     history = state.get("history", [])

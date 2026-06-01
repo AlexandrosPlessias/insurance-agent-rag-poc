@@ -1,0 +1,119 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ACME Insurance KPI dataset (real seed)",
+  "description": "Schema sidecar for insurance_kpis_2020_2024.csv. Maps each column to a 'kind' (stock / flow / rate / snapshot) so the Phase 8 executor can refuse nonsensical aggregations without the LLM ever being asked. The CSV is sparse - one row per (year, month, channel, product_line) cycling through combos - plus two pre-aggregated annual rollup rows where channel='All' and product_line='All' (2020-ANNUAL and 2024-ANNUAL only). Treat the rollup rows as cross-check fixtures; the executor excludes them by default when running aggregations to avoid double-counting.",
+  "version": "1.0.0",
+  "currency": "EUR",
+  "csv_filename": "insurance_kpis_2020_2024.csv",
+  "dimensions": {
+    "year": {
+      "type": "integer",
+      "covered": [2020, 2021, 2022, 2024],
+      "gap": [2023],
+      "description": "Reuses settings.kb_covered_years. Year 2023 is intentionally absent - executor raises OperationViolation(reason=\"year_gap\") for queries that target it."
+    },
+    "period": {
+      "type": "string",
+      "format": "YYYY-MM or YYYY-ANNUAL",
+      "monthly_example": "2024-01",
+      "annual_example": "2024-ANNUAL",
+      "annual_rollup_years": [2020, 2024],
+      "description": "Monthly rows use YYYY-MM. Two pre-aggregated annual rollup rows exist for 2020 and 2024 only - executor filters them out unless explicitly requested."
+    },
+    "channel": {
+      "type": "string",
+      "domain": ["Agency", "Bancassurance", "Direct"],
+      "rollup_value": "All",
+      "description": "Three sales channels. The literal value 'All' only appears on the annual-rollup rows."
+    },
+    "product_line": {
+      "type": "string",
+      "domain": ["Motor", "Health", "Property", "Life"],
+      "rollup_value": "All",
+      "description": "Four lines of business. The literal value 'All' only appears on the annual-rollup rows."
+    }
+  },
+  "metrics": {
+    "policies_in_force": {
+      "kind": "stock",
+      "unit": "policies",
+      "description": "End-of-period stock. Do NOT sum across periods (each row already carries the running total at that period's end)."
+    },
+    "new_policies": {
+      "kind": "flow",
+      "unit": "policies",
+      "description": "Period flow. Sum freely across periods and dimensions."
+    },
+    "renewal_rate_pct": {
+      "kind": "rate",
+      "unit": "%",
+      "range": [0, 100],
+      "description": "Percentage of eligible policies that renewed in the period. Aggregate with weighted_mean using policies_in_force as the weight - sum is meaningless."
+    },
+    "gross_written_premium_eur": {
+      "kind": "flow",
+      "unit": "EUR",
+      "description": "Total GWP in EUR (NOT thousands - full units). Sum freely across periods."
+    },
+    "claims_reported": {
+      "kind": "flow",
+      "unit": "claims",
+      "description": "Number of new claims reported during the period (count)."
+    },
+    "claims_paid_eur": {
+      "kind": "flow",
+      "unit": "EUR",
+      "description": "Total EUR paid out on claims in the period (monetary - distinct from claims_reported which is a count)."
+    },
+    "avg_claim_settlement_days": {
+      "kind": "snapshot",
+      "unit": "days",
+      "description": "Average number of days to settle a claim, computed over claims paid in the period. Aggregate across periods with weighted_mean using claims_reported as the weight."
+    },
+    "loss_ratio_pct": {
+      "kind": "rate",
+      "unit": "%",
+      "range": [0, 200],
+      "description": "Claims paid / gross written premium, as a percentage. Aggregate with weighted_mean using gross_written_premium_eur as the weight - sum is meaningless."
+    },
+    "nps_score": {
+      "kind": "snapshot",
+      "unit": "score",
+      "range": [-100, 100],
+      "description": "Net Promoter Score snapshot at end of period. Aggregate with mean or weighted_mean by policies_in_force across channels."
+    },
+    "complaints_count": {
+      "kind": "flow",
+      "unit": "complaints",
+      "description": "Period flow. Sum freely."
+    },
+    "fraud_cases_detected": {
+      "kind": "flow",
+      "unit": "cases",
+      "description": "Period flow. Sum freely."
+    },
+    "compliance_incidents": {
+      "kind": "flow",
+      "unit": "incidents",
+      "description": "Period flow. Sum freely."
+    },
+    "operating_expense_eur": {
+      "kind": "flow",
+      "unit": "EUR",
+      "description": "Total operating expense for the period (salaries + IT + marketing - everything except claims paid)."
+    },
+    "digital_adoption_pct": {
+      "kind": "snapshot",
+      "unit": "%",
+      "range": [0, 100],
+      "description": "Percentage of new_policies and claims filed via digital channels. Aggregate with weighted_mean using new_policies as the weight."
+    }
+  },
+  "valid_aggregations": {
+    "flow": ["sum", "mean", "min", "max"],
+    "stock": ["mean", "min", "max", "first", "last"],
+    "rate": ["weighted_mean", "min", "max"],
+    "snapshot": ["mean", "weighted_mean", "min", "max"]
+  },
+  "comment": "The executor reads valid_aggregations[metric.kind] and rejects any aggregation not in the list. This is the one place where domain rules live - the planner LLM never sees this list, it sees only the metric names and dimension domains via the prompt."
+}

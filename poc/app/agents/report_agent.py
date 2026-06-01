@@ -78,7 +78,7 @@ def _extract_policy_data(chunks: list[RetrievedChunk]) -> dict:
 
 def report_node(state: GraphState) -> dict:
     """Build a Markdown policy report. Skips validation."""
-    question = state["question"]
+    question = state.get("question") or ""
     user_activity = state.get("user_activity", []) or []
 
     with tracer.start_as_current_span("report.node") as span, \

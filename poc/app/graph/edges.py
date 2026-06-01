@@ -10,13 +10,18 @@ log = get_logger(__name__)
 def route_from_supervisor(
     state: GraphState,
 ) -> Literal[
-    "rag", "report", "out_of_scope", "needs_clarification", "out_of_year"
+    "rag", "report", "out_of_scope",
+    "needs_clarification", "out_of_year",
+    "data",
 ]:
     """Map the supervisor's route string to a conditional-edge key.
 
-    Phase 7 adds two routes: `needs_clarification` (asks one targeted
-    question, ends the turn) and `out_of_year` (graceful refusal naming
-    the covered years).
+    Phase 7 added: `needs_clarification` (asks one targeted question,
+    ends the turn) and `out_of_year` (graceful refusal naming the
+    covered years).
+
+    Phase 8 added: `data` (Talk-to-Data agent - planner + executor
+    over the KPI dataset, terminal).
     """
     return state.get("route", "rag")
 

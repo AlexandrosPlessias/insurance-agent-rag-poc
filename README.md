@@ -98,7 +98,7 @@ Phases 1–6 are implemented. Phases 7–10 are designed (one MD per phase) but 
 | **5** ✅ | OpenTelemetry traces + logs + metrics (Aspire Dashboard) | [poc/app/observability/](poc/app/observability/), [poc/scripts/run_observability.sh](poc/scripts/run_observability.sh) |
 | **6** ✅ | Per-document ingestion pipeline: PDF → Markdown → metadata sidecar → ChromaDB. Same flow used by the batch script and the `POST /ingest` endpoint for UI uploads | [poc/app/ingestion/](poc/app/ingestion/), [poc/data/knowledge_base/](poc/data/knowledge_base/) |
 | **7** ✅ | Year-aware retrieval (KB covers 2020/2021/2022/2024 — 2023 gap), today-aware reasoning, out-of-year fallback, clarifier node, audit-trail SQLite DB | [poc/app/graph/clarifier.py](poc/app/graph/clarifier.py), [poc/app/audit/](poc/app/audit/), retriever `where_filter`. Details: [Phase 7](#phase-7--year-aware-rag-clarifier-audit-trail-) |
-| **8** 🟡 planned | Talk-to-Data agent over `insurance_kpis.csv` (year / period / channel / product line × 13 KPIs) — natural-language quantitative analysis with drill-down follow-ups and verifiable Operation JSON | (new) `poc/app/agents/data_agent.py`, `poc/app/data/`. Details: [Phase 8](#phase-8--talk-to-data-agent-) |
+| **8** ✅ | Talk-to-Data agent over `insurance_kpis_2020_2024.csv` (year / period / channel / product line × 14 KPIs) — natural-language quantitative analysis with drill-down follow-ups and verifiable typed Operation JSON | [poc/app/agents/data_agent.py](poc/app/agents/data_agent.py), [poc/app/data/](poc/app/data/). Details: [Phase 8](#phase-8--talk-to-data-agent-) |
 | **9** 🟡 planned | Executive annual report for a selected year — narrative + KPI highlights + variance commentary + risk indicators + recommendations. Outputs: on-screen Markdown, downloadable DOCX, downloadable PDF | (extends) [poc/app/reporting/](poc/app/reporting/), new `poc/app/reporting/executive/` + `writers/`. Details: [Phase 9](#phase-9--executive-annual-report-) |
 | **10** 🟡 planned | PoC stakeholder deck (PPTX + PDF) — non-technical problem framing, retrospective, "what I'd do differently" (AG-UI, Azurized models, one-shot report experiment) | (new) `poc/scripts/build_pptx.py`, `docs/presentation/`. Details: [Phase 10](#phase-10--poc-presentation-deck-) |
 
@@ -190,7 +190,7 @@ Folds three closely-related concerns into the existing graph: temporal awareness
 - **Files (new / changed).** `poc/app/graph/clarifier.py` (new) · `poc/app/graph/state.py` (+`today`, `target_year`, `clarifier_reason`) · `poc/app/graph/supervisor.py` (new routes) · `poc/app/llm/prompts/supervisor.txt` (inject `today` + covered-years list) · `poc/app/rag/retriever.py` (accept `where_filter`) · `poc/app/audit/` (new package: `store.py`, `events.py`, `middleware.py`) · `poc/scripts/audit_export.py` (new — CSV dump for compliance review).
 - **Out of scope.** UI for the audit log (CSV export is enough for the PoC) · cross-year reformulation (Phase 8/9 concern) · backfilling audit rows for already-stored conversations.
 
-### Phase 8 — Talk-to-Data agent 🟡
+### Phase 8 — Talk-to-Data agent ✅
 
 Adds a fourth worker agent that answers quantitative questions over a structured KPI dataset, with drill-down follow-ups and verifiable answers.
 

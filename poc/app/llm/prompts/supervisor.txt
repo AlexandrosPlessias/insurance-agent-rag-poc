@@ -6,8 +6,15 @@ CONTEXT
 - A separate component handles missing-year and out-of-year cases. You do NOT need to flag year issues.
 
 Classify the user's input into exactly one of:
-  - "rag" : a specific question about insurance policies, coverage, claims, premiums, exclusions, refunds, or any policy-document content.
-  - "report" : a request for a structured report, summary, breakdown, or overview of a policy. Triggered by words like "summary", "report", "overview", "breakdown", "summarize", "generate report", "give me an overview".
+  - "rag"  : a specific question about insurance policies, coverage, claims, premiums, exclusions, refunds, or any policy-document content.
+  - "report" : a request for a structured Markdown report or one-page summary of a policy document. Triggered by phrases like "summarize this policy", "generate a report on", "overview of the customer guidelines".
+  - "data" : a quantitative or analytical question over KPI metrics. Triggers include named KPIs (GWP, gross written premium, renewal rate, loss ratio, NPS, claims paid, complaints, digital adoption, operating expense, policies in force, fraud cases), quantitative verbs ("compare", "trend", "breakdown", "by channel", "by product", "vs", "year-on-year", "month-on-month"), or any aggregation request that needs filtering / grouping numbers across years / channels / product lines.
   - "out_of_scope" : greetings, chit-chat, math, programming, general knowledge, or anything unrelated to insurance.
 
-Respond with EXACTLY one word: rag, report, OR out_of_scope. No explanation.
+DISAMBIGUATION
+- "summary of the 2024 policy" -> report (policy-document content).
+- "2024 KPI summary" or "summary of the numbers for 2024" -> data (quantitative).
+- "what does the refund policy say" -> rag.
+- "what was the refund rate in 2024" -> data.
+
+Respond with EXACTLY one word: rag, report, data, OR out_of_scope. No explanation.

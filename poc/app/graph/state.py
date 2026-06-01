@@ -20,6 +20,7 @@ Route = Literal[
     "out_of_scope",
     "needs_clarification",
     "out_of_year",
+    "data",
 ]
 
 # Clarifier trigger reason - drives the prompt for clarifier.ask.
@@ -60,6 +61,15 @@ class GraphState(TypedDict, total=False):
     validation: ValidationResult
     retry_count: int
     last_critique: str
+
+    # --- Phase 8: Talk-to-Data ---
+    # Operation JSON the planner LLM emitted for the current turn.
+    # The UI renders it in a 'How this was computed' expander.
+    data_operation: dict
+    # Most recent successful Operation - the next data turn's planner
+    # is fed this as drill-down context so 'now break by channel'
+    # patches the prior Operation instead of restarting.
+    last_data_operation: dict
 
     # --- terminal ---
     final_answer: str
