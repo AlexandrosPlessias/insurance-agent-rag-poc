@@ -89,11 +89,33 @@ def _build_planner_prompt(
     )
 
     if previous_operation:
+        # NB: this block is concatenated AFTER the .format() call
+        # above, so braces here are LITERAL, not format escapes -
+        # do not double them.
         prompt += (
-            "\n\nPREVIOUS QUERY (drill-down context)\n"
-            "The user is following up on this previous Operation. "
-            "PATCH it (carry filters forward, add/change only what "
-            "the new question changes) instead of starting over:\n"
+            "\n\nDRILL-DOWN MODE\n"
+            "The user is following up on a previous data turn. "
+            "Treat their new question as a PATCH on the previous "
+            "Operation:\n"
+            "  - Inherit every filter/dimension that the user did "
+            "    NOT contradict (year, period, channel, "
+            "    product_line, compare_to).\n"
+            "  - Apply only the user's new constraints on top.\n"
+            "  - Examples:\n"
+            "    prev: {metric:'gross_written_premium_eur', "
+            "filters:{year:[2024]}}\n"
+            "    user: 'now by channel'\n"
+            "    -> {metric:'gross_written_premium_eur', "
+            "filters:{year:[2024]}, group_by:['channel']}\n"
+            "    prev: as above with group_by:['channel']\n"
+            "    user: 'only direct'\n"
+            "    -> {metric:'gross_written_premium_eur', "
+            "filters:{year:[2024], channel:['Direct']}, "
+            "group_by:['channel']}\n"
+            "If the new question is unrelated (different metric "
+            "with no shared dimensions, or a clearly fresh topic), "
+            "you may ignore the previous Operation and start fresh.\n"
+            "\nPREVIOUS Operation (JSON):\n"
             + json.dumps(previous_operation, indent=2)
             + "\n"
         )
@@ -148,6 +170,17 @@ def plan_query(
     """LLM call: question → Operation. Wrapped in its own span."""
     with tracer.start_as_current_span("data.plan") as span:
         span.set_attribute("question.preview", question[:80])
+        span.set_attribute(
+            "data.plan.drilldown", bool(previous_operation)
+        )
+        if previous_operation:
+            log.info(
+                "Drill-down: previous metric=%s aggregation=%s "
+                "group_by=%s",
+                previous_operation.get("metric"),
+                previous_operation.get("aggregation"),
+                previous_operation.get("group_by"),
+            )
         prompt = _build_planner_prompt(today, previous_operation)
         t0 = time.perf_counter()
         result = get_llm().invoke(
@@ -366,6 +399,34 @@ class DataNodeOutput:
     row_count: int
 
 
+def _diff_against_previous(
+    current: dict, previous: dict | None
+) -> dict:
+    """Annotate which top-level fields the planner inherited vs changed.
+
+    Returns a dict with two lists:
+      inherited - fields present in both AND value-equal.
+      changed   - fields whose value differs (including new additions).
+    Only top-level Operation keys are compared (metric, filters,
+    group_by, aggregation, compare_to, sort_by, limit). The UI will
+    label fields accordingly in the 'How this was computed' expander.
+    """
+    if not previous:
+        return {"inherited": [], "changed": []}
+    keys = (
+        "metric", "filters", "group_by", "aggregation",
+        "compare_to", "sort_by", "limit",
+    )
+    inherited, changed = [], []
+    for k in keys:
+        if current.get(k) == previous.get(k):
+            if previous.get(k) not in (None, [], {}):
+                inherited.append(k)
+        else:
+            changed.append(k)
+    return {"inherited": inherited, "changed": changed}
+
+
 def data_node(state: GraphState) -> dict:
     """Run the planner → executor → renderer pipeline for one turn."""
     question = state["question"]
@@ -382,6 +443,7 @@ def data_node(state: GraphState) -> dict:
         )
         span.set_attribute("question.preview", question[:80])
         span.set_attribute("data.csv_sha256", ds.csv_sha256[:12])
+        span.set_attribute("data.drilldown", bool(previous_op))
 
         # Step 1 - plan.
         try:
@@ -417,11 +479,25 @@ def data_node(state: GraphState) -> dict:
         # Step 3 - render.
         answer_md = render(result)
         op_json = op.model_dump(mode="json")
+        diff = _diff_against_previous(op_json, previous_op)
+        # Tag the operation payload with drill-down provenance so the
+        # UI can label which fields were inherited from the previous
+        # turn and which the user actually changed this turn.
+        op_payload = {
+            **op_json,
+            "_drilldown": bool(previous_op),
+            "_inherited": diff["inherited"],
+            "_changed": diff["changed"],
+        }
         log.info(
-            "data_node done: metric=%s rows=%d duration=%.2fs",
+            "data_node done: metric=%s rows=%d duration=%.2fs "
+            "drilldown=%s inherited=%s changed=%s",
             result.metric,
             result.row_count,
             result.duration_s,
+            bool(previous_op),
+            diff["inherited"],
+            diff["changed"],
         )
 
         return {
@@ -429,6 +505,6 @@ def data_node(state: GraphState) -> dict:
             "final_citations": [],
             "validated": True,
             "retry_count": 0,
-            "data_operation": op_json,
+            "data_operation": op_payload,
             "last_data_operation": op_json,
         }
