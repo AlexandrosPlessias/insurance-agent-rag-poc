@@ -25,8 +25,36 @@ from app.ui.api_client import (  # noqa: E402
 # Initialise OTel for the UI process - no-op if OTEL_ENABLED=false.
 setup_otel(service_suffix="ui")
 
-st.set_page_config(page_title="Insurance Assistant", layout="wide")
-st.title("Insurance Assistant - Local RAG PoC")
+st.set_page_config(
+    page_title="ACME Insurances · Assistant",
+    page_icon="🛡️",
+    layout="wide",
+)
+
+# Branded header. Shield + name on the left, tagline + tech badge on
+# the right. Falls back gracefully on narrow screens because the
+# columns auto-stack.
+_header_cols = st.columns([1, 9])
+with _header_cols[0]:
+    st.markdown(
+        "<div style='font-size: 3.2rem; line-height: 1; "
+        "padding-top: .2rem;'>🛡️</div>",
+        unsafe_allow_html=True,
+    )
+with _header_cols[1]:
+    st.markdown(
+        "<h1 style='margin: 0 0 .1rem 0;'>ACME Insurances</h1>"
+        "<p style='margin: 0; color: rgba(170,180,200,.75); "
+        "font-size: .95rem;'>"
+        "Policy &amp; claims assistant "
+        "<span style='opacity: .55;'> · </span>"
+        "<span style='font-family: monospace; font-size: .8rem; "
+        "padding: .05rem .35rem; border-radius: .25rem; "
+        "background: rgba(120,140,200,.12);'>local RAG · PoC</span>"
+        "</p>",
+        unsafe_allow_html=True,
+    )
+st.divider()
 
 # Full graph topology rendered every turn. Each tuple is
 # (stage_key, label, route_that_owns_it, tools_used).
@@ -101,21 +129,28 @@ def _start_new_conversation() -> None:
     st.session_state.history = []
 
 
-# --- Sidebar ---
+# --- Sidebar (ACME-branded) ---
+# Order is now task-priority: brand → conversations (daily task) →
+# identity (compact) → knowledge base (upload) → service health
+# (always visible badge) → diagnostics + build history (collapsed).
 with st.sidebar:
-    st.subheader("User")
-    new_user = st.text_input(
-        "User ID",
-        value=st.session_state.user_id,
-        help="Identifies the owner of conversations and long-term memory.",
+    # Brand block at the top of the sidebar.
+    st.markdown(
+        "<div style='padding: .2rem 0 .6rem 0;'>"
+        "<div style='font-size: 1.25rem; font-weight: 600; "
+        "letter-spacing: .02em;'>🛡️ ACME Insurances</div>"
+        "<div style='font-size: .78rem; color: rgba(170,180,200,.65); "
+        "margin-top: .1rem;'>local assistant · qwen2.5:7b</div>"
+        "</div>",
+        unsafe_allow_html=True,
     )
-    if new_user != st.session_state.user_id:
-        st.session_state.user_id = new_user
-        _start_new_conversation()
-
     st.divider()
-    st.subheader("Conversations")
-    if st.button("+ New conversation", use_container_width=True):
+
+    # 💬 Conversations — primary task surface.
+    st.subheader("💬 Conversations")
+    if st.button(
+        "➕ New conversation", use_container_width=True, type="primary"
+    ):
         _start_new_conversation()
         st.rerun()
 
@@ -131,7 +166,7 @@ with st.sidebar:
         is_current = c["id"] == st.session_state.conversation_id
         label = c.get("title") or f"Conversation {c['id']}"
         if is_current:
-            label = f"* {label}"
+            label = f"● {label}"
         if st.button(
             label,
             key=f"conv_{c['id']}",
@@ -141,7 +176,25 @@ with st.sidebar:
             st.rerun()
 
     st.divider()
-    with st.expander("📤 Upload document", expanded=False):
+
+    # 👤 Identity — compact, sits below conversations because the
+    # default user_id is fine for most demo flows.
+    st.subheader("👤 Identity")
+    new_user = st.text_input(
+        "User ID",
+        value=st.session_state.user_id,
+        help="Identifies the owner of conversations and long-term memory.",
+        label_visibility="collapsed",
+    )
+    if new_user != st.session_state.user_id:
+        st.session_state.user_id = new_user
+        _start_new_conversation()
+
+    st.divider()
+
+    # 📚 Knowledge base — document upload form.
+    with st.expander("📚 Knowledge base", expanded=False):
+        st.caption("Index a new policy PDF.")
         uploaded_file = st.file_uploader(
             "PDF",
             type=["pdf"],
@@ -161,7 +214,7 @@ with st.sidebar:
             "Document category", placeholder="e.g. policy, guidelines"
         )
         if st.button(
-            "Ingest",
+            "📥 Ingest",
             disabled=uploaded_file is None,
             use_container_width=True,
         ) and uploaded_file is not None:
@@ -196,31 +249,33 @@ with st.sidebar:
                     )
                     st.rerun()
 
-    st.divider()
-    st.subheader("Backend status")
+    # Service health — always visible (small badge, no header).
     try:
         h = get_health()
-        st.success(f"API reachable - Ollama: {h['ollama_reachable']}")
-    except Exception as e:
-        st.error(f"API unreachable: {e}")
-
-    if settings.otel_enabled:
-        st.divider()
-        st.subheader("Observability")
-        st.link_button(
-            "Open Aspire Dashboard",
-            settings.otel_ui_url,
-            use_container_width=True,
-        )
+        ollama_ok = h["ollama_reachable"]
         st.caption(
-            "OTel is on - traces and logs stream to "
-            f"`{settings.otel_endpoint}`."
+            ("🟢 Service ready" if ollama_ok else "🟡 Ollama unreachable")
+            + (" · Ollama OK" if ollama_ok else "")
         )
+    except Exception as e:
+        st.caption(f"🔴 API unreachable: {e}")
 
-    # Build-history reference, hidden behind an expander so the
-    # sidebar stays compact. Order is chronological (1 -> 7) so the
-    # reader sees the PoC's progression rather than a flat checklist.
-    with st.expander("📋 Implemented phases", expanded=False):
+    # ⚙️ Diagnostics — Aspire link + build history. Collapsed by
+    # default because daily users don't need it.
+    with st.expander("⚙️ Diagnostics", expanded=False):
+        if settings.otel_enabled:
+            st.link_button(
+                "📊 Open Aspire Dashboard",
+                settings.otel_ui_url,
+                use_container_width=True,
+            )
+            st.caption(
+                "Traces &amp; logs stream to "
+                f"`{settings.otel_endpoint}`."
+            )
+            st.divider()
+
+        st.markdown("**Implemented phases**")
         st.markdown(
             "✅ **Phase 1** · streaming RAG with citations  \n"
             "✅ **Phase 2** · supervisor + validator with 1-retry loop  \n"
@@ -479,9 +534,18 @@ def render_reformulation(reformulated: str, original: str) -> None:
         st.code(reformulated, language="text")
 
 
+# Branded chat avatars: shield for the ACME assistant, person silhouette
+# for the user. Streamlit defaults to a generic robot and person glyph.
+ASSISTANT_AVATAR = "🛡️"
+USER_AVATAR = "👤"
+
+
 # --- Replay prior turns ---
 for entry in st.session_state.history:
-    with st.chat_message(entry["role"]):
+    avatar = (
+        ASSISTANT_AVATAR if entry["role"] == "assistant" else USER_AVATAR
+    )
+    with st.chat_message(entry["role"], avatar=avatar):
         route = entry.get("route", "")
         if entry["role"] == "assistant":
             if route == "rag":
@@ -503,16 +567,16 @@ for entry in st.session_state.history:
             st.write(entry["content"])
 
 question = st.chat_input(
-    "Ask about a policy, or request a report..."
+    "Ask ACME's assistant about a policy, claim, or refund…"
 )
 if question:
     st.session_state.history.append(
         {"role": "user", "content": question}
     )
-    with st.chat_message("user"):
+    with st.chat_message("user", avatar=USER_AVATAR):
         st.write(question)
 
-    with st.chat_message("assistant"):
+    with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
         stepper_slot = st.empty()
         meta_slot = st.empty()
         stages: dict[str, str] = {}
