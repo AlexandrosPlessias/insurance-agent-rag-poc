@@ -31,30 +31,12 @@ st.set_page_config(
     layout="wide",
 )
 
-# Branded header. Shield + name on the left, tagline + tech badge on
-# the right. Falls back gracefully on narrow screens because the
-# columns auto-stack.
-_header_cols = st.columns([1, 9])
-with _header_cols[0]:
-    st.markdown(
-        "<div style='font-size: 3.2rem; line-height: 1; "
-        "padding-top: .2rem;'>🛡️</div>",
-        unsafe_allow_html=True,
-    )
-with _header_cols[1]:
-    st.markdown(
-        "<h1 style='margin: 0 0 .1rem 0;'>ACME Insurances</h1>"
-        "<p style='margin: 0; color: rgba(170,180,200,.75); "
-        "font-size: .95rem;'>"
-        "Policy &amp; claims assistant "
-        "<span style='opacity: .55;'> · </span>"
-        "<span style='font-family: monospace; font-size: .8rem; "
-        "padding: .05rem .35rem; border-radius: .25rem; "
-        "background: rgba(120,140,200,.12);'>local RAG · PoC</span>"
-        "</p>",
-        unsafe_allow_html=True,
-    )
-st.divider()
+# Branded header - kept native (st.title + st.caption) so it plays
+# nicely with Streamlit's sticky-bottom chat_input. An earlier
+# attempt at a column+HTML header was eating vertical space and
+# hiding the chat input below the fold on smaller screens.
+st.title("🛡️ ACME Insurances")
+st.caption("Policy & claims assistant · local RAG · PoC")
 
 # Full graph topology rendered every turn. Each tuple is
 # (stage_key, label, route_that_owns_it, tools_used).
@@ -89,6 +71,29 @@ if "conversation_id" not in st.session_state:
     st.session_state.conversation_id = None
 if "history" not in st.session_state:
     st.session_state.history = []
+
+
+# --- Cached API calls ---
+# Streamlit reruns the whole script on every interaction. Without
+# caching, every keystroke / button click re-hits /health and
+# /conversations on the API (which in turn pings Ollama on /health,
+# making the round-trip slow). Short TTLs keep the sidebar feeling
+# fresh; we clear the conversations cache explicitly when one is
+# created or after a chat turn finishes so new rows show up at once.
+
+
+@st.cache_data(ttl=10, show_spinner=False)
+def cached_get_health() -> dict:
+    return get_health()
+
+
+@st.cache_data(ttl=5, show_spinner=False)
+def cached_list_conversations(user_id: str) -> list[dict]:
+    return list_conversations(user_id)
+
+
+def _invalidate_conversation_cache() -> None:
+    cached_list_conversations.clear()
 
 
 def _load_history(conv_id: int) -> list[dict]:
@@ -152,10 +157,11 @@ with st.sidebar:
         "➕ New conversation", use_container_width=True, type="primary"
     ):
         _start_new_conversation()
+        _invalidate_conversation_cache()
         st.rerun()
 
     try:
-        convos = list_conversations(st.session_state.user_id)
+        convos = cached_list_conversations(st.session_state.user_id)
     except Exception as e:
         convos = []
         st.error(f"Failed to list conversations: {e}")
@@ -189,6 +195,7 @@ with st.sidebar:
     if new_user != st.session_state.user_id:
         st.session_state.user_id = new_user
         _start_new_conversation()
+        _invalidate_conversation_cache()
 
     st.divider()
 
@@ -250,8 +257,10 @@ with st.sidebar:
                     st.rerun()
 
     # Service health — always visible (small badge, no header).
+    # Result is cached for 10s so quick keystrokes don't re-probe
+    # Ollama through /health on every script rerun.
     try:
-        h = get_health()
+        h = cached_get_health()
         ollama_ok = h["ollama_reachable"]
         st.caption(
             ("🟢 Service ready" if ollama_ok else "🟡 Ollama unreachable")
@@ -567,7 +576,7 @@ for entry in st.session_state.history:
             st.write(entry["content"])
 
 question = st.chat_input(
-    "Ask ACME's assistant about a policy, claim, or refund…"
+    "Ask ACME's assistant about a policy, claim, or refund..."
 )
 if question:
     st.session_state.history.append(
@@ -705,3 +714,9 @@ if question:
                 "route": route_holder["value"],
             }
         )
+
+        # A new conversation may have been created on the backend
+        # during this turn (auto-titled by the first assistant reply).
+        # Drop the cached conversation list so the sidebar reflects
+        # the new row on the next rerun instead of waiting for TTL.
+        _invalidate_conversation_cache()
