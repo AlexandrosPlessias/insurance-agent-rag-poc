@@ -27,6 +27,10 @@ REPORT_GENERATE = "report.generate"
 # Decline (out_of_scope)
 DECLINE = "decline.canned"
 
+# Talk-to-Data (Phase 8)
+DATA_PLAN = "data.plan"
+DATA_EXECUTE = "data.execute"
+
 
 EventType = Literal[
     "supervisor.route",
@@ -37,4 +41,6 @@ EventType = Literal[
     "year_fallback",
     "report.generate",
     "decline.canned",
+    "data.plan",
+    "data.execute",
 ]

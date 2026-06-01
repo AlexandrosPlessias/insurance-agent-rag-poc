@@ -12,6 +12,11 @@ from typing import Iterator
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from app.agents.data_agent import (
+    _refusal_message as data_refusal_message,
+    plan_query as data_plan_query,
+    render as data_render,
+)
 from app.agents.rag_agent import (
     build_rag_prompt,
     citation_payload,
@@ -21,6 +26,11 @@ from app.agents.report_agent import report_node
 from app.agents.validator_agent import validator_node
 from app.audit import events as audit_events
 from app.audit.middleware import record as audit_record
+from app.data import (
+    OperationViolation,
+    execute as data_execute,
+    get_dataset,
+)
 from app.graph.clarifier import clarifier_node
 from app.graph.supervisor import (
     decline_node,
@@ -134,6 +144,109 @@ def _run_validator(state: dict) -> Iterator[dict]:
     yield _stage("validator", "done", info=info)
 
 
+def _run_data_streaming(state: dict) -> Iterator[dict]:
+    """Phase 8 - emit per-substage events for the data branch.
+
+    plan + execute fire as their own sub-pills so the UI stepper
+    lights them up independently, mirroring the rag.reformulate /
+    rag.retrieve / rag.answer pattern. Audit rows are written for
+    both data.plan and data.execute so the streaming and compiled-
+    graph paths produce the same audit trail.
+    """
+    from datetime import date
+
+    question = state["question"]
+    today = state.get("today") or date.today().isoformat()
+    previous_op = state.get("last_data_operation")
+    ds = get_dataset()
+
+    # --- plan ----------------------------------------------------
+    yield _stage("data.plan", "started")
+    try:
+        op = data_plan_query(question, today, previous_operation=previous_op)
+    except OperationViolation as exc:
+        audit_record(
+            state,
+            event_type=audit_events.DATA_PLAN,
+            payload={
+                "ok": False,
+                "reason": exc.reason,
+                "drilldown": bool(previous_op),
+            },
+        )
+        yield _stage(
+            "data.plan", "done", info=f"refused:{exc.reason}"
+        )
+        msg = data_refusal_message(exc, ds.covered_years())
+        state["final_answer"] = msg
+        yield {"type": "token", "value": msg}
+        return
+    audit_record(
+        state,
+        event_type=audit_events.DATA_PLAN,
+        payload={
+            "ok": True,
+            "operation": op.model_dump(mode="json"),
+            "drilldown": bool(previous_op),
+        },
+    )
+    yield _stage(
+        "data.plan",
+        "done",
+        info=f"metric={op.metric} agg={op.aggregation}",
+    )
+
+    # --- execute -------------------------------------------------
+    yield _stage("data.execute", "started")
+    try:
+        result = data_execute(op, dataset=ds)
+    except OperationViolation as exc:
+        audit_record(
+            state,
+            event_type=audit_events.DATA_EXECUTE,
+            payload={
+                "ok": False,
+                "reason": exc.reason,
+                "operation": op.model_dump(mode="json"),
+                "csv_sha256": ds.csv_sha256,
+            },
+        )
+        yield _stage(
+            "data.execute", "done", info=f"refused:{exc.reason}"
+        )
+        msg = data_refusal_message(exc, ds.covered_years())
+        state["final_answer"] = msg
+        state["data_operation"] = op.model_dump(mode="json")
+        yield {"type": "token", "value": msg}
+        return
+    audit_record(
+        state,
+        event_type=audit_events.DATA_EXECUTE,
+        payload={
+            "ok": True,
+            "row_count": result.row_count,
+            "duration_s": round(result.duration_s, 3),
+            "csv_sha256": ds.csv_sha256,
+            "metric": result.metric,
+            "aggregation": result.aggregation,
+        },
+    )
+    yield _stage(
+        "data.execute", "done", info=f"rows={result.row_count}"
+    )
+
+    # --- render --------------------------------------------------
+    answer_md = data_render(result)
+    op_json = op.model_dump(mode="json")
+    state["final_answer"] = answer_md
+    state["data_operation"] = {
+        **op_json,
+        "_drilldown": bool(previous_op),
+    }
+    state["last_data_operation"] = op_json
+    yield {"type": "token", "value": answer_md}
+
+
 def _emit_terminal_text(
     state: dict, route: str, node_name: str
 ) -> Iterator[dict]:
@@ -198,6 +311,23 @@ def stream_graph(
             return
         if route == "out_of_year":
             yield from _emit_terminal_text(state, route, "fallback")
+            return
+
+        # --- Phase 8 data branch (plan + execute sub-stages) ---
+        if route == "data":
+            yield _stage("data", "started")
+            yield from _run_data_streaming(state)
+            yield _stage("data", "done")
+            yield {
+                "type": "done",
+                "citations": [],
+                "validated": True,
+                "retry_count": 0,
+                "critique": "",
+                "route": route,
+                "target_year": state.get("target_year"),
+                "data_operation": state.get("data_operation"),
+            }
             return
 
         # --- Report branch ---

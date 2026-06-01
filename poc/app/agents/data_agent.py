@@ -31,6 +31,8 @@ from datetime import date
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from app.audit import events as audit_events
+from app.audit.middleware import record as audit_record
 from app.data import (
     ExecutionResult,
     Filters,
@@ -450,6 +452,15 @@ def data_node(state: GraphState) -> dict:
             op = plan_query(question, today, previous_operation=previous_op)
         except OperationViolation as exc:
             log.warning("Planner refused: %s", exc)
+            audit_record(
+                state,
+                event_type=audit_events.DATA_PLAN,
+                payload={
+                    "ok": False,
+                    "reason": exc.reason,
+                    "drilldown": bool(previous_op),
+                },
+            )
             msg = _refusal_message(exc, ds.covered_years())
             return {
                 "final_answer": msg,
@@ -457,6 +468,15 @@ def data_node(state: GraphState) -> dict:
                 "validated": True,
                 "retry_count": 0,
             }
+        audit_record(
+            state,
+            event_type=audit_events.DATA_PLAN,
+            payload={
+                "ok": True,
+                "operation": op.model_dump(mode="json"),
+                "drilldown": bool(previous_op),
+            },
+        )
 
         # Step 2 - execute.
         try:
@@ -464,6 +484,16 @@ def data_node(state: GraphState) -> dict:
         except OperationViolation as exc:
             log.warning(
                 "Executor refused (reason=%s): %s", exc.reason, exc
+            )
+            audit_record(
+                state,
+                event_type=audit_events.DATA_EXECUTE,
+                payload={
+                    "ok": False,
+                    "reason": exc.reason,
+                    "operation": op.model_dump(mode="json"),
+                    "csv_sha256": ds.csv_sha256,
+                },
             )
             msg = _refusal_message(exc, ds.covered_years())
             return {
@@ -475,6 +505,18 @@ def data_node(state: GraphState) -> dict:
                 # what the planner intended (UI expander).
                 "data_operation": op.model_dump(mode="json"),
             }
+        audit_record(
+            state,
+            event_type=audit_events.DATA_EXECUTE,
+            payload={
+                "ok": True,
+                "row_count": result.row_count,
+                "duration_s": round(result.duration_s, 3),
+                "csv_sha256": ds.csv_sha256,
+                "metric": result.metric,
+                "aggregation": result.aggregation,
+            },
+        )
 
         # Step 3 - render.
         answer_md = render(result)
