@@ -89,13 +89,21 @@ def _setup_traces(resource) -> None:
 _OTEL_HANDLER_FLAG = "_otel_managed_handler"
 
 
+def _otel_handler_count(root_logger: logging.Logger) -> int:
+    return sum(
+        1
+        for h in root_logger.handlers
+        if getattr(h, _OTEL_HANDLER_FLAG, False)
+    )
+
+
 def _setup_logs(resource) -> None:
     """Attach exactly one OTLP log handler to the root logger.
 
     If this is somehow called a second time within the same process
     (e.g. a uvicorn --reload edge case, a stray re-import, a script
-    that imports the API module), the prior handler is left in place
-    and we no-op. Without this guard each log record gets shipped to
+    that imports the API module), any prior OTel-tagged handlers are
+    removed first. Without this guard each log record gets shipped to
     Aspire twice - identical trace_id, identical timestamp, two rows.
     """
     from opentelemetry._logs import set_logger_provider
@@ -103,14 +111,27 @@ def _setup_logs(resource) -> None:
     from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 
     root_logger = logging.getLogger()
-    if any(
-        getattr(h, _OTEL_HANDLER_FLAG, False)
-        for h in root_logger.handlers
-    ):
-        _log.debug(
-            "OTel log handler already attached; skipping re-attach"
+
+    # Belt-and-braces: actively strip any prior OTel-tagged handlers
+    # before attaching the new one. Skipping the re-attach (earlier
+    # approach) only helped when the second caller was OUR setup_otel
+    # - it didn't protect against a stranger calling LoggingHandler()
+    # directly, or a prior partial setup that crashed mid-way.
+    stale = [
+        h for h in root_logger.handlers
+        if getattr(h, _OTEL_HANDLER_FLAG, False)
+    ]
+    for h in stale:
+        try:
+            root_logger.removeHandler(h)
+            h.close()
+        except Exception:  # noqa: BLE001 - never block startup
+            pass
+    if stale:
+        _log.warning(
+            "Removed %d stale OTel log handler(s) before re-attaching",
+            len(stale),
         )
-        return
 
     provider = LoggerProvider(resource=resource)
     set_logger_provider(provider)
@@ -122,6 +143,12 @@ def _setup_logs(resource) -> None:
     )
     setattr(handler, _OTEL_HANDLER_FLAG, True)
     root_logger.addHandler(handler)
+    _log.info(
+        "OTel log handler attached (root handlers now: %d total, "
+        "%d OTel-tagged)",
+        len(root_logger.handlers),
+        _otel_handler_count(root_logger),
+    )
 
 
 def _setup_metrics(resource) -> None:
