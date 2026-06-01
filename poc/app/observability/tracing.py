@@ -10,6 +10,7 @@ the endpoint at startup and self-disables (logs a warning) when
 Aspire isn't reachable, so a stopped backend never breaks the app.
 """
 import logging
+import os
 import socket
 from typing import Any
 from urllib.parse import urlparse
@@ -230,6 +231,56 @@ def annotate_request_span(
             pass
 
 
+def _otel_pipeline_snapshot(label: str) -> None:
+    """Walk root logger + global LoggerProvider and log a one-line shape.
+
+    Use after each step inside setup_otel so we can see exactly which
+    step adds a second handler / processor / exporter, if any.
+    """
+    if os.environ.get("OTEL_DEBUG_PIPELINE", "").lower() not in (
+        "1", "true", "yes"
+    ):
+        return
+    try:
+        root = logging.getLogger()
+        otel_handlers = [
+            h for h in root.handlers
+            if getattr(h, _OTEL_HANDLER_FLAG, False)
+        ]
+        non_otel_logging_handlers = [
+            h for h in root.handlers
+            if not getattr(h, _OTEL_HANDLER_FLAG, False)
+            and type(h).__name__ == "LoggingHandler"
+            and type(h).__module__.startswith("opentelemetry")
+        ]
+        from opentelemetry._logs import get_logger_provider
+        prov = get_logger_provider()
+        proc_count = 0
+        try:
+            mlrp = getattr(prov, "_multi_log_record_processor", None) \
+                or getattr(prov, "_at_exit_log_record_processor", None)
+            inner = (
+                getattr(mlrp, "_log_record_processors", None)
+                or getattr(mlrp, "_log_processors", None)
+                or []
+            )
+            proc_count = len(inner)
+        except Exception:  # noqa: BLE001
+            pass
+        _log.info(
+            "[otel-debug %s] root_handlers=%d otel_tagged=%d "
+            "non_tagged_otel_loghandlers=%d provider=%s processors=%d",
+            label,
+            len(root.handlers),
+            len(otel_handlers),
+            len(non_otel_logging_handlers),
+            type(prov).__name__,
+            proc_count,
+        )
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("[otel-debug %s] snapshot failed: %s", label, exc)
+
+
 def setup_otel(
     app: Any | None = None,
     service_suffix: str | None = None,
@@ -254,13 +305,20 @@ def setup_otel(
     try:
         resource = _resource(service_suffix)
         _setup_traces(resource)
+        _otel_pipeline_snapshot("after-traces")
         _setup_logs(resource)
+        _otel_pipeline_snapshot("after-logs")
         _setup_metrics(resource)
+        _otel_pipeline_snapshot("after-metrics")
         _instrument_logging()
+        _otel_pipeline_snapshot("after-instrument-logging")
         _instrument_httpx()
+        _otel_pipeline_snapshot("after-instrument-httpx")
         _instrument_langchain()
+        _otel_pipeline_snapshot("after-instrument-langchain")
         if app is not None:
             _instrument_fastapi(app)
+            _otel_pipeline_snapshot("after-instrument-fastapi")
         _INSTALLED = True
         _log.info(
             "OTel enabled: endpoint=%s service=%s ui=%s",
@@ -269,6 +327,7 @@ def setup_otel(
             + (f"-{service_suffix}" if service_suffix else ""),
             settings.otel_ui_url,
         )
+        _otel_pipeline_snapshot("end")
     except Exception as exc:  # noqa: BLE001
         _log.exception("OTel setup failed: %s", exc)
 
