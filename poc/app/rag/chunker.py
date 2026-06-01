@@ -211,6 +211,13 @@ def chunk_markdown_doc(
 
             out.append(Document(page_content=cleaned, metadata=meta))
 
+        # Per-document 1-based chunk index. Stamped AFTER the
+        # header-only / too-small filter so what you see in the UI
+        # citation ("chunk 12") matches what inspect_chroma --report
+        # prints when you cross-reference the same source PDF.
+        for idx, doc in enumerate(out, start=1):
+            doc.metadata["chunk_index"] = idx
+
         span.set_attribute("chunker.sections", len(sections))
         span.set_attribute("chunker.chunks_raw", len(char_chunks))
         span.set_attribute("chunker.chunks_kept", len(out))

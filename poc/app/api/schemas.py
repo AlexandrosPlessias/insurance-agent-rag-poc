@@ -17,6 +17,7 @@ class Citation(BaseModel):
     download_url: str = ""
     section: str = ""
     section_title: str = ""
+    chunk_index: int = 0
 
 
 class ChatResponse(BaseModel):

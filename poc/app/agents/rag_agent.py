@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.agents.memory_agent import format_history_for_prompt
+from app.audit import events as audit_events
+from app.audit.middleware import record as audit_record
 from app.graph.state import GraphState
 from app.llm import load_prompt
 from app.llm.ollama_client import get_llm
@@ -102,6 +104,7 @@ def citation_payload(c: RetrievedChunk) -> dict:
         "download_url": f"/sources/{c.source}",
         "section": c.section,
         "section_title": c.section_title,
+        "chunk_index": c.chunk_index,
     }
 
 
@@ -111,6 +114,10 @@ def rag_node(state: GraphState) -> dict:
     retry_count = state.get("retry_count", 0)
     critique = state.get("last_critique", "")
     history = state.get("history", [])
+    target_year = state.get("target_year")
+    where_filter = (
+        {"year": int(target_year)} if target_year is not None else None
+    )
 
     with tracer.start_as_current_span("rag.node") as span, \
             track_node("rag", route="rag"):
@@ -122,12 +129,26 @@ def rag_node(state: GraphState) -> dict:
         span.set_attribute("rag.retry_count", retry_count)
         span.set_attribute("rag.has_critique", bool(critique))
         span.set_attribute("rag.history_msgs", len(history))
+        if target_year is not None:
+            span.set_attribute("rag.target_year", int(target_year))
 
         if retry_count == 0:
             log.info("RAG node (initial): %r", question[:80])
             reformulated = reformulate_question(question, history=history)
-            chunks = retrieve(reformulated)
+            chunks = retrieve(reformulated, where_filter=where_filter)
             record_rag_chunks(len(chunks))
+            audit_record(
+                state,
+                event_type=audit_events.RAG_RETRIEVE,
+                payload={
+                    "where": where_filter,
+                    "k": len(chunks),
+                    "reformulated_query": reformulated[:200],
+                    "sources": sorted(
+                        {c.source for c in chunks if c.source}
+                    ),
+                },
+            )
         else:
             log.info(
                 "RAG node (retry %d) - reusing previous retrieval",
@@ -155,10 +176,22 @@ def rag_node(state: GraphState) -> dict:
             )
         log.info("  -> LLM responded in %.2fs", elapsed)
 
+        answer_text = str(result.content)
+        audit_record(
+            state,
+            event_type=audit_events.RAG_ANSWER,
+            payload={
+                "retry_count": retry_count,
+                "answer_chars": len(answer_text),
+                "duration_s": round(elapsed, 3),
+                "target_year": state.get("target_year"),
+            },
+        )
+
         return {
             "reformulated_query": reformulated,
             "chunks": chunks,
-            "draft_answer": str(result.content),
+            "draft_answer": answer_text,
         }
 
 

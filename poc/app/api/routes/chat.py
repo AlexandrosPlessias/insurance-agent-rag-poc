@@ -66,6 +66,7 @@ def _citation_dicts(state: dict) -> list[dict]:
             "download_url": f"/sources/{c.source}",
             "section": getattr(c, "section", "") or "",
             "section_title": getattr(c, "section_title", "") or "",
+            "chunk_index": int(getattr(c, "chunk_index", 0) or 0),
         }
         for c in chunks
     ]
@@ -157,6 +158,8 @@ def _ndjson_persist(
         question,
         history=history,
         user_activity=activity,
+        user_id=user_id,
+        conversation_id=conv_id,
     ):
         if event.get("type") == "token":
             final_chunks.append(event.get("value", ""))

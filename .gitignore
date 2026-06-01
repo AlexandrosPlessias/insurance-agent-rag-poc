@@ -233,3 +233,4 @@ poc/.venv/
 poc/app/memory/summarizer.py
 memory/*
 .claude/settings.json
+poc/data/audit.sqlite

@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     chroma_persist_dir: Path = POC_ROOT / "data" / "chroma_db"
     chroma_collection: str = "policies"
     sqlite_path: Path = POC_ROOT / "data" / "memory.sqlite"
+    # Phase 7 audit trail - a separate SQLite file so business memory
+    # (memory.sqlite) and audit telemetry don't share a transaction
+    # boundary, and the compliance team can copy/rotate this file
+    # without touching conversation history.
+    audit_sqlite_path: Path = POC_ROOT / "data" / "audit.sqlite"
 
     # --- Knowledge ingestion (Phase 6) ---
     # data/knowledge_base/raw       <- source PDFs
@@ -59,6 +64,13 @@ class Settings(BaseSettings):
     chunk_overlap: int = 200
     retrieval_k: int = 5
 
+    # --- Phase 7: year-aware retrieval ---
+    # Knowledge base coverage. The 2023 gap is intentional - the seed
+    # PDFs are 2020, 2021, 2022, 2024. The supervisor uses this list
+    # to decide whether to route a year-specific question to RAG or
+    # to the out_of_year fallback.
+    kb_covered_years: list[int] = [2020, 2021, 2022, 2024]
+
     # --- Observability (Phase 5, Aspire Dashboard via OTLP gRPC) ---
     # Default ON. setup_otel() probes the endpoint at startup and
     # self-disables (logs a warning) if Aspire isn't reachable.
@@ -71,6 +83,7 @@ class Settings(BaseSettings):
     @field_validator(
         "chroma_persist_dir",
         "sqlite_path",
+        "audit_sqlite_path",
         "raw_pdf_dir",
         "processed_dir",
         "metadata_dir",

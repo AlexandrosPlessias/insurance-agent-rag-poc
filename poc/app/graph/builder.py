@@ -1,22 +1,17 @@
 """Compile the LangGraph state machine.
 
-Topology (Phase 3):
+Topology (Phase 7):
 
-    START
-      |
-      v
-    supervisor ---(out_of_scope)---> decline --------> END
-      |    \\
-      |     \\---(report)----> report -----------------> END
-      |
-      v (rag)
-    rag --------------------------+
-      |                           |
-      v                           |
-    validator --(retry)-----------+
-      |
-      v (end)
-     END
+    START -> supervisor
+    supervisor --(out_of_scope)--------> decline    --> END
+    supervisor --(report)--------------> report     --> END
+    supervisor --(needs_clarification)-> clarifier  --> END
+    supervisor --(out_of_year)---------> fallback   --> END
+    supervisor --(rag)----------------->  rag --> validator
+    validator  --(retry)---------------> rag (max 1 retry)
+    validator  --(end)-----------------> END
+
+See GRAPH.md at the repo root for the rendered Mermaid version.
 """
 from functools import lru_cache
 
@@ -25,9 +20,14 @@ from langgraph.graph import END, START, StateGraph
 from app.agents.rag_agent import rag_node
 from app.agents.report_agent import report_node
 from app.agents.validator_agent import validator_node
+from app.graph.clarifier import clarifier_node
 from app.graph.edges import route_from_supervisor, route_from_validator
 from app.graph.state import GraphState
-from app.graph.supervisor import decline_node, supervisor_node
+from app.graph.supervisor import (
+    decline_node,
+    fallback_node,
+    supervisor_node,
+)
 from app.observability.logging import get_logger
 
 log = get_logger(__name__)
@@ -40,6 +40,8 @@ def get_graph():
 
     builder.add_node("supervisor", supervisor_node)
     builder.add_node("decline", decline_node)
+    builder.add_node("clarifier", clarifier_node)
+    builder.add_node("fallback", fallback_node)
     builder.add_node("rag", rag_node)
     builder.add_node("validator", validator_node)
     builder.add_node("report", report_node)
@@ -52,9 +54,13 @@ def get_graph():
             "rag": "rag",
             "report": "report",
             "out_of_scope": "decline",
+            "needs_clarification": "clarifier",
+            "out_of_year": "fallback",
         },
     )
     builder.add_edge("decline", END)
+    builder.add_edge("clarifier", END)
+    builder.add_edge("fallback", END)
     builder.add_edge("report", END)
     builder.add_edge("rag", "validator")
     builder.add_conditional_edges(
