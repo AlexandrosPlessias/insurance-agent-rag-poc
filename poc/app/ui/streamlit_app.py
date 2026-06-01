@@ -300,7 +300,13 @@ with st.sidebar:
             "✅ **Phase 7** · year-aware retrieval · clarifier · "
             "out-of-year fallback · audit trail · UI enrichment "
             "(full-topology stepper, grouped citations, chunk_index) · "
-            "OTel log dedup"
+            "OTel log dedup  \n"
+            "✅ **Phase 8** · Talk-to-Data agent · typed Operation JSON · "
+            "pandas executor with 5 schema-aware guards · drill-down "
+            "with inherited/changed chips · `data.plan`/`data.execute` "
+            "stage events + audit  \n"
+            "🟡 **Phase 9** · executive annual report (Markdown · "
+            "DOCX · PDF) — _next_"
         )
 
 
