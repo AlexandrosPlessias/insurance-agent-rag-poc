@@ -5,13 +5,16 @@ Run from poc/ (after activating the venv):
   python scripts/inspect_chroma.py                       # summary
   python scripts/inspect_chroma.py --sample 5            # 5 sample chunks
   python scripts/inspect_chroma.py --source NAME.pdf     # filter by source
+  python scripts/inspect_chroma.py --year 2020           # Phase 7: filter by year
   python scripts/inspect_chroma.py --search "deductible" # similarity search
+  python scripts/inspect_chroma.py --search "refund" --year 2024
   python scripts/inspect_chroma.py --metadata            # full metadata dump
   python scripts/inspect_chroma.py --all                 # dump every chunk
 
   # Generate one inspection report per source PDF (stats + all chunks):
   python scripts/inspect_chroma.py --report
   python scripts/inspect_chroma.py --report --source NAME.pdf
+  python scripts/inspect_chroma.py --report --year 2020
 """
 import argparse
 import statistics
@@ -174,13 +177,30 @@ def _render_report(source: str, docs: list[str], metas: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _build_where(
+    source: str | None, year: int | None
+) -> dict | None:
+    """Build a Chroma `where` filter for source and/or year."""
+    clauses: list[dict] = []
+    if source:
+        clauses.append({"source": source})
+    if year is not None:
+        clauses.append({"year": int(year)})
+    if not clauses:
+        return None
+    if len(clauses) == 1:
+        return clauses[0]
+    return {"$and": clauses}
+
+
 def _generate_reports(
     collection,
     output_dir: Path,
     source_filter: str | None,
+    year_filter: int | None,
 ) -> list[Path]:
     """Write one Markdown report per source PDF into output_dir."""
-    where = {"source": source_filter} if source_filter else None
+    where = _build_where(source_filter, year_filter)
     get_kwargs = {"include": ["documents", "metadatas"]}
     if where is not None:
         get_kwargs["where"] = where
@@ -224,6 +244,14 @@ def main() -> int:
     parser.add_argument(
         "--source",
         help="Filter by source filename",
+    )
+    parser.add_argument(
+        "--year",
+        type=int,
+        help=(
+            "Phase 7: filter chunks/results by the `year` metadata field "
+            "(combinable with --source and --search)."
+        ),
     )
     parser.add_argument(
         "--sample",
@@ -291,8 +319,10 @@ def main() -> int:
             else settings.processed_dir.parent / "reports"
         )
         print(f"\n=== Writing per-PDF reports to {report_dir} ===")
+        if args.year is not None:
+            print(f"  year filter: {args.year}")
         written = _generate_reports(
-            collection, report_dir, args.source
+            collection, report_dir, args.source, args.year
         )
         if not written:
             print("  (no chunks matched the filter)")
@@ -320,9 +350,18 @@ def main() -> int:
             print(f"  {cnt:>3} chunks  |  {sec}")
 
     if args.search:
-        print(f"\n=== similarity_search: {args.search!r} (k={args.k}) ===")
+        where_search = (
+            {"year": int(args.year)} if args.year is not None else None
+        )
+        suffix = f" year={args.year}" if args.year is not None else ""
+        print(
+            f"\n=== similarity_search: {args.search!r} "
+            f"(k={args.k}{suffix}) ==="
+        )
         try:
-            results = retrieve(args.search, k=args.k)
+            results = retrieve(
+                args.search, k=args.k, where_filter=where_search
+            )
         except Exception as exc:  # noqa: BLE001
             print(f"  ERROR: {exc}")
             return 1
@@ -336,8 +375,8 @@ def main() -> int:
             print(f"  {preview}")
         return 0
 
-    # Sample chunks (optional source filter, optional --all)
-    where = {"source": args.source} if args.source else None
+    # Sample chunks (optional source/year filter, optional --all)
+    where = _build_where(args.source, args.year)
     limit = None if args.all else args.sample
     header = (
         "All chunks" if args.all
@@ -345,6 +384,8 @@ def main() -> int:
     )
     if args.source:
         header += f" for {args.source}"
+    if args.year is not None:
+        header += f" (year={args.year})"
     print(f"\n=== {header} ===")
     get_kwargs = {
         "include": ["documents", "metadatas"],
