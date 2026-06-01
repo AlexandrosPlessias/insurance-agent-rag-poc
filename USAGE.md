@@ -335,10 +335,36 @@ The CSV keeps `payload_json` as a single column so Excel / PowerBI can ingest it
 
 ### Inspecting from the SQLite shell
 
+The `sqlite3` CLI is installed by `setup_wsl.sh` ([1/6] step). If you're on a machine where it isn't available (`Command 'sqlite3' not found`), install it with `sudo apt install sqlite3`, **or** use the Python one-liner below.
+
 ```bash
 sqlite3 poc/data/audit.sqlite \
   "SELECT ts, event_type, json_extract(payload_json, '$.route') AS route \
    FROM audit_events WHERE user_id = 'alex' ORDER BY id DESC LIMIT 20;"
+```
+
+Pure-Python alternative — uses the stdlib module that's always available, no apt install needed:
+
+```bash
+cd poc && source .venv/bin/activate
+python -c "
+from app.audit import AuditStore
+from app.config import settings
+for r in AuditStore(settings.audit_sqlite_path).recent(limit=20):
+    print(r['ts'], r['event_type'], r['payload'].get('route', ''))
+"
+```
+
+Quick count per event type (Python-only):
+
+```bash
+python -c "
+import sqlite3
+from app.config import settings
+with sqlite3.connect(settings.audit_sqlite_path) as c:
+    for et, n in c.execute('SELECT event_type, COUNT(*) FROM audit_events GROUP BY event_type'):
+        print(f'{n:>4}  {et}')
+"
 ```
 
 ---

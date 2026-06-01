@@ -38,7 +38,7 @@ The script does six things:
 
 | Step | What |
 |---|---|
-| [1/6] | `apt install python3 python3-venv python3-dev build-essential curl git zstd` |
+| [1/6] | `apt install python3 python3-venv python3-dev build-essential curl git zstd sqlite3` (`sqlite3` is a debug convenience for the Phase 7 audit DB — the app itself only uses Python's stdlib `sqlite3` module) |
 | [2/6] | Creates `poc/.venv` |
 | [3/6] | `pip install -r poc/requirements.txt` (incl. OpenTelemetry SDK + instrumentations) |
 | [4/6] | Installs Ollama if missing |
@@ -65,6 +65,7 @@ Defaults work out of the box. Adjust only what you need:
 | `EMBED_MODEL` | `nomic-embed-text` | Embedding model |
 | `CHROMA_PERSIST_DIR` | `poc/data/chroma_db` | Vector store on disk |
 | `SQLITE_PATH` | `poc/data/memory.sqlite` | Episodic memory (Phase 4) |
+| `AUDIT_SQLITE_PATH` | `poc/data/audit.sqlite` | Phase 7 audit trail (separate file from memory) |
 | `API_PORT` | `8000` | FastAPI port |
 | `UI_API_URL` | `http://localhost:8000` | Streamlit → API endpoint |
 | `CHUNK_SIZE` / `CHUNK_OVERLAP` / `RETRIEVAL_K` | `1000` / `150` / `5` | RAG tuning |
@@ -73,7 +74,7 @@ Defaults work out of the box. Adjust only what you need:
 | `OTEL_ENDPOINT` | `http://localhost:4317` | Aspire OTLP gRPC receiver |
 | `OTEL_UI_URL` | `http://localhost:18888` | Aspire web UI |
 
-> ⚠ Gitignored (local-only state): `poc/data/chroma_db/`, `poc/data/memory.sqlite`, `poc/data/knowledge_base/processed/`, `poc/data/knowledge_base/metadata/*.json`, `poc/.venv/`. **Tracked**: `poc/data/knowledge_base/raw/` (seed PDFs ship with the repo) and `poc/data/knowledge_base/metadata/schema.json`.
+> ⚠ Gitignored (local-only state): `poc/data/chroma_db/`, `poc/data/memory.sqlite`, `poc/data/audit.sqlite`, `poc/data/knowledge_base/processed/`, `poc/data/knowledge_base/metadata/*.json`, `poc/.venv/`. **Tracked**: `poc/data/knowledge_base/raw/` (seed PDFs ship with the repo) and `poc/data/knowledge_base/metadata/schema.json`.
 
 ---
 
