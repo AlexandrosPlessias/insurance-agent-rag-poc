@@ -77,6 +77,13 @@ SAMPLE_QUESTIONS = [
         "out_of_year",
         "What does the 2023 policy say about refunds?",
     ),
+    # Phase 7 - clarifier follow-up: the bare "2024" reply should be
+    # stitched onto the previous "What is the refund window?" so the
+    # supervisor routes to rag, not out_of_scope.
+    (
+        "rag",
+        "2024",
+    ),
 ]
 
 

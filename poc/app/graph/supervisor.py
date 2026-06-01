@@ -72,6 +72,32 @@ def _resolve_year_from_history(history: list[dict]) -> int | None:
     return None
 
 
+def _last_assistant_was_clarifier(history: list[dict]) -> bool:
+    """True if the immediately-prior assistant turn was a clarifier.
+
+    `history` is loaded BEFORE the current user message is persisted
+    (see api.routes.chat._load_memory), so the most recent assistant
+    entry in it is the turn that triggered the user's reply.
+    """
+    for msg in reversed(history):
+        role = msg.get("role")
+        if role == "assistant":
+            return msg.get("route") == "needs_clarification"
+        if role == "user":
+            return False
+    return False
+
+
+def _last_user_question(history: list[dict]) -> str | None:
+    """The most recent prior user message - the question the clarifier
+    was answering on behalf of. Skips assistant + system rows."""
+    for msg in reversed(history):
+        if msg.get("role") == "user":
+            content = (msg.get("content") or "").strip()
+            return content or None
+    return None
+
+
 def _nearest_covered(target: int, covered: list[int]) -> list[int]:
     """Return up to 2 nearest covered years (one below, one above)."""
     below = [y for y in covered if y < target]
@@ -119,6 +145,27 @@ def supervisor_node(state: GraphState) -> dict:
     covered = list(state.get("covered_years") or settings.kb_covered_years)
     trace_id = state.get("audit_trace_id") or current_trace_id()
 
+    # Phase 7 - clarifier follow-up: if the immediately-prior assistant
+    # turn was the clarifier, the current user message is supplying the
+    # missing piece (typically just a year, e.g. "2024"). Stitch the
+    # original question back in so downstream classification and
+    # retrieval see the full intent. Without this, "2024" alone gets
+    # classified as out_of_scope and the assistant loops.
+    is_clarifier_followup = _last_assistant_was_clarifier(history)
+    original_question = (
+        _last_user_question(history) if is_clarifier_followup else None
+    )
+    if is_clarifier_followup and original_question:
+        effective_question = f"{original_question} {question}".strip()
+        log.info(
+            "Supervisor: clarifier follow-up detected, combining "
+            "original=%r + new=%r",
+            original_question[:80],
+            question[:80],
+        )
+    else:
+        effective_question = question
+
     with tracer.start_as_current_span("supervisor.classify") as span, \
             track_node("supervisor"):
         annotate_request_span(
@@ -126,12 +173,16 @@ def supervisor_node(state: GraphState) -> dict:
             user_id=state.get("user_id"),
             conversation_id=state.get("conversation_id"),
         )
-        span.set_attribute("question.preview", question[:80])
+        span.set_attribute("question.preview", effective_question[:80])
         span.set_attribute("supervisor.today", today)
         span.set_attribute("supervisor.covered_years", str(covered))
+        if is_clarifier_followup:
+            span.set_attribute("supervisor.clarifier_followup", True)
 
-        # 1. Deterministic year extraction (question first, then history).
-        explicit_year = _extract_year(question)
+        # 1. Deterministic year extraction (effective question first,
+        #    then history). The follow-up reply is part of the
+        #    effective question, so a bare "2024" still resolves.
+        explicit_year = _extract_year(effective_question)
         target_year = explicit_year or _resolve_year_from_history(history)
         if target_year is not None:
             span.set_attribute("supervisor.target_year", target_year)
@@ -145,6 +196,10 @@ def supervisor_node(state: GraphState) -> dict:
             "covered_years": covered,
             "audit_trace_id": trace_id or "",
         }
+        # Rewrite question so RAG retrieves on the original intent,
+        # not on the bare follow-up token.
+        if is_clarifier_followup and original_question:
+            update["question"] = effective_question
         if target_year is not None:
             update["target_year"] = target_year
 
@@ -171,9 +226,10 @@ def supervisor_node(state: GraphState) -> dict:
             )
             return update
 
-        # 3. LLM classification (rag / report / out_of_scope).
-        log.info("Supervisor classifying: %r", question[:80])
-        route = _classify_with_llm(question, today, covered)
+        # 3. LLM classification (rag / report / out_of_scope) on the
+        #    effective question (clarifier follow-up already stitched in).
+        log.info("Supervisor classifying: %r", effective_question[:80])
+        route = _classify_with_llm(effective_question, today, covered)
 
         # 4. Needs-clarification override: a RAG question with no resolvable
         #    year is exactly the case Phase 7 was asked to handle.
