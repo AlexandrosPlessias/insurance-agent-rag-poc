@@ -253,6 +253,39 @@ def _on_active_path(route: str, owner: str | None) -> bool:
     return route == owner
 
 
+# Sub-stages that fire inside the RAG node. The backend emits these
+# as `stage` events from app.graph.streaming so the UI can flip each
+# one independently. Each carries the single dominant tool used by
+# that step (LLM for reformulate / answer, Chroma for retrieve).
+RAG_SUBSTAGES: list[tuple[str, str, str]] = [
+    ("rag.reformulate", "reformulate", "LLM"),
+    ("rag.retrieve",    "retrieve",    "Chroma"),
+    ("rag.answer",      "answer",      "LLM"),
+]
+
+
+def _render_substage(col, label: str, tool: str, status: str) -> None:
+    """One compact sub-pill rendered under the RAG cell."""
+    if status == "done":
+        bg, fg, icon = "rgba(46,160,67,.18)", "rgba(140,230,160,.95)", "✓"
+    elif status == "running":
+        bg, fg, icon = "rgba(70,140,220,.20)", "rgba(170,210,255,.95)", "⟳"
+    else:
+        bg, fg, icon = "rgba(120,120,120,.05)", "rgba(150,150,150,.55)", "○"
+    col.markdown(
+        f"<div style='display: flex; align-items: center; "
+        f"justify-content: space-between; "
+        f"padding: .15rem .4rem; margin-top: .15rem; "
+        f"border-radius: .25rem; background: {bg}; "
+        f"color: {fg}; font-size: .75rem;'>"
+        f"<span>{icon} {label}</span>"
+        f"<span style='font-family: monospace; "
+        f"font-size: .65rem; opacity: .85;'>{tool}</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def _render_tools_row(col, tools: list[str], dim: bool = False) -> None:
     """Tiny badge row under a node's status pill.
 
@@ -333,6 +366,16 @@ def render_stepper(slot, stages: dict, route: str = "") -> None:
                 )
 
             _render_tools_row(col, tools, dim=(status == "off_path"))
+
+            # RAG-only: render reformulate / retrieve / answer sub-pills
+            # when the RAG branch is on the active path. Each lights
+            # up independently as the backend emits `rag.<step>` stage
+            # events. We skip them entirely on off-path turns so the
+            # decline / clarifier / fallback turns stay visually tight.
+            if key == "rag" and on_path:
+                for sub_key, sub_label, sub_tool in RAG_SUBSTAGES:
+                    sub_status = stages.get(sub_key, "pending")
+                    _render_substage(col, sub_label, sub_tool, sub_status)
 
 
 def render_citations(citations: list[dict]) -> None:

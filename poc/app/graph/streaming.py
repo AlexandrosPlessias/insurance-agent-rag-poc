@@ -52,10 +52,19 @@ def _run_rag_streaming(state: dict) -> Iterator[dict]:
         {"year": int(target_year)} if target_year is not None else None
     )
 
+    # Phase 7 follow-up: emit per-substage events so the UI can light
+    # up the three RAG sub-pills (reformulate / retrieve / answer)
+    # independently. On retry, reformulate + retrieve are skipped
+    # (chunks reused); their pills stay in whatever state they ended
+    # the first pass.
     if retry_count == 0:
+        yield _stage("rag.reformulate", "started")
         reformulated = reformulate_question(question, history=history)
-        chunks = retrieve(reformulated, where_filter=where_filter)
         state["reformulated_query"] = reformulated
+        yield _stage("rag.reformulate", "done")
+
+        yield _stage("rag.retrieve", "started")
+        chunks = retrieve(reformulated, where_filter=where_filter)
         state["chunks"] = chunks
         audit_record(
             state,
@@ -67,6 +76,7 @@ def _run_rag_streaming(state: dict) -> Iterator[dict]:
                 "sources": sorted({c.source for c in chunks if c.source}),
             },
         )
+        yield _stage("rag.retrieve", "done", info=f"k={len(chunks)}")
         yield {"type": "meta", "reformulated_query": reformulated}
     else:
         log.info(
@@ -83,6 +93,7 @@ def _run_rag_streaming(state: dict) -> Iterator[dict]:
             ),
         }
 
+    yield _stage("rag.answer", "started")
     prompt = build_rag_prompt(
         chunks, critique=critique, history=history,
     )
@@ -106,6 +117,9 @@ def _run_rag_streaming(state: dict) -> Iterator[dict]:
             "answer_chars": len(answer_text),
             "target_year": target_year,
         },
+    )
+    yield _stage(
+        "rag.answer", "done", info=f"chars={len(answer_text)}"
     )
 
 
