@@ -40,6 +40,17 @@ STAGE_SETS = {
     ],
     "out_of_scope": [
         ("supervisor", "Supervisor"),
+        ("decline", "Decline"),
+    ],
+    # Phase 7 - terminal branches that end the turn with one assistant
+    # message and no validator step.
+    "needs_clarification": [
+        ("supervisor", "Supervisor"),
+        ("clarifier", "Clarifier"),
+    ],
+    "out_of_year": [
+        ("supervisor", "Supervisor"),
+        ("fallback", "Year Fallback"),
     ],
     "_default": [
         ("supervisor", "Supervisor"),
@@ -359,7 +370,13 @@ if question:
                         and event.get("status") == "done"
                     ):
                         info = event.get("info", "")
-                        if "out_of_scope" in info:
+                        # Order matters: check the more-specific Phase 7
+                        # routes before the generic "rag" substring.
+                        if "needs_clarification" in info:
+                            route_holder["value"] = "needs_clarification"
+                        elif "out_of_year" in info:
+                            route_holder["value"] = "out_of_year"
+                        elif "out_of_scope" in info:
                             route_holder["value"] = "out_of_scope"
                         elif "report" in info:
                             route_holder["value"] = "report"
@@ -416,6 +433,16 @@ if question:
             render_validation(
                 validated_holder["value"],
                 critique_holder["value"],
+            )
+        elif route_holder["value"] == "needs_clarification":
+            st.caption(
+                "I asked a clarifying question - your next reply "
+                "will restart the routing."
+            )
+        elif route_holder["value"] == "out_of_year":
+            st.caption(
+                "Out-of-year fallback - the requested year isn't "
+                "in the knowledge base."
             )
         render_citations(citations)
 

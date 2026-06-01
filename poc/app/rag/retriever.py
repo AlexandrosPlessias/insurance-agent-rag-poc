@@ -27,15 +27,37 @@ class RetrievedChunk:
         return self.source
 
 
-def retrieve(query: str, k: int | None = None) -> list[RetrievedChunk]:
+def retrieve(
+    query: str,
+    k: int | None = None,
+    *,
+    where_filter: dict | None = None,
+) -> list[RetrievedChunk]:
+    """Top-k semantic search with optional Chroma metadata filter.
+
+    `where_filter` is forwarded verbatim to Chroma's `filter=` kwarg
+    (e.g. `{"year": 2020}`). Used by Phase 7 to scope retrieval to a
+    specific policy year.
+    """
     k = k or settings.retrieval_k
     with tracer.start_as_current_span("rag.retrieve") as span:
         span.set_attribute("retrieve.k", k)
         span.set_attribute("retrieve.query_preview", query[:80])
-        log.info("Retrieving top-%d for query: %r", k, query[:80])
+        if where_filter:
+            span.set_attribute(
+                "retrieve.where_filter", str(where_filter)
+            )
+            log.info(
+                "Retrieving top-%d for query: %r (filter=%s)",
+                k,
+                query[:80],
+                where_filter,
+            )
+        else:
+            log.info("Retrieving top-%d for query: %r", k, query[:80])
         t0 = time.perf_counter()
         docs: list[Document] = get_vectorstore().similarity_search(
-            query, k=k
+            query, k=k, filter=where_filter
         )
         elapsed = time.perf_counter() - t0
         span.set_attribute("retrieve.result_count", len(docs))

@@ -7,6 +7,8 @@ import re
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from app.audit import events as audit_events
+from app.audit.middleware import record as audit_record
 from app.graph.state import GraphState
 from app.llm import load_prompt
 from app.llm.ollama_client import get_llm
@@ -117,9 +119,23 @@ def validator_node(state: GraphState) -> dict:
             update["final_citations"] = chunks
             update["validated"] = passed
             span.set_attribute("validator.terminal", True)
+            terminal = True
         else:
             update["retry_count"] = retry_count + 1
             update["last_critique"] = critique
             span.set_attribute("validator.terminal", False)
+            terminal = False
+
+        audit_record(
+            state,
+            event_type=audit_events.VALIDATOR_JUDGE,
+            payload={
+                "grounded": grounded,
+                "citations_ok": citations_ok,
+                "critique": critique[:500],
+                "retry_count": retry_count,
+                "terminal": terminal,
+            },
+        )
 
         return update

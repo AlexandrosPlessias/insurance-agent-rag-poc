@@ -10,6 +10,26 @@ class ValidationResult(TypedDict, total=False):
     critique: str
 
 
+# Phase 7: supervisor may also resolve a year-aware route. `needs_clarification`
+# parks the turn and asks the user one question (e.g. "which policy year?");
+# `out_of_year` is a graceful refusal when the user asks about a year the
+# knowledge base doesn't cover.
+Route = Literal[
+    "rag",
+    "report",
+    "out_of_scope",
+    "needs_clarification",
+    "out_of_year",
+]
+
+# Clarifier trigger reason - drives the prompt for clarifier.ask.
+ClarifierReason = Literal[
+    "year_missing",        # no year mentioned and history can't resolve it
+    "year_gap",            # requested year falls in the KB gap (e.g. 2023)
+    "ambiguous_clause",    # relevant clause differs materially across years
+]
+
+
 class GraphState(TypedDict, total=False):
     # --- input ---
     question: str
@@ -21,7 +41,15 @@ class GraphState(TypedDict, total=False):
     user_activity: list[dict]    # recent msgs ACROSS user's conversations
 
     # --- supervisor output ---
-    route: Literal["rag", "report", "out_of_scope"]
+    route: Route
+
+    # --- Phase 7: temporal + year-aware context ---
+    today: str                   # ISO-8601 date (YYYY-MM-DD), injected at graph entry
+    target_year: int             # year extracted/resolved from the question
+    covered_years: list[int]     # mirror of settings.kb_covered_years
+    clarifier_reason: ClarifierReason
+    fallback_offered: list[int]  # years suggested by the out_of_year fallback
+    audit_trace_id: str          # OTel trace_id (str) for audit-row correlation
 
     # --- rag node output ---
     reformulated_query: str

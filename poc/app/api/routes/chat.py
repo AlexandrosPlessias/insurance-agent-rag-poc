@@ -157,6 +157,8 @@ def _ndjson_persist(
         question,
         history=history,
         user_activity=activity,
+        user_id=user_id,
+        conversation_id=conv_id,
     ):
         if event.get("type") == "token":
             final_chunks.append(event.get("value", ""))
