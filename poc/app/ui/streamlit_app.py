@@ -205,16 +205,25 @@ with st.sidebar:
             f"`{settings.otel_endpoint}`."
         )
 
-    st.markdown(
-        "**Implemented phases**\n"
-        "- 1 · streaming RAG with citations\n"
-        "- 2 · supervisor + validator + retry\n"
-        "- 3 · report agent (Markdown + charts)\n"
-        "- 4 · SQLite long-term memory\n"
-        "- 5 · OpenTelemetry (traces + logs + metrics)\n"
-        "- 6 · per-document ingestion (PDF -> Markdown -> Chroma)\n"
-        "- 7 · year-aware retrieval + clarifier + audit trail"
-    )
+    # Build-history reference, hidden behind an expander so the
+    # sidebar stays compact. Order is chronological (1 -> 7) so the
+    # reader sees the PoC's progression rather than a flat checklist.
+    with st.expander("📋 Implemented phases", expanded=False):
+        st.markdown(
+            "✅ **Phase 1** · streaming RAG with citations  \n"
+            "✅ **Phase 2** · supervisor + validator with 1-retry loop  \n"
+            "✅ **Phase 3** · report agent (Markdown + embedded charts)  \n"
+            "✅ **Phase 4** · SQLite long-term memory + per-user "
+            "conversations  \n"
+            "✅ **Phase 5** · OpenTelemetry traces · logs · metrics "
+            "(Aspire)  \n"
+            "✅ **Phase 6** · per-document ingestion "
+            "(PDF → Markdown → ChromaDB)  \n"
+            "✅ **Phase 7** · year-aware retrieval · clarifier · "
+            "out-of-year fallback · audit trail · UI enrichment "
+            "(full-topology stepper, grouped citations, chunk_index) · "
+            "OTel log dedup"
+        )
 
 
 # --- Render helpers ---
