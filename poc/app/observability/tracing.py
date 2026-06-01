@@ -181,10 +181,18 @@ def _instrument_httpx() -> None:
     HTTPXClientInstrumentor().instrument()
 
 
-def _instrument_logging() -> None:
-    from opentelemetry.instrumentation.logging import LoggingInstrumentor
-
-    LoggingInstrumentor().instrument(set_logging_format=False)
+# Note: we intentionally do NOT call
+# opentelemetry.instrumentation.logging.LoggingInstrumentor().instrument().
+# Newer versions auto-attach a second OTel LoggingHandler to the root
+# logger, which then ships every record TWICE through the same global
+# LoggerProvider (same trace_id, same millisecond - the symptom seen in
+# Aspire's Structured logs tab). Our own _setup_logs() already attaches
+# exactly one tagged LoggingHandler, and the SDK's LoggingHandler injects
+# the active span's trace_id/span_id on the OTLP side automatically.
+# The only thing LoggingInstrumentor adds on top is otelTraceID/otelSpanID
+# attributes on Python LogRecord for stderr format strings - we don't use
+# those in our format (see app.observability.logging), so calling it is
+# pure cost.
 
 
 def _instrument_langchain() -> None:
@@ -310,8 +318,8 @@ def setup_otel(
         _otel_pipeline_snapshot("after-logs")
         _setup_metrics(resource)
         _otel_pipeline_snapshot("after-metrics")
-        _instrument_logging()
-        _otel_pipeline_snapshot("after-instrument-logging")
+        # _instrument_logging() intentionally NOT called - see comment
+        # above its (removed) definition. It double-shipped every log.
         _instrument_httpx()
         _otel_pipeline_snapshot("after-instrument-httpx")
         _instrument_langchain()
