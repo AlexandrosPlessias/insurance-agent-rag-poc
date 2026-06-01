@@ -86,10 +86,31 @@ def _setup_traces(resource) -> None:
     trace.set_tracer_provider(provider)
 
 
+_OTEL_HANDLER_FLAG = "_otel_managed_handler"
+
+
 def _setup_logs(resource) -> None:
+    """Attach exactly one OTLP log handler to the root logger.
+
+    If this is somehow called a second time within the same process
+    (e.g. a uvicorn --reload edge case, a stray re-import, a script
+    that imports the API module), the prior handler is left in place
+    and we no-op. Without this guard each log record gets shipped to
+    Aspire twice - identical trace_id, identical timestamp, two rows.
+    """
     from opentelemetry._logs import set_logger_provider
     from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
     from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+
+    root_logger = logging.getLogger()
+    if any(
+        getattr(h, _OTEL_HANDLER_FLAG, False)
+        for h in root_logger.handlers
+    ):
+        _log.debug(
+            "OTel log handler already attached; skipping re-attach"
+        )
+        return
 
     provider = LoggerProvider(resource=resource)
     set_logger_provider(provider)
@@ -99,7 +120,8 @@ def _setup_logs(resource) -> None:
     handler = LoggingHandler(
         level=logging.INFO, logger_provider=provider
     )
-    logging.getLogger().addHandler(handler)
+    setattr(handler, _OTEL_HANDLER_FLAG, True)
+    root_logger.addHandler(handler)
 
 
 def _setup_metrics(resource) -> None:
