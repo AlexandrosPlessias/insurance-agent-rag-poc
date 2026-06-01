@@ -29,17 +29,29 @@ st.set_page_config(page_title="Insurance Assistant", layout="wide")
 st.title("Insurance Assistant - Local RAG PoC")
 
 # Full graph topology rendered every turn. Each tuple is
-# (stage_key, label, route_that_owns_it). route=None means the stage
-# is shared across all routes (Supervisor); validator is only on the
-# RAG path (route="rag"). The order matters for left-to-right layout.
-PIPELINE_TOPOLOGY: list[tuple[str, str, str | None]] = [
-    ("supervisor", "Supervisor", None),                 # tier 1 - always
-    ("rag",        "RAG",        "rag"),                # tier 2 - one of
-    ("report",     "Report",     "report"),
-    ("clarifier",  "Clarifier",  "needs_clarification"),
-    ("fallback",   "Fallback",   "out_of_year"),
-    ("decline",    "Decline",    "out_of_scope"),
-    ("validator",  "Validator",  "rag"),                # tier 3 - rag only
+# (stage_key, label, route_that_owns_it, tools_used).
+# route=None means the stage is shared across all routes (Supervisor);
+# validator is only on the RAG path (route="rag"). Tools are shown as a
+# small badge row under the status pill so the user can see at a glance
+# what each agent calls into. Order matters for the left-to-right layout.
+PIPELINE_TOPOLOGY: list[tuple[str, str, str | None, list[str]]] = [
+    # tier 1 - always runs
+    ("supervisor", "Supervisor", None,
+        ["LLM", "regex(year)"]),
+    # tier 2 - exactly one of these fires
+    ("rag",        "RAG",        "rag",
+        ["LLM", "Chroma", "embed"]),
+    ("report",     "Report",     "report",
+        ["LLM", "Chroma", "matplotlib"]),
+    ("clarifier",  "Clarifier",  "needs_clarification",
+        ["LLM"]),
+    ("fallback",   "Fallback",   "out_of_year",
+        ["template"]),
+    ("decline",    "Decline",    "out_of_scope",
+        ["template"]),
+    # tier 3 - only on the rag path
+    ("validator",  "Validator",  "rag",
+        ["LLM"]),
 ]
 
 # --- Session-state defaults ---
@@ -241,6 +253,35 @@ def _on_active_path(route: str, owner: str | None) -> bool:
     return route == owner
 
 
+def _render_tools_row(col, tools: list[str], dim: bool = False) -> None:
+    """Tiny badge row under a node's status pill.
+
+    Renders one chip per tool the agent calls into. `dim=True` is used
+    for off-path branches so the badges fade with the rest of the cell.
+    """
+    if not tools:
+        return
+    base_bg = "rgba(120,140,200,.10)"
+    base_color = "rgba(200,210,240,.85)"
+    if dim:
+        base_bg = "rgba(120,120,120,.03)"
+        base_color = "rgba(150,150,150,.4)"
+    chips = "".join(
+        f"<span style='display: inline-block; "
+        f"padding: .08rem .35rem; margin: .1rem .1rem 0 0; "
+        f"border-radius: .25rem; background: {base_bg}; "
+        f"color: {base_color}; font-size: .68rem; "
+        f"font-family: monospace;'>"
+        f"{t}</span>"
+        for t in tools
+    )
+    col.markdown(
+        f"<div style='text-align: center; margin-top: -.4rem;'>"
+        f"{chips}</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def render_stepper(slot, stages: dict, route: str = "") -> None:
     """Render the full graph topology every turn.
 
@@ -249,11 +290,13 @@ def render_stepper(slot, stages: dict, route: str = "") -> None:
     pipeline. As the backend emits `stage` events, nodes on the active
     route's path flip green (done) or blue (running); branches the
     supervisor *didn't* pick stay greyed out, so the visualisation
-    showcases every flow and the one that fired.
+    showcases every flow and the one that fired. Under each node we
+    render the tools the agent calls (LLM, Chroma, embed, ...) so the
+    'graphical state' surfaces what's actually being invoked.
     """
     with slot.container():
         cols = st.columns(len(PIPELINE_TOPOLOGY))
-        for col, (key, label, owner) in zip(cols, PIPELINE_TOPOLOGY):
+        for col, (key, label, owner, tools) in zip(cols, PIPELINE_TOPOLOGY):
             on_path = _on_active_path(route, owner)
             status = stages.get(key, "pending") if on_path else "off_path"
 
@@ -289,6 +332,8 @@ def render_stepper(slot, stages: dict, route: str = "") -> None:
                     unsafe_allow_html=True,
                 )
 
+            _render_tools_row(col, tools, dim=(status == "off_path"))
+
 
 def render_citations(citations: list[dict]) -> None:
     """Group citations by source PDF.
@@ -313,6 +358,23 @@ def render_citations(citations: list[dict]) -> None:
     def _chunk_num(rank: int, citation: dict) -> int:
         ci = int(citation.get("chunk_index") or 0)
         return ci if ci > 0 else rank
+
+    # When EVERY citation lacks chunk_index, the chunks were ingested
+    # before that field existed - the numbers shown will be retrieval
+    # rank, not the actual position in the document. Tell the user
+    # how to populate the real numbers so they can cross-reference
+    # against `scripts/inspect_chroma.py --report`.
+    legacy_chunks = all(
+        int(c.get("chunk_index") or 0) == 0 for c in citations
+    )
+    if legacy_chunks:
+        st.caption(
+            "ℹ️ _Chunk numbers shown are retrieval rank. "
+            "To see the actual document-position chunk numbers "
+            "(matching `inspect_chroma.py --report`), re-ingest:_  \n"
+            "`python scripts/reset_stores.py --keep-audit "
+            "&& python scripts/ingest_pdfs.py`"
+        )
 
     by_source: dict[str, list[tuple[int, dict]]] = {}
     for rank, c in enumerate(citations, start=1):
