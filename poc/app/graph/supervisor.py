@@ -145,7 +145,7 @@ def _classify_with_llm(question: str, today: str, covered: list[int]) -> str:
 
 
 def supervisor_node(state: GraphState) -> dict:
-    question = state["question"]
+    question = state.get("question") or ""
     history = state.get("history") or []
     today = state.get("today") or date.today().isoformat()
     covered = list(state.get("covered_years") or settings.kb_covered_years)

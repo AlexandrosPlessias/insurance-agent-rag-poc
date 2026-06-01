@@ -32,6 +32,7 @@ from app.data import (
     get_dataset,
 )
 from app.graph.clarifier import clarifier_node
+from app.graph.state import GraphState
 from app.graph.supervisor import (
     decline_node,
     fallback_node,
@@ -51,9 +52,9 @@ def _stage(node: str, status: str, info: str = "") -> dict:
     return event
 
 
-def _run_rag_streaming(state: dict) -> Iterator[dict]:
+def _run_rag_streaming(state: GraphState) -> Iterator[dict]:
     """Yield token events for the RAG step. Mutates `state` in place."""
-    question = state["question"]
+    question = state.get("question") or ""
     retry_count = state.get("retry_count", 0)
     critique = state.get("last_critique", "")
     history = state.get("history", [])
@@ -133,7 +134,7 @@ def _run_rag_streaming(state: dict) -> Iterator[dict]:
     )
 
 
-def _run_validator(state: dict) -> Iterator[dict]:
+def _run_validator(state: GraphState) -> Iterator[dict]:
     yield _stage("validator", "started")
     state.update(validator_node(state))
     v = state.get("validation", {})
@@ -144,7 +145,7 @@ def _run_validator(state: dict) -> Iterator[dict]:
     yield _stage("validator", "done", info=info)
 
 
-def _run_data_streaming(state: dict) -> Iterator[dict]:
+def _run_data_streaming(state: GraphState) -> Iterator[dict]:
     """Phase 8 - emit per-substage events for the data branch.
 
     plan + execute fire as their own sub-pills so the UI stepper
@@ -155,7 +156,7 @@ def _run_data_streaming(state: dict) -> Iterator[dict]:
     """
     from datetime import date
 
-    question = state["question"]
+    question = state.get("question") or ""
     today = state.get("today") or date.today().isoformat()
     previous_op = state.get("last_data_operation")
     ds = get_dataset()
@@ -248,7 +249,7 @@ def _run_data_streaming(state: dict) -> Iterator[dict]:
 
 
 def _emit_terminal_text(
-    state: dict, route: str, node_name: str
+    state: GraphState, route: str, node_name: str
 ) -> Iterator[dict]:
     """Used by decline / clarifier / fallback - same shape as a chat reply."""
     yield _stage(node_name, "started")
@@ -280,8 +281,12 @@ def stream_graph(
     user_id: str | None = None,
     conversation_id: int | None = None,
 ) -> Iterator[dict]:
-    """Walk supervisor -> (decline | clarifier | fallback | rag+validator | report)."""
-    state: dict = {
+    """Walk supervisor -> one of the seven terminal branches.
+
+    Branches: decline / clarifier / fallback / data / report
+    or rag (+ validator + 1-retry loop).
+    """
+    state: GraphState = {
         "question": question,
         "retry_count": 0,
         "history": history or [],
@@ -296,10 +301,11 @@ def stream_graph(
         # --- Supervisor ---
         yield _stage("supervisor", "started")
         state.update(supervisor_node(state))
-        route = state["route"]
+        route = state.get("route") or "rag"
         info = f"route={route}"
-        if state.get("target_year") is not None:
-            info += f" year={state['target_year']}"
+        ty = state.get("target_year")
+        if ty is not None:
+            info += f" year={ty}"
         yield _stage("supervisor", "done", info=info)
 
         # --- Terminal branches (no validator loop) ---
@@ -335,7 +341,7 @@ def stream_graph(
             yield _stage("report", "started")
             state.update(report_node(state))
             yield _stage("report", "done")
-            yield {"type": "token", "value": state["final_answer"]}
+            yield {"type": "token", "value": state.get("final_answer", "")}
             chunks_out = state.get("final_citations") or []
             yield {
                 "type": "done",

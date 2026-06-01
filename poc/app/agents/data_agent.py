@@ -431,7 +431,11 @@ def _diff_against_previous(
 
 def data_node(state: GraphState) -> dict:
     """Run the planner → executor → renderer pipeline for one turn."""
-    question = state["question"]
+    # GraphState is TypedDict(total=False), so every key is optional
+    # from the type checker's perspective. We trust the graph entry
+    # point (api.routes.chat) to always populate `question` and fall
+    # back to "" defensively if it ever isn't.
+    question = state.get("question") or ""
     today = state.get("today") or date.today().isoformat()
     previous_op = state.get("last_data_operation")
     ds = get_dataset()
