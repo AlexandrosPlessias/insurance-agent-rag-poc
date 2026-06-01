@@ -12,6 +12,10 @@ surface:
 Severity for risk flags is deterministic (thresholds.py) - the
 single point of LLM-free trust in the whole report.
 """
+from app.reporting.executive.builder import (
+    build_executive_report,
+    compute_report_run_id,
+)
 from app.reporting.executive.sections import (
     AppendixSection,
     CoverSection,
@@ -30,6 +34,8 @@ from app.reporting.executive.sections import (
 )
 
 __all__ = [
+    "build_executive_report",
+    "compute_report_run_id",
     "ReportDocument",
     "CoverSection",
     "ExecutiveSummarySection",
