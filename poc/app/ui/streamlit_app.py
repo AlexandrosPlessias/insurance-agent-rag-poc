@@ -53,6 +53,8 @@ PIPELINE_TOPOLOGY: list[tuple[str, str, str | None, list[str]]] = [
         ["LLM", "Chroma", "embed"]),
     ("report",     "Report",     "report",
         ["LLM", "Chroma", "matplotlib"]),
+    ("data",       "Data",       "data",
+        ["LLM", "pandas"]),
     ("clarifier",  "Clarifier",  "needs_clarification",
         ["LLM"]),
     ("fallback",   "Fallback",   "out_of_year",
@@ -298,7 +300,13 @@ with st.sidebar:
             "✅ **Phase 7** · year-aware retrieval · clarifier · "
             "out-of-year fallback · audit trail · UI enrichment "
             "(full-topology stepper, grouped citations, chunk_index) · "
-            "OTel log dedup"
+            "OTel log dedup  \n"
+            "✅ **Phase 8** · Talk-to-Data agent · typed Operation JSON · "
+            "pandas executor with 5 schema-aware guards · drill-down "
+            "with inherited/changed chips · `data.plan`/`data.execute` "
+            "stage events + audit  \n"
+            "🟡 **Phase 9** · executive annual report (Markdown · "
+            "DOCX · PDF) — _next_"
         )
 
 
@@ -325,6 +333,13 @@ RAG_SUBSTAGES: list[tuple[str, str, str]] = [
     ("rag.reformulate", "reformulate", "LLM"),
     ("rag.retrieve",    "retrieve",    "Chroma"),
     ("rag.answer",      "answer",      "LLM"),
+]
+
+# Phase 8 - sub-stages inside the data node. plan = LLM-typed
+# Operation JSON, execute = pandas filter + group + aggregate.
+DATA_SUBSTAGES: list[tuple[str, str, str]] = [
+    ("data.plan",    "plan",    "LLM"),
+    ("data.execute", "execute", "pandas"),
 ]
 
 
@@ -441,6 +456,14 @@ def render_stepper(slot, stages: dict, route: str = "") -> None:
                     sub_status = stages.get(sub_key, "pending")
                     _render_substage(col, sub_label, sub_tool, sub_status)
 
+            # Phase 8: same pattern for the data node's sub-stages.
+            # plan + execute light up off `data.plan` / `data.execute`
+            # events; other turns leave the cell untouched.
+            if key == "data" and on_path:
+                for sub_key, sub_label, sub_tool in DATA_SUBSTAGES:
+                    sub_status = stages.get(sub_key, "pending")
+                    _render_substage(col, sub_label, sub_tool, sub_status)
+
 
 def render_citations(citations: list[dict]) -> None:
     """Group citations by source PDF.
@@ -543,6 +566,49 @@ def render_reformulation(reformulated: str, original: str) -> None:
         st.code(reformulated, language="text")
 
 
+def render_operation_expander(op: dict | None) -> None:
+    """Phase 8: 'How this was computed' expander for data turns.
+
+    Renders the Operation JSON the planner emitted with inherited /
+    changed chips when it's a drill-down. The expander stays closed
+    by default - it's a verification surface, not a primary read.
+    """
+    if not op:
+        return
+    import json as _json
+
+    drilldown = bool(op.get("_drilldown"))
+    inherited = op.get("_inherited") or []
+    changed = op.get("_changed") or []
+    title = "How this was computed"
+    if drilldown:
+        title += "  ·  drill-down"
+
+    with st.expander(title, expanded=False):
+        if drilldown:
+            row = st.columns(2)
+            row[0].markdown(
+                "**Inherited from previous turn:**  \n"
+                + (
+                    "  ".join(f"`{c}`" for c in inherited)
+                    or "_(none)_"
+                )
+            )
+            row[1].markdown(
+                "**Changed this turn:**  \n"
+                + (
+                    "  ".join(f"`{c}`" for c in changed)
+                    or "_(none)_"
+                )
+            )
+
+        # Hide the internal `_drilldown` / `_inherited` / `_changed`
+        # annotations from the displayed JSON - they're for UI use
+        # only, not part of the typed Operation.
+        public = {k: v for k, v in op.items() if not k.startswith("_")}
+        st.code(_json.dumps(public, indent=2), language="json")
+
+
 # Branded chat avatars: shield for the ACME assistant, person silhouette
 # for the user. Streamlit defaults to a generic robot and person glyph.
 ASSISTANT_AVATAR = "🛡️"
@@ -562,7 +628,10 @@ for entry in st.session_state.history:
                     entry.get("reformulated_query", ""),
                     entry.get("original_question", ""),
                 )
-            if route == "report":
+            # Markdown-bearing routes (report + Phase 8 data) need
+            # st.markdown so tables / formatting render; the plain
+            # branches use st.write.
+            if route in ("report", "data"):
                 st.markdown(entry["content"], unsafe_allow_html=False)
             else:
                 st.write(entry["content"])
@@ -571,7 +640,10 @@ for entry in st.session_state.history:
                     entry.get("validated", True),
                     entry.get("critique", ""),
                 )
-            render_citations(entry.get("citations", []))
+            if route == "data":
+                render_operation_expander(entry.get("data_operation"))
+            else:
+                render_citations(entry.get("citations", []))
         else:
             st.write(entry["content"])
 
@@ -601,6 +673,12 @@ if question:
         route_holder = {"value": ""}
         error_holder = {"value": ""}
         report_holder = {"value": ""}
+        # Phase 8 data turn: tokens come as a single Markdown blob,
+        # so we capture them like a report and render with st.markdown
+        # AFTER the stream. The Operation JSON travels on the `done`
+        # event and feeds the 'How this was computed' expander.
+        data_holder = {"value": ""}
+        data_operation_holder: dict = {"value": None}
 
         def token_stream():
             for event in stream_chat(
@@ -626,8 +704,10 @@ if question:
                         and event.get("status") == "done"
                     ):
                         info = event.get("info", "")
-                        # Order matters: check the more-specific Phase 7
-                        # routes before the generic "rag" substring.
+                        # Order matters: check the more-specific Phase
+                        # 7 / 8 routes before the generic "rag"
+                        # substring. 'data' has to win over 'rag'
+                        # too even though they share no characters.
                         if "needs_clarification" in info:
                             route_holder["value"] = "needs_clarification"
                         elif "out_of_year" in info:
@@ -636,6 +716,8 @@ if question:
                             route_holder["value"] = "out_of_scope"
                         elif "report" in info:
                             route_holder["value"] = "report"
+                        elif "data" in info:
+                            route_holder["value"] = "data"
                         elif "rag" in info:
                             route_holder["value"] = "rag"
                     render_stepper(
@@ -655,6 +737,8 @@ if question:
                 elif etype == "token":
                     if route_holder["value"] == "report":
                         report_holder["value"] += event["value"]
+                    elif route_holder["value"] == "data":
+                        data_holder["value"] += event["value"]
                     else:
                         yield event["value"]
                 elif etype == "done":
@@ -669,6 +753,9 @@ if question:
                         route_holder["value"] = event.get(
                             "route", ""
                         )
+                    op = event.get("data_operation")
+                    if op:
+                        data_operation_holder["value"] = op
                 elif etype == "error":
                     error_holder["value"] = event.get("value", "")
 
@@ -680,6 +767,10 @@ if question:
 
         if route_holder["value"] == "report" and report_holder["value"]:
             answer = report_holder["value"]
+            st.markdown(answer, unsafe_allow_html=False)
+
+        if route_holder["value"] == "data" and data_holder["value"]:
+            answer = data_holder["value"]
             st.markdown(answer, unsafe_allow_html=False)
 
         if error_holder["value"]:
@@ -700,7 +791,10 @@ if question:
                 "Out-of-year fallback - the requested year isn't "
                 "in the knowledge base."
             )
-        render_citations(citations)
+        if route_holder["value"] == "data":
+            render_operation_expander(data_operation_holder["value"])
+        else:
+            render_citations(citations)
 
         st.session_state.history.append(
             {
@@ -712,6 +806,10 @@ if question:
                 "validated": validated_holder["value"],
                 "critique": critique_holder["value"],
                 "route": route_holder["value"],
+                # Phase 8: keep the Operation payload alongside the
+                # answer so the replay loop can re-render the
+                # 'How this was computed' expander when scrolling back.
+                "data_operation": data_operation_holder["value"],
             }
         )
 

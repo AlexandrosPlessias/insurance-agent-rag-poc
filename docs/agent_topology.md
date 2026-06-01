@@ -8,19 +8,20 @@ For the rendered diagram and per-node reference, see [GRAPH.md](../GRAPH.md). Fo
 
 ---
 
-## 1. The five routes
+## 1. The six routes
 
-The supervisor classifies every incoming user message into exactly one of five routes:
+The supervisor classifies every incoming user message into exactly one of six routes:
 
 | Route | Picked when | Terminal node | LLM calls in this turn |
 |---|---|---|---|
 | `rag` | Year is resolved (from question or recent history) **and** question is about policy content | `validator` (with 1-retry to `rag`) | 3+ (reformulate + answer + validator, ×2 on retry) |
-| `report` | Question contains words like "summary", "report", "overview", "breakdown" | `report` | 1 (structured extractor) |
+| `report` | Question contains words like "summary", "report", "overview", "breakdown" about a policy document | `report` | 1 (structured extractor) |
+| `data` | Quantitative or analytical question over the KPI dataset — named metric, quantitative verb (`compare`, `trend`, `by channel`, `vs`), or numeric comparison | `data.node` | 1 (planner only — executor is pure pandas) |
 | `out_of_scope` | Greetings, math, chit-chat, non-insurance | `decline.canned` | 0 (templated reply) |
 | `needs_clarification` | Question is RAG-ish but no year mentioned and history can't resolve one | `clarifier.ask` | 1 small (with deterministic fallback if it fails) |
 | `out_of_year` | A year was named (regex) but it isn't in `kb_covered_years` | `fallback.out_of_year` | **0** (no LLM call at all) |
 
-`needs_clarification` and `out_of_year` are the Phase 7 additions. The rest predates them.
+`needs_clarification` and `out_of_year` are the Phase 7 additions; `data` is the Phase 8 addition. The rest predates them.
 
 ---
 
@@ -170,6 +171,17 @@ This is the rule that makes the topology stable. If a future change pulls a node
 |---|---|
 | Honour `target_year` when present (extends to Phase 9) | Run through the validator |
 | Render Markdown + chart inline | Loop or retry |
+
+### `data.node`
+
+| MUST | MUST NOT |
+|---|---|
+| Emit exactly one typed `Operation` JSON from the planner LLM | Let the LLM generate executable code — the executor is hand-written pandas, the LLM only emits typed JSON |
+| Run the executor against `KpiDataset.df` with schema-aware guards (`year_gap`, `invalid_aggregation`, `unknown_metric`, `unknown_dimension_value`, `empty_result`) | Aggregate a rate or snapshot metric with `sum` — the executor refuses on metric kind |
+| Filter out `is_rollup` rows by default to avoid double-counting | Touch year 2023 — symmetric with Phase 7's RAG `out_of_year` (refuses with `reason="year_gap"`) |
+| Carry `last_data_operation` from state into the planner as drill-down context | Validate via `validator.judge` — data turns ship a Markdown answer + Operation expander, not a chunk-grounded answer |
+| Write both `data.plan` and `data.execute` audit events (including failure cases with the typed `reason`) | Re-render previous results — every turn re-runs the planner against the current question |
+| Render narrative + Markdown table + Operation expander as the assistant message | Persist beyond the turn except via `last_data_operation` (which feeds the next turn's planner) |
 
 ---
 
