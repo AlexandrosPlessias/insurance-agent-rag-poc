@@ -24,7 +24,7 @@ flowchart TD
     clarifier[<b>clarifier.ask</b><br/><i>one targeted question</i>]:::worker
     fallback[<b>fallback.out_of_year</b><br/><i>offer nearest covered years</i>]:::worker
     report[<b>report.node</b><br/><i>extract → markdown + chart</i>]:::worker
-    rag[<b>rag.node</b><br/><i>reformulate → retrieve (year-filtered) → answer</i>]:::worker
+    rag[<b>rag.node</b><br/><i>reformulate → year-filtered retrieve → answer</i>]:::worker
 
     rag --> validator
     validator[<b>validator.judge</b><br/><i>groundedness + citations</i>]:::guard
