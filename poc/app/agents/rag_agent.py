@@ -104,6 +104,7 @@ def citation_payload(c: RetrievedChunk) -> dict:
         "download_url": f"/sources/{c.source}",
         "section": c.section,
         "section_title": c.section_title,
+        "chunk_index": c.chunk_index,
     }
 
 

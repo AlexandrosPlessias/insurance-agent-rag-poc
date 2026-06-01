@@ -5,7 +5,7 @@ Run from poc/ (after activating the venv):
   python scripts/inspect_chroma.py                       # summary
   python scripts/inspect_chroma.py --sample 5            # 5 sample chunks
   python scripts/inspect_chroma.py --source NAME.pdf     # filter by source
-  python scripts/inspect_chroma.py --year 2020           # Phase 7: filter by year
+  python scripts/inspect_chroma.py --year 2020           # Phase 7 filter
   python scripts/inspect_chroma.py --search "deductible" # similarity search
   python scripts/inspect_chroma.py --search "refund" --year 2024
   python scripts/inspect_chroma.py --metadata            # full metadata dump
@@ -152,11 +152,19 @@ def _render_report(source: str, docs: list[str], metas: list[dict]) -> str:
     # --- All chunks ---
     lines.append("## Chunks")
     lines.append("")
-    for i, (doc, meta) in enumerate(zip(docs, metas), start=1):
+    # Sort by metadata.chunk_index so the report's chunk numbers match
+    # what the UI shows (citations carry chunk_index). Falls back to
+    # the original ChromaDB order if a chunk has no chunk_index yet
+    # (legacy data ingested before that field was added).
+    indexed = list(zip(docs, metas))
+    indexed.sort(key=lambda dm: int((dm[1] or {}).get("chunk_index") or 0))
+    for fallback_rank, (doc, meta) in enumerate(indexed, start=1):
+        meta = meta or {}
+        chunk_num = int(meta.get("chunk_index") or 0) or fallback_rank
         section = (
             meta.get("section_title") or meta.get("section") or ""
         )
-        title_bits = [f"Chunk {i}"]
+        title_bits = [f"Chunk {chunk_num}"]
         if section:
             title_bits.append(section)
         lines.append("### " + "  ·  ".join(title_bits))

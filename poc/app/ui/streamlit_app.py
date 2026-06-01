@@ -28,36 +28,19 @@ setup_otel(service_suffix="ui")
 st.set_page_config(page_title="Insurance Assistant", layout="wide")
 st.title("Insurance Assistant - Local RAG PoC")
 
-STAGE_SETS = {
-    "rag": [
-        ("supervisor", "Supervisor"),
-        ("rag", "RAG"),
-        ("validator", "Validator"),
-    ],
-    "report": [
-        ("supervisor", "Supervisor"),
-        ("report", "Report"),
-    ],
-    "out_of_scope": [
-        ("supervisor", "Supervisor"),
-        ("decline", "Decline"),
-    ],
-    # Phase 7 - terminal branches that end the turn with one assistant
-    # message and no validator step.
-    "needs_clarification": [
-        ("supervisor", "Supervisor"),
-        ("clarifier", "Clarifier"),
-    ],
-    "out_of_year": [
-        ("supervisor", "Supervisor"),
-        ("fallback", "Year Fallback"),
-    ],
-    "_default": [
-        ("supervisor", "Supervisor"),
-        ("rag", "RAG"),
-        ("validator", "Validator"),
-    ],
-}
+# Full graph topology rendered every turn. Each tuple is
+# (stage_key, label, route_that_owns_it). route=None means the stage
+# is shared across all routes (Supervisor); validator is only on the
+# RAG path (route="rag"). The order matters for left-to-right layout.
+PIPELINE_TOPOLOGY: list[tuple[str, str, str | None]] = [
+    ("supervisor", "Supervisor", None),                 # tier 1 - always
+    ("rag",        "RAG",        "rag"),                # tier 2 - one of
+    ("report",     "Report",     "report"),
+    ("clarifier",  "Clarifier",  "needs_clarification"),
+    ("fallback",   "Fallback",   "out_of_year"),
+    ("decline",    "Decline",    "out_of_scope"),
+    ("validator",  "Validator",  "rag"),                # tier 3 - rag only
+]
 
 # --- Session-state defaults ---
 if "user_id" not in st.session_state:
@@ -237,34 +220,63 @@ with st.sidebar:
 # --- Render helpers ---
 
 
-def render_stepper(slot, stages: dict, route: str = "_default") -> None:
-    """Horizontal stage timeline for the active route.
+def _on_active_path(route: str, owner: str | None) -> bool:
+    """True iff a topology node belongs to the route the supervisor picked.
 
-    Renders every stage of the active route from turn start, so the
-    user sees the full pipeline they're about to traverse and watches
-    it light up as the backend reports `stage` events. Completed steps
-    flip to green, the running step shows an indeterminate-progress
-    blue badge, pending steps stay greyed.
+    Supervisor (owner=None) is always on the path. Tier-2 branch nodes
+    are on the path only when their owning route matches. Validator
+    (owner='rag') is on the path only when route='rag'.
     """
-    labels = STAGE_SETS.get(route, STAGE_SETS["_default"])
+    if owner is None:
+        return True
+    return route == owner
+
+
+def render_stepper(slot, stages: dict, route: str = "") -> None:
+    """Render the full graph topology every turn.
+
+    All seven nodes (Supervisor + 5 branches + Validator) are visible
+    from the moment the turn starts so the user can see the whole
+    pipeline. As the backend emits `stage` events, nodes on the active
+    route's path flip green (done) or blue (running); branches the
+    supervisor *didn't* pick stay greyed out, so the visualisation
+    showcases every flow and the one that fired.
+    """
     with slot.container():
-        cols = st.columns(len(labels))
-        for idx, (col, (key, label)) in enumerate(zip(cols, labels)):
-            status = stages.get(key, "pending")
-            arrow = "" if idx == 0 else " → "
+        cols = st.columns(len(PIPELINE_TOPOLOGY))
+        for col, (key, label, owner) in zip(cols, PIPELINE_TOPOLOGY):
+            on_path = _on_active_path(route, owner)
+            status = stages.get(key, "pending") if on_path else "off_path"
+
             if status == "done":
-                col.success(f"{arrow}✓ {label}")
+                col.success(f"✓ {label}")
             elif status == "running":
-                col.info(f"{arrow}⟳ {label} …")
+                col.info(f"⟳ {label} …")
+            elif status == "off_path":
+                # Branch we did NOT take - dimmed and visually quiet.
+                col.markdown(
+                    f"<div style='padding: .5rem .5rem; "
+                    f"border-radius: .375rem; "
+                    f"background-color: rgba(120,120,120,.04); "
+                    f"color: rgba(150,150,150,.45); "
+                    f"text-align: center; "
+                    f"font-size: .82rem; "
+                    f"text-decoration: line-through "
+                    f"rgba(150,150,150,.35);'>"
+                    f"{label}</div>",
+                    unsafe_allow_html=True,
+                )
             else:
-                # Pending step: greyed so the user can see what's next.
+                # On-path but not yet reached - pending pill.
                 col.markdown(
                     f"<div style='padding: .5rem .75rem; "
                     f"border-radius: .375rem; "
-                    f"background-color: rgba(120,120,120,.08); "
-                    f"color: rgba(180,180,180,.6); "
+                    f"background-color: rgba(120,140,200,.10); "
+                    f"border: 1px dashed rgba(120,140,200,.35); "
+                    f"color: rgba(180,200,255,.85); "
+                    f"text-align: center; "
                     f"font-size: .92rem;'>"
-                    f"{arrow}○ {label}</div>",
+                    f"○ {label}</div>",
                     unsafe_allow_html=True,
                 )
 
@@ -272,25 +284,35 @@ def render_stepper(slot, stages: dict, route: str = "_default") -> None:
 def render_citations(citations: list[dict]) -> None:
     """Group citations by source PDF.
 
-    Each PDF appears once with the retrieval-rank indexes it contributed
-    ("chunks 1, 3, 5"), a single Download PDF button, then the section
-    titles + per-chunk View popovers stacked underneath. Avoids the
-    visual noise of `[1] foo.pdf / [2] foo.pdf / [3] foo.pdf` when
-    multiple top-k hits come from the same document.
+    Each PDF appears once with the per-document chunk indexes it
+    contributed ("chunks 12, 28"), a single Download PDF button, then
+    the section titles + per-chunk View popovers stacked underneath.
+
+    The chunk number shown is `metadata.chunk_index` - the chunk's
+    position inside the source document, populated by the chunker.
+    That's the same number printed by `scripts/inspect_chroma.py
+    --report`, so the user can open a citation, jump to the report,
+    and find the exact chunk. If a citation lacks chunk_index (chunks
+    indexed before this change), we fall back to the retrieval rank.
     """
     if not citations:
         return
     st.markdown("**Sources**")
 
-    # Preserve retrieval rank as the citation "number" - the chunks
-    # are ordered by similarity, so the lowest index is the closest
-    # hit and that's what we want to show.
+    # Resolve chunk number for each citation: real chunk_index from
+    # metadata when available, retrieval rank as fallback.
+    def _chunk_num(rank: int, citation: dict) -> int:
+        ci = int(citation.get("chunk_index") or 0)
+        return ci if ci > 0 else rank
+
     by_source: dict[str, list[tuple[int, dict]]] = {}
-    for i, c in enumerate(citations, start=1):
-        by_source.setdefault(c["source"], []).append((i, c))
+    for rank, c in enumerate(citations, start=1):
+        by_source.setdefault(c["source"], []).append(
+            (_chunk_num(rank, c), c)
+        )
 
     for source, items in by_source.items():
-        chunk_nums = ", ".join(str(i) for i, _ in items)
+        chunk_nums = ", ".join(str(n) for n, _ in items)
         n = len(items)
         chunk_label = (
             f"chunk {chunk_nums}" if n == 1 else f"chunks {chunk_nums}"
@@ -306,18 +328,18 @@ def render_citations(citations: list[dict]) -> None:
             use_container_width=True,
         )
 
-        for i, c in items:
+        for num, c in items:
             section = (c.get("section") or "").strip()
             section_title = (c.get("section_title") or "").strip()
             section_display = section_title or section or "(unsectioned)"
 
             row = st.columns([1, 5, 2])
-            row[0].caption(f"  [{i}]")
+            row[0].caption(f"  [{num}]")
             row[1].caption(section_display)
             with row[2].popover(
-                f"View chunk {i}", use_container_width=True
+                f"View chunk {num}", use_container_width=True
             ):
-                header = f"**{source}**  ·  _chunk {i}_"
+                header = f"**{source}**  ·  _chunk {num}_"
                 if section_display and section_display != "(unsectioned)":
                     header += f"  \n_Section: {section_display}_"
                 st.markdown(header)
@@ -366,21 +388,10 @@ for entry in st.session_state.history:
         else:
             st.write(entry["content"])
 
-# Streamlit re-runs top-to-bottom on every event; the `processing`
-# flag stays True from submission until the streaming finishes, so
-# the chat_input is greyed out and the user can't fire a second
-# question while the agent is mid-flight.
-is_processing = st.session_state.get("processing", False)
 question = st.chat_input(
-    (
-        "Working on your last question..."
-        if is_processing
-        else "Ask about a policy, or request a report..."
-    ),
-    disabled=is_processing,
+    "Ask about a policy, or request a report..."
 )
 if question:
-    st.session_state.processing = True
     st.session_state.history.append(
         {"role": "user", "content": question}
     )
@@ -391,7 +402,10 @@ if question:
         stepper_slot = st.empty()
         meta_slot = st.empty()
         stages: dict[str, str] = {}
-        render_stepper(stepper_slot, stages, route="_default")
+        # Initial render: route not yet known. All tier-2 branches
+        # render as off-path (dim/strikethrough) and flip when the
+        # supervisor's `done` event tells us which one was chosen.
+        render_stepper(stepper_slot, stages, route="")
 
         citations: list[dict] = []
         validated_holder = {"value": True}
@@ -440,7 +454,7 @@ if question:
                     render_stepper(
                         stepper_slot,
                         stages,
-                        route=route_holder["value"] or "_default",
+                        route=route_holder["value"],
                     )
                 elif etype == "meta":
                     reformulated_holder["value"] = event.get(
@@ -513,10 +527,3 @@ if question:
                 "route": route_holder["value"],
             }
         )
-
-        # Stream is finished - re-enable the chat input on the next
-        # rerun. We trigger that rerun explicitly so the disabled
-        # input flips back to active immediately instead of waiting
-        # for the user to interact again.
-        st.session_state.processing = False
-        st.rerun()

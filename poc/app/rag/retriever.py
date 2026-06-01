@@ -19,6 +19,7 @@ class RetrievedChunk:
     source: str
     section: str = ""
     section_title: str = ""
+    chunk_index: int = 0   # per-source 1-based index (Phase 7 plumbing)
 
     def as_citation(self) -> str:
         topic = self.section_title or self.section
@@ -73,6 +74,7 @@ def retrieve(
                 section_title=str(
                     d.metadata.get("section_title", "") or ""
                 ),
+                chunk_index=int(d.metadata.get("chunk_index") or 0),
             )
             for d in docs
         ]
