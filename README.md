@@ -14,6 +14,7 @@ The PoC runs **100% locally** on WSL2 — no external LLM API calls, no cloud de
 | **[USAGE.md](USAGE.md)** | Day-to-day operation — running the stack, ingesting policy PDFs, observability in Aspire, troubleshooting |
 | **[GRAPH.md](GRAPH.md)** | LangGraph state diagram + per-node + edge reference |
 | [docs/ingestion.md](docs/ingestion.md) | Phase 6 ingestion & chunking pipeline (design + tuning) |
+| [docs/PoC_scope.md](docs/PoC_scope.md) | Original scope & 5-phase plan |
 | [docs/insurance_rag_strategic_roadmap.md](docs/insurance_rag_strategic_roadmap.md) | Strategic roadmap |
 
 ---
@@ -95,16 +96,15 @@ Phases 1–6 are implemented. Phases 7–10 are designed (one MD per phase) but 
 | **4** ✅ | SQLite long-term memory + per-user conversations | [poc/app/memory/](poc/app/memory/), [poc/app/agents/memory_agent.py](poc/app/agents/memory_agent.py) |
 | **5** ✅ | OpenTelemetry traces + logs + metrics (Aspire Dashboard) | [poc/app/observability/](poc/app/observability/), [poc/scripts/run_observability.sh](poc/scripts/run_observability.sh) |
 | **6** ✅ | Per-document ingestion pipeline: PDF → Markdown → metadata sidecar → ChromaDB. Same flow used by the batch script and the `POST /ingest` endpoint for UI uploads | [poc/app/ingestion/](poc/app/ingestion/), [poc/data/knowledge_base/](poc/data/knowledge_base/) |
-| **7** 🟡 planned | Year-aware retrieval (KB covers 2020/2021/2022/2024 — 2023 gap), today-aware reasoning, out-of-year fallback, clarifier node, audit-trail SQLite DB | (new) `poc/app/graph/clarifier.py`, `poc/app/audit/`, retriever `where_filter`. Details: [Phase 7](#phase-7--year-aware-rag-clarifier-audit-trail-) |
-| **8** 🟡 planned | Talk-to-Data agent over `insurance_kpis.csv` (year / period / channel / product line × 13 KPIs) — natural-language quantitative analysis with drill-down follow-ups and verifiable Operation JSON | (new) `poc/app/agents/data_agent.py`, `poc/app/data/`. Details: [Phase 8](#phase-8--talk-to-data-agent-) |
-| **9** 🟡 planned | Executive annual report for a selected year — narrative + KPI highlights + variance commentary + risk indicators + recommendations. Outputs: on-screen Markdown, downloadable DOCX, downloadable PDF | (extends) [poc/app/reporting/](poc/app/reporting/), new `poc/app/reporting/executive/` + `writers/`. Details: [Phase 9](#phase-9--executive-annual-report-) |
-| **10** 🟡 planned | PoC stakeholder deck (PPTX + PDF) — non-technical problem framing, retrospective, "what I'd do differently" (AG-UI, Azurized models, one-shot report experiment) | (new) `poc/scripts/build_pptx.py`, `docs/presentation/`. Details: [Phase 10](#phase-10--poc-presentation-deck-) |
+| **7** 🟡 planned | Better answering: clarifier node for ambiguous queries · filtered semantic search (by `section_title`, `year`, …) · golden-example few-shot prompting + eval set | (new) `poc/app/graph/clarifier.py`, `poc/app/eval/`, retriever filter params |
+| **8** 🟡 planned | Report templates v2: pluggable report types (policy summary, year-comparison, KPI dashboard) · numeric KPI extraction · chart variety (line / pie / comparison) | extends [poc/app/reporting/](poc/app/reporting/), new `poc/app/reporting/templates/` |
+| **9** 🟡 planned | PoC slide deck — `python-pptx`-driven generator with sections per phase, screenshots, demo flow | (new) `poc/scripts/build_pptx.py`, `docs/slides.pptx` output |
 
 ### Nice-to-have (not on the roadmap)
 
 Lower-priority items that improve quality but aren't gating the PoC:
 
-- **Table extraction from PDFs** — `pymupdf4llm` handles simple tables but complex multi-page tables sometimes render messily. Falling back to `tabula-py` or `unstructured.io` only for table-heavy docs would yield cleaner chunks for KPI-style retrieval.
+- **Table extraction from PDFs** — `pymupdf4llm` handles simple tables but complex multi-page tables sometimes render messily. Fall back to `tabula-py` or `unstructured.io` only for table-heavy docs would yield cleaner chunks for KPI-style retrieval.
 - **Unit test coverage** — `tests/unit/test_imports.py` catches gross breakage. Adding focused unit tests for the pure functions (`_clean_section_title`, `_smart_join_pages`, `_parse_validation`, `chunk_metadata`) would lock the chunking + parsing logic against regressions.
 
 ### Phase 1 — Basic RAG
