@@ -10,6 +10,7 @@ the endpoint at startup and self-disables (logs a warning) when
 Aspire isn't reachable, so a stopped backend never breaks the app.
 """
 import logging
+import os
 import socket
 from typing import Any
 from urllib.parse import urlparse
@@ -86,10 +87,52 @@ def _setup_traces(resource) -> None:
     trace.set_tracer_provider(provider)
 
 
+_OTEL_HANDLER_FLAG = "_otel_managed_handler"
+
+
+def _otel_handler_count(root_logger: logging.Logger) -> int:
+    return sum(
+        1
+        for h in root_logger.handlers
+        if getattr(h, _OTEL_HANDLER_FLAG, False)
+    )
+
+
 def _setup_logs(resource) -> None:
+    """Attach exactly one OTLP log handler to the root logger.
+
+    If this is somehow called a second time within the same process
+    (e.g. a uvicorn --reload edge case, a stray re-import, a script
+    that imports the API module), any prior OTel-tagged handlers are
+    removed first. Without this guard each log record gets shipped to
+    Aspire twice - identical trace_id, identical timestamp, two rows.
+    """
     from opentelemetry._logs import set_logger_provider
     from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
     from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+
+    root_logger = logging.getLogger()
+
+    # Belt-and-braces: actively strip any prior OTel-tagged handlers
+    # before attaching the new one. Skipping the re-attach (earlier
+    # approach) only helped when the second caller was OUR setup_otel
+    # - it didn't protect against a stranger calling LoggingHandler()
+    # directly, or a prior partial setup that crashed mid-way.
+    stale = [
+        h for h in root_logger.handlers
+        if getattr(h, _OTEL_HANDLER_FLAG, False)
+    ]
+    for h in stale:
+        try:
+            root_logger.removeHandler(h)
+            h.close()
+        except Exception:  # noqa: BLE001 - never block startup
+            pass
+    if stale:
+        _log.warning(
+            "Removed %d stale OTel log handler(s) before re-attaching",
+            len(stale),
+        )
 
     provider = LoggerProvider(resource=resource)
     set_logger_provider(provider)
@@ -99,7 +142,14 @@ def _setup_logs(resource) -> None:
     handler = LoggingHandler(
         level=logging.INFO, logger_provider=provider
     )
-    logging.getLogger().addHandler(handler)
+    setattr(handler, _OTEL_HANDLER_FLAG, True)
+    root_logger.addHandler(handler)
+    _log.info(
+        "OTel log handler attached (root handlers now: %d total, "
+        "%d OTel-tagged)",
+        len(root_logger.handlers),
+        _otel_handler_count(root_logger),
+    )
 
 
 def _setup_metrics(resource) -> None:
@@ -131,10 +181,18 @@ def _instrument_httpx() -> None:
     HTTPXClientInstrumentor().instrument()
 
 
-def _instrument_logging() -> None:
-    from opentelemetry.instrumentation.logging import LoggingInstrumentor
-
-    LoggingInstrumentor().instrument(set_logging_format=False)
+# Note: we intentionally do NOT call
+# opentelemetry.instrumentation.logging.LoggingInstrumentor().instrument().
+# Newer versions auto-attach a second OTel LoggingHandler to the root
+# logger, which then ships every record TWICE through the same global
+# LoggerProvider (same trace_id, same millisecond - the symptom seen in
+# Aspire's Structured logs tab). Our own _setup_logs() already attaches
+# exactly one tagged LoggingHandler, and the SDK's LoggingHandler injects
+# the active span's trace_id/span_id on the OTLP side automatically.
+# The only thing LoggingInstrumentor adds on top is otelTraceID/otelSpanID
+# attributes on Python LogRecord for stderr format strings - we don't use
+# those in our format (see app.observability.logging), so calling it is
+# pure cost.
 
 
 def _instrument_langchain() -> None:
@@ -181,6 +239,56 @@ def annotate_request_span(
             pass
 
 
+def _otel_pipeline_snapshot(label: str) -> None:
+    """Walk root logger + global LoggerProvider and log a one-line shape.
+
+    Use after each step inside setup_otel so we can see exactly which
+    step adds a second handler / processor / exporter, if any.
+    """
+    if os.environ.get("OTEL_DEBUG_PIPELINE", "").lower() not in (
+        "1", "true", "yes"
+    ):
+        return
+    try:
+        root = logging.getLogger()
+        otel_handlers = [
+            h for h in root.handlers
+            if getattr(h, _OTEL_HANDLER_FLAG, False)
+        ]
+        non_otel_logging_handlers = [
+            h for h in root.handlers
+            if not getattr(h, _OTEL_HANDLER_FLAG, False)
+            and type(h).__name__ == "LoggingHandler"
+            and type(h).__module__.startswith("opentelemetry")
+        ]
+        from opentelemetry._logs import get_logger_provider
+        prov = get_logger_provider()
+        proc_count = 0
+        try:
+            mlrp = getattr(prov, "_multi_log_record_processor", None) \
+                or getattr(prov, "_at_exit_log_record_processor", None)
+            inner = (
+                getattr(mlrp, "_log_record_processors", None)
+                or getattr(mlrp, "_log_processors", None)
+                or []
+            )
+            proc_count = len(inner)
+        except Exception:  # noqa: BLE001
+            pass
+        _log.info(
+            "[otel-debug %s] root_handlers=%d otel_tagged=%d "
+            "non_tagged_otel_loghandlers=%d provider=%s processors=%d",
+            label,
+            len(root.handlers),
+            len(otel_handlers),
+            len(non_otel_logging_handlers),
+            type(prov).__name__,
+            proc_count,
+        )
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("[otel-debug %s] snapshot failed: %s", label, exc)
+
+
 def setup_otel(
     app: Any | None = None,
     service_suffix: str | None = None,
@@ -205,13 +313,20 @@ def setup_otel(
     try:
         resource = _resource(service_suffix)
         _setup_traces(resource)
+        _otel_pipeline_snapshot("after-traces")
         _setup_logs(resource)
+        _otel_pipeline_snapshot("after-logs")
         _setup_metrics(resource)
-        _instrument_logging()
+        _otel_pipeline_snapshot("after-metrics")
+        # _instrument_logging() intentionally NOT called - see comment
+        # above its (removed) definition. It double-shipped every log.
         _instrument_httpx()
+        _otel_pipeline_snapshot("after-instrument-httpx")
         _instrument_langchain()
+        _otel_pipeline_snapshot("after-instrument-langchain")
         if app is not None:
             _instrument_fastapi(app)
+            _otel_pipeline_snapshot("after-instrument-fastapi")
         _INSTALLED = True
         _log.info(
             "OTel enabled: endpoint=%s service=%s ui=%s",
@@ -220,6 +335,7 @@ def setup_otel(
             + (f"-{service_suffix}" if service_suffix else ""),
             settings.otel_ui_url,
         )
+        _otel_pipeline_snapshot("end")
     except Exception as exc:  # noqa: BLE001
         _log.exception("OTel setup failed: %s", exc)
 

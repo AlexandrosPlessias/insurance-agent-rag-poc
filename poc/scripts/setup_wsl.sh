@@ -18,7 +18,12 @@ echo "[1/6] Installing system packages..."
 sudo apt-get update
 sudo apt-get install -y \
   python3 python3-venv python3-dev \
-  build-essential curl git zstd
+  build-essential curl git zstd \
+  sqlite3
+# sqlite3 CLI is a debug convenience for the Phase 7 audit DB
+# (poc/data/audit.sqlite). The app itself only uses Python's
+# stdlib sqlite3 module - this is just so `sqlite3 audit.sqlite`
+# in USAGE.md doesn't error out for first-time users.
 
 # Require Python 3.10+ (Ubuntu 22.04 ships 3.10, Ubuntu 24.04 ships 3.12).
 "$PYTHON_BIN" -c "import sys; assert sys.version_info >= (3, 10), \

@@ -42,8 +42,9 @@ SAMPLE_PDF = settings.raw_pdf_dir / "Enhanced_Customer_Guidelines_2024.pdf"
 USER_ID = "smoke_user"
 
 # Questions scoped to known 2024 content. The supervisor classifies each
-# into one of the three routes; we assert the route loosely via the
-# printed banner so a human reader can spot routing regressions.
+# into one of the routes; we assert the route loosely via the printed
+# banner so a human reader can spot routing regressions. Phase 7 cases
+# at the end exercise the new clarifier / out_of_year branches.
 SAMPLE_QUESTIONS = [
     (
         "rag",
@@ -51,15 +52,12 @@ SAMPLE_QUESTIONS = [
     ),
     (
         "rag",
-        "Which payment methods are accepted for issuing refunds?",
+        "Based on the 2020 policy, how should a refund without a "
+        "receipt but with a bank transaction be handled?",
     ),
     (
         "rag",
-        "How should employees handle a suspected theft incident?",
-    ),
-    (
-        "rag",
-        "What are the data protection requirements employees must follow?",
+        "How should employees handle a suspected theft incident in 2024?",
     ),
     (
         "report",
@@ -68,6 +66,23 @@ SAMPLE_QUESTIONS = [
     (
         "out_of_scope",
         "What is 2 + 2?",
+    ),
+    # Phase 7 - clarifier branch (year missing).
+    (
+        "needs_clarification",
+        "What is the refund window?",
+    ),
+    # Phase 7 - out-of-year fallback (2023 is the KB gap).
+    (
+        "out_of_year",
+        "What does the 2023 policy say about refunds?",
+    ),
+    # Phase 7 - clarifier follow-up: the bare "2024" reply should be
+    # stitched onto the previous "What is the refund window?" so the
+    # supervisor routes to rag, not out_of_scope.
+    (
+        "rag",
+        "2024",
     ),
 ]
 
@@ -111,6 +126,13 @@ def main() -> int:
     if settings.sqlite_path.exists():
         log.info("Removing SQLite memory at %s", settings.sqlite_path)
         settings.sqlite_path.unlink()
+
+    # Phase 7 - reset audit DB so the smoke run gets a clean trail.
+    if settings.audit_sqlite_path.exists():
+        log.info(
+            "Removing audit DB at %s", settings.audit_sqlite_path
+        )
+        settings.audit_sqlite_path.unlink()
 
     # Ingest the seed PDF through the Phase 6 pipeline. The LLM
     # summariser writes a fresh sidecar; subsequent queries pick up the

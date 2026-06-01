@@ -131,10 +131,14 @@ After running `bash poc/scripts/run_all.sh`, open **http://localhost:18888**.
 
 Every node span carries:
 - `user.id` and `conversation.id` — set in both `/chat` and `/chat/stream` handlers
-- `supervisor.route` — `rag` / `report` / `out_of_scope`
-- `rag.retry_count`, `rag.chunk_count`, `rag.has_critique`
+- `supervisor.route` — `rag` / `report` / `out_of_scope` / `needs_clarification` / `out_of_year`
+- `supervisor.today`, `supervisor.covered_years`, `supervisor.target_year`, `supervisor.year_source` *(Phase 7)*
+- `rag.retry_count`, `rag.chunk_count`, `rag.has_critique`, `rag.target_year` *(Phase 7)*
+- `retrieve.where_filter` — present on `rag.retrieve` whenever year-scoped *(Phase 7)*
+- `clarifier.reason` ∈ {`year_missing`, `year_gap`, `ambiguous_clause`} *(Phase 7)*
+- `fallback.target_year`, `fallback.offered` *(Phase 7)*
 - `validator.grounded`, `validator.citations_ok`, `validator.critique`
-- `report.chunk_count`, `report.chart_present`, `report.markdown_chars`
+- `report.chunk_count`, `report.chart_present`, `report.markdown_chars`, `report.target_year` *(Phase 7)*
 - `llm.duration_s`, `llm.answer_chars`
 
 ### Filter examples
@@ -152,6 +156,17 @@ validator.grounded = false
 Find slow LLM calls:
 ```
 llm.duration_s > 5
+```
+
+Find every clarifier-triggered turn (Phase 7):
+```
+supervisor.route = "needs_clarification"
+```
+
+Find year-fallback turns (someone asked about 2023):
+```
+supervisor.route = "out_of_year"
+fallback.target_year = 2023
 ```
 
 ### Clearing telemetry between runs
@@ -185,6 +200,10 @@ python scripts/inspect_chroma.py --all > /tmp/all_chunks.txt
 
 # Run a similarity search end-to-end (top-K with citations + previews)
 python scripts/inspect_chroma.py --search "What is the deductible?" --k 5
+
+# Phase 7: scope sampling / search to one policy year
+python scripts/inspect_chroma.py --year 2020
+python scripts/inspect_chroma.py --search "refund window" --year 2024 --k 5
 ```
 
 Quick smoke check after ingestion:
@@ -211,6 +230,9 @@ python scripts/inspect_chroma.py --report
 
 # Or just one PDF
 python scripts/inspect_chroma.py --report --source Enhanced_Customer_Guidelines_2024.pdf
+
+# Phase 7: report only one policy year (combinable with --source)
+python scripts/inspect_chroma.py --report --year 2020
 
 # Custom output directory
 python scripts/inspect_chroma.py --report --report-dir /tmp/chunks
@@ -261,25 +283,112 @@ Use these reports to:
 - Compare section distribution across years (e.g. did the 2024 doc gain a "Loyalty Programme" section that 2020 lacks?).
 - Verify that `section_title` is being populated correctly across documents before you build the semantic-search filter.
 
-## 6. Resetting local state
+## 6. Year-aware routing & audit trail (Phase 7)
+
+### Knowledge base coverage
+
+`settings.kb_covered_years = [2020, 2021, 2022, 2024]` (see [poc/app/config.py](poc/app/config.py)). **2023 is an intentional gap.** When the supervisor extracts a `target_year` that isn't in this list, the request short-circuits to the **out-of-year fallback** node — no retrieval, no LLM call, just a templated reply naming the nearest covered years.
+
+### The five supervisor routes
+
+| Route | Triggered when | Terminal? |
+|---|---|---|
+| `rag` | Year resolved (from the question or recent history) **and** question is about policy content | No — runs validator + 1-retry |
+| `report` | Words like "summary", "report", "overview", "breakdown" | Yes |
+| `out_of_scope` | Greetings, math, chit-chat, non-insurance | Yes — `decline.canned` |
+| `needs_clarification` | Question is RAG-ish but no year is mentioned and history can't resolve one | Yes — `clarifier.ask` emits one targeted question |
+| `out_of_year` | A year was named but it isn't in `kb_covered_years` | Yes — `fallback.out_of_year` offers nearest covered years |
+
+The terminal Phase 7 branches end the turn with a single assistant message; the **next** user reply re-enters the supervisor.
+
+### Audit trail
+
+Every routing / retrieval / validation / clarifier / fallback decision writes a typed row into `poc/data/audit.sqlite` (separate file from `memory.sqlite`). Each row carries the active OTel `trace_id`, so an Aspire span is one click away from its audit record.
+
+| `event_type` | Payload highlights |
+|---|---|
+| `supervisor.route` | `{route, target_year, covered_years, resolved_today, clarifier_reason}` |
+| `rag.retrieve` | `{where, k, reformulated_query, sources}` |
+| `rag.answer` | `{retry_count, answer_chars, duration_s, target_year}` |
+| `validator.judge` | `{grounded, citations_ok, critique, retry_count, terminal}` |
+| `clarifier.ask` | `{reason, question, original_question_preview, covered_years}` |
+| `year_fallback` | `{requested, offered, covered_years}` |
+| `report.generate` | `{target_year, chunk_count, chart_present, markdown_chars, sources}` |
+| `decline.canned` | `{reason}` |
+
+### Exporting for compliance review
 
 ```bash
 cd poc && source .venv/bin/activate
-python scripts/reset_stores.py      # wipes ChromaDB + SQLite memory
-python scripts/ingest_pdfs.py       # re-index from raw/ (with summariser pass)
+
+# Whole log → data/audit_export.csv
+python scripts/audit_export.py
+
+# One specific trace (copy the trace_id from Aspire's Traces tab)
+python scripts/audit_export.py --trace-id 8d2f...e1
+
+# Custom output file
+python scripts/audit_export.py --out /tmp/q3_audit.csv
+```
+
+The CSV keeps `payload_json` as a single column so Excel / PowerBI can ingest it without per-event schemas.
+
+### Inspecting from the SQLite shell
+
+The `sqlite3` CLI is installed by `setup_wsl.sh` ([1/6] step). If you're on a machine where it isn't available (`Command 'sqlite3' not found`), install it with `sudo apt install sqlite3`, **or** use the Python one-liner below.
+
+```bash
+sqlite3 poc/data/audit.sqlite \
+  "SELECT ts, event_type, json_extract(payload_json, '$.route') AS route \
+   FROM audit_events WHERE user_id = 'alex' ORDER BY id DESC LIMIT 20;"
+```
+
+Pure-Python alternative — uses the stdlib module that's always available, no apt install needed:
+
+```bash
+cd poc && source .venv/bin/activate
+python -c "
+from app.audit import AuditStore
+from app.config import settings
+for r in AuditStore(settings.audit_sqlite_path).recent(limit=20):
+    print(r['ts'], r['event_type'], r['payload'].get('route', ''))
+"
+```
+
+Quick count per event type (Python-only):
+
+```bash
+python -c "
+import sqlite3
+from app.config import settings
+with sqlite3.connect(settings.audit_sqlite_path) as c:
+    for et, n in c.execute('SELECT event_type, COUNT(*) FROM audit_events GROUP BY event_type'):
+        print(f'{n:>4}  {et}')
+"
+```
+
+---
+
+## 7. Resetting local state
+
+```bash
+cd poc && source .venv/bin/activate
+python scripts/reset_stores.py                  # wipes ChromaDB + memory + audit
+python scripts/reset_stores.py --keep-audit     # keep audit.sqlite intact
+python scripts/ingest_pdfs.py                   # re-index from raw/ (with summariser pass)
 ```
 
 PDFs in `poc/data/knowledge_base/raw/` are kept (tracked in git). To start completely fresh including the venv:
 
 ```bash
-rm -rf poc/.venv poc/data/chroma_db poc/data/memory.sqlite
+rm -rf poc/.venv poc/data/chroma_db poc/data/memory.sqlite poc/data/audit.sqlite
 rm -rf poc/data/knowledge_base/processed poc/data/knowledge_base/metadata/*.json
 bash poc/scripts/setup_wsl.sh        # rebuild venv + redo pip install
 ```
 
 ---
 
-## 6. Adjusting log verbosity
+## 8. Adjusting log verbosity
 
 ```bash
 # DEBUG | INFO | WARNING | ERROR
@@ -290,7 +399,7 @@ Logs go to **stderr** (visible in the terminal) **and** to Aspire's Structured l
 
 ---
 
-## 7. Troubleshooting
+## 9. Troubleshooting
 
 | Symptom | Fix |
 |---|---|
@@ -302,3 +411,6 @@ Logs go to **stderr** (visible in the terminal) **and** to Aspire's Structured l
 | First LLM call takes 30+ s | Cold start is normal on a laptop. Re-asking the same question is fast — model stays warm |
 | `ModuleNotFoundError: No module named 'opentelemetry'` | Reinstall: `cd poc && source .venv/bin/activate && pip install -r requirements.txt` |
 | Validator keeps marking answers as unverified | Your indexed PDFs may not contain the answer, or the model is hallucinating. Inspect the validator span's `critique` attribute in Aspire to see what went wrong |
+| Every question turns into a clarifier "which year?" prompt | Phase 7 escalates RAG-ish questions to the clarifier when no year is mentioned. Either mention a year in the question, or answer the clarifier so the next turn inherits the year from history |
+| Year-fallback fires when you asked about a covered year | Check `supervisor.target_year` in the trace. Regex may have latched onto an unrelated `20xx` token in the question. If that's the case, rephrase or set the year explicitly |
+| Audit DB grows large in long sessions | `python scripts/audit_export.py --out backup.csv` then delete `poc/data/audit.sqlite` — it's re-created lazily on the next request |

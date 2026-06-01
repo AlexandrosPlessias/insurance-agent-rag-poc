@@ -3,6 +3,10 @@
 Mirrors `app.graph.builder` but emits `stage` events around each node
 and streams tokens INSIDE the RAG node. Used by `/chat/stream`.
 Accepts optional `history` and `user_activity` for Phase 4 memory.
+
+Phase 7: forwards `target_year` to retrieval as `where_filter`, and
+handles the two new supervisor routes (`needs_clarification` and
+`out_of_year`) as terminal branches similar to `out_of_scope`.
 """
 from typing import Iterator
 
@@ -15,7 +19,14 @@ from app.agents.rag_agent import (
 )
 from app.agents.report_agent import report_node
 from app.agents.validator_agent import validator_node
-from app.graph.supervisor import decline_node, supervisor_node
+from app.audit import events as audit_events
+from app.audit.middleware import record as audit_record
+from app.graph.clarifier import clarifier_node
+from app.graph.supervisor import (
+    decline_node,
+    fallback_node,
+    supervisor_node,
+)
 from app.llm.ollama_client import get_llm
 from app.observability.logging import get_logger
 from app.rag.retriever import retrieve
@@ -36,12 +47,36 @@ def _run_rag_streaming(state: dict) -> Iterator[dict]:
     retry_count = state.get("retry_count", 0)
     critique = state.get("last_critique", "")
     history = state.get("history", [])
+    target_year = state.get("target_year")
+    where_filter = (
+        {"year": int(target_year)} if target_year is not None else None
+    )
 
+    # Phase 7 follow-up: emit per-substage events so the UI can light
+    # up the three RAG sub-pills (reformulate / retrieve / answer)
+    # independently. On retry, reformulate + retrieve are skipped
+    # (chunks reused); their pills stay in whatever state they ended
+    # the first pass.
     if retry_count == 0:
+        yield _stage("rag.reformulate", "started")
         reformulated = reformulate_question(question, history=history)
-        chunks = retrieve(reformulated)
         state["reformulated_query"] = reformulated
+        yield _stage("rag.reformulate", "done")
+
+        yield _stage("rag.retrieve", "started")
+        chunks = retrieve(reformulated, where_filter=where_filter)
         state["chunks"] = chunks
+        audit_record(
+            state,
+            event_type=audit_events.RAG_RETRIEVE,
+            payload={
+                "where": where_filter,
+                "k": len(chunks),
+                "reformulated_query": reformulated[:200],
+                "sources": sorted({c.source for c in chunks if c.source}),
+            },
+        )
+        yield _stage("rag.retrieve", "done", info=f"k={len(chunks)}")
         yield {"type": "meta", "reformulated_query": reformulated}
     else:
         log.info(
@@ -58,6 +93,7 @@ def _run_rag_streaming(state: dict) -> Iterator[dict]:
             ),
         }
 
+    yield _stage("rag.answer", "started")
     prompt = build_rag_prompt(
         chunks, critique=critique, history=history,
     )
@@ -71,7 +107,20 @@ def _run_rag_streaming(state: dict) -> Iterator[dict]:
         if text:
             parts.append(str(text))
             yield {"type": "token", "value": str(text)}
-    state["draft_answer"] = "".join(parts)
+    answer_text = "".join(parts)
+    state["draft_answer"] = answer_text
+    audit_record(
+        state,
+        event_type=audit_events.RAG_ANSWER,
+        payload={
+            "retry_count": retry_count,
+            "answer_chars": len(answer_text),
+            "target_year": target_year,
+        },
+    )
+    yield _stage(
+        "rag.answer", "done", info=f"chars={len(answer_text)}"
+    )
 
 
 def _run_validator(state: dict) -> Iterator[dict]:
@@ -85,38 +134,70 @@ def _run_validator(state: dict) -> Iterator[dict]:
     yield _stage("validator", "done", info=info)
 
 
+def _emit_terminal_text(
+    state: dict, route: str, node_name: str
+) -> Iterator[dict]:
+    """Used by decline / clarifier / fallback - same shape as a chat reply."""
+    yield _stage(node_name, "started")
+    if node_name == "decline":
+        state.update(decline_node(state))
+    elif node_name == "clarifier":
+        state.update(clarifier_node(state))
+    elif node_name == "fallback":
+        state.update(fallback_node(state))
+    yield _stage(node_name, "done")
+    yield {"type": "token", "value": state.get("final_answer", "")}
+    yield {
+        "type": "done",
+        "citations": [],
+        "validated": True,
+        "retry_count": 0,
+        "critique": "",
+        "route": route,
+        "target_year": state.get("target_year"),
+        "fallback_offered": state.get("fallback_offered"),
+        "clarifier_reason": state.get("clarifier_reason"),
+    }
+
+
 def stream_graph(
     question: str,
     history: list[dict] | None = None,
     user_activity: list[dict] | None = None,
+    user_id: str | None = None,
+    conversation_id: int | None = None,
 ) -> Iterator[dict]:
-    """Walk supervisor -> (decline | rag+validator | report)."""
+    """Walk supervisor -> (decline | clarifier | fallback | rag+validator | report)."""
     state: dict = {
         "question": question,
         "retry_count": 0,
         "history": history or [],
         "user_activity": user_activity or [],
     }
+    if user_id is not None:
+        state["user_id"] = user_id
+    if conversation_id is not None:
+        state["conversation_id"] = conversation_id
 
     try:
         # --- Supervisor ---
         yield _stage("supervisor", "started")
         state.update(supervisor_node(state))
         route = state["route"]
-        yield _stage("supervisor", "done", info=f"route={route}")
+        info = f"route={route}"
+        if state.get("target_year") is not None:
+            info += f" year={state['target_year']}"
+        yield _stage("supervisor", "done", info=info)
 
-        # --- Out-of-scope branch ---
+        # --- Terminal branches (no validator loop) ---
         if route == "out_of_scope":
-            state.update(decline_node(state))
-            yield {"type": "token", "value": state["final_answer"]}
-            yield {
-                "type": "done",
-                "citations": [],
-                "validated": True,
-                "retry_count": 0,
-                "critique": "",
-                "route": route,
-            }
+            yield from _emit_terminal_text(state, route, "decline")
+            return
+        if route == "needs_clarification":
+            yield from _emit_terminal_text(state, route, "clarifier")
+            return
+        if route == "out_of_year":
+            yield from _emit_terminal_text(state, route, "fallback")
             return
 
         # --- Report branch ---
@@ -135,6 +216,7 @@ def stream_graph(
                 "retry_count": 0,
                 "critique": "",
                 "route": route,
+                "target_year": state.get("target_year"),
             }
             return
 
@@ -166,6 +248,7 @@ def stream_graph(
             "retry_count": state.get("retry_count", 0),
             "critique": critique,
             "route": route,
+            "target_year": state.get("target_year"),
         }
     except Exception as exc:  # noqa: BLE001
         log.exception("stream_graph error")

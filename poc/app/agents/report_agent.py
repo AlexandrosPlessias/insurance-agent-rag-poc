@@ -6,6 +6,8 @@ import time
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.agents.memory_agent import format_user_activity
+from app.audit import events as audit_events
+from app.audit.middleware import record as audit_record
 from app.graph.state import GraphState
 from app.llm import load_prompt
 from app.llm.ollama_client import get_llm
@@ -95,7 +97,13 @@ def report_node(state: GraphState) -> dict:
         )
         t_total = time.perf_counter()
 
-        chunks = retrieve(question, k=REPORT_K)
+        target_year = state.get("target_year")
+        where_filter = (
+            {"year": int(target_year)} if target_year is not None else None
+        )
+        if target_year is not None:
+            span.set_attribute("report.target_year", int(target_year))
+        chunks = retrieve(question, k=REPORT_K, where_filter=where_filter)
         span.set_attribute("report.chunk_count", len(chunks))
         record_rag_chunks(len(chunks), route="report")
         if not chunks:
@@ -134,6 +142,18 @@ def report_node(state: GraphState) -> dict:
             len(markdown),
             "yes" if chart_b64 else "no",
             len(activity_bullets),
+        )
+
+        audit_record(
+            state,
+            event_type=audit_events.REPORT_GENERATE,
+            payload={
+                "target_year": target_year,
+                "chunk_count": len(chunks),
+                "chart_present": bool(chart_b64),
+                "markdown_chars": len(markdown),
+                "sources": sorted({c.source for c in chunks if c.source}),
+            },
         )
         return {
             "chunks": chunks,
