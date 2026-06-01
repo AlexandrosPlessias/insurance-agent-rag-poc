@@ -4,6 +4,8 @@ The compiled state machine that routes every chat message through the supervisor
 
 Source of truth: [poc/app/graph/builder.py](poc/app/graph/builder.py). Nodes live in [poc/app/graph/](poc/app/graph/) and [poc/app/agents/](poc/app/agents/). Edge functions are in [poc/app/graph/edges.py](poc/app/graph/edges.py).
 
+**Why this shape?** See [docs/agent_topology.md](docs/agent_topology.md) — design rationale, per-node contracts (MUST / MUST NOT), the decision matrix that drives the supervisor, and the playbook for adding a new route in a future phase.
+
 ---
 
 ## Topology

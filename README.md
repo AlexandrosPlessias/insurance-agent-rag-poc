@@ -13,6 +13,7 @@ The PoC runs **100% locally** on WSL2 — no external LLM API calls, no cloud de
 | **[SETUP.md](SETUP.md)** | First-time install — WSL2 prerequisites, bootstrap script, configuration, verification |
 | **[USAGE.md](USAGE.md)** | Day-to-day operation — running the stack, ingesting policy PDFs, observability in Aspire, troubleshooting |
 | **[GRAPH.md](GRAPH.md)** | LangGraph state diagram + per-node + edge reference |
+| [docs/agent_topology.md](docs/agent_topology.md) | Why the supervisor / clarifier / fallback / RAG / validator are separate nodes — design rationale + per-node contracts |
 | [docs/ingestion.md](docs/ingestion.md) | Phase 6 ingestion & chunking pipeline (design + tuning) |
 | [docs/PoC_scope.md](docs/PoC_scope.md) | Original scope & 5-phase plan |
 | [docs/insurance_rag_strategic_roadmap.md](docs/insurance_rag_strategic_roadmap.md) | Strategic roadmap |
