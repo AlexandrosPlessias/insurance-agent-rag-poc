@@ -229,7 +229,8 @@ with st.sidebar:
         "- 3 · report agent (Markdown + charts)\n"
         "- 4 · SQLite long-term memory\n"
         "- 5 · OpenTelemetry (traces + logs + metrics)\n"
-        "- 6 · per-document ingestion (PDF -> Markdown -> Chroma)"
+        "- 6 · per-document ingestion (PDF -> Markdown -> Chroma)\n"
+        "- 7 · year-aware retrieval + clarifier + audit trail"
     )
 
 
@@ -237,51 +238,92 @@ with st.sidebar:
 
 
 def render_stepper(slot, stages: dict, route: str = "_default") -> None:
+    """Horizontal stage timeline for the active route.
+
+    Renders every stage of the active route from turn start, so the
+    user sees the full pipeline they're about to traverse and watches
+    it light up as the backend reports `stage` events. Completed steps
+    flip to green, the running step shows an indeterminate-progress
+    blue badge, pending steps stay greyed.
+    """
     labels = STAGE_SETS.get(route, STAGE_SETS["_default"])
     with slot.container():
         cols = st.columns(len(labels))
-        for col, (key, label) in zip(cols, labels):
+        for idx, (col, (key, label)) in enumerate(zip(cols, labels)):
             status = stages.get(key, "pending")
+            arrow = "" if idx == 0 else " → "
             if status == "done":
-                col.success(f"+ {label}")
+                col.success(f"{arrow}✓ {label}")
             elif status == "running":
-                col.info(f"~ {label}")
+                col.info(f"{arrow}⟳ {label} …")
             else:
-                col.caption(f"o {label}")
+                # Pending step: greyed so the user can see what's next.
+                col.markdown(
+                    f"<div style='padding: .5rem .75rem; "
+                    f"border-radius: .375rem; "
+                    f"background-color: rgba(120,120,120,.08); "
+                    f"color: rgba(180,180,180,.6); "
+                    f"font-size: .92rem;'>"
+                    f"{arrow}○ {label}</div>",
+                    unsafe_allow_html=True,
+                )
 
 
 def render_citations(citations: list[dict]) -> None:
+    """Group citations by source PDF.
+
+    Each PDF appears once with the retrieval-rank indexes it contributed
+    ("chunks 1, 3, 5"), a single Download PDF button, then the section
+    titles + per-chunk View popovers stacked underneath. Avoids the
+    visual noise of `[1] foo.pdf / [2] foo.pdf / [3] foo.pdf` when
+    multiple top-k hits come from the same document.
+    """
     if not citations:
         return
     st.markdown("**Sources**")
+
+    # Preserve retrieval rank as the citation "number" - the chunks
+    # are ordered by similarity, so the lowest index is the closest
+    # hit and that's what we want to show.
+    by_source: dict[str, list[tuple[int, dict]]] = {}
     for i, c in enumerate(citations, start=1):
-        # Prefer the cleaned section_title (e.g. "Refund Policy"); fall
-        # back to the verbatim section (e.g. "1. Refund Policy") so we
-        # still show something for chunks that lack section_title.
-        section = (c.get("section") or "").strip()
-        section_title = (c.get("section_title") or "").strip()
-        section_display = section_title or section
+        by_source.setdefault(c["source"], []).append((i, c))
 
-        bits = [f"[{i}] {c['source']}"]
-        if section_display:
-            bits.append(section_display)
-        caption_text = "  ·  ".join(bits)
+    for source, items in by_source.items():
+        chunk_nums = ", ".join(str(i) for i, _ in items)
+        n = len(items)
+        chunk_label = (
+            f"chunk {chunk_nums}" if n == 1 else f"chunks {chunk_nums}"
+        )
 
-        cols = st.columns([4, 2, 2])
-        cols[0].caption(caption_text)
-        cols[1].link_button(
+        header_cols = st.columns([6, 2])
+        header_cols[0].markdown(
+            f"📄 **{source}**  ·  _{chunk_label}_"
+        )
+        header_cols[1].link_button(
             "Download PDF",
-            source_url(c["source"]),
+            source_url(source),
             use_container_width=True,
         )
-        with cols[2].popover(
-            f"View chunk {i}", use_container_width=True
-        ):
-            header = f"**{c['source']}**"
-            if section_display:
-                header += f"  \n_Section: {section_display}_"
-            st.markdown(header)
-            st.text(c.get("content", "") or "(no content captured)")
+
+        for i, c in items:
+            section = (c.get("section") or "").strip()
+            section_title = (c.get("section_title") or "").strip()
+            section_display = section_title or section or "(unsectioned)"
+
+            row = st.columns([1, 5, 2])
+            row[0].caption(f"  [{i}]")
+            row[1].caption(section_display)
+            with row[2].popover(
+                f"View chunk {i}", use_container_width=True
+            ):
+                header = f"**{source}**  ·  _chunk {i}_"
+                if section_display and section_display != "(unsectioned)":
+                    header += f"  \n_Section: {section_display}_"
+                st.markdown(header)
+                st.text(
+                    c.get("content", "") or "(no content captured)"
+                )
 
 
 def render_validation(validated: bool, critique: str) -> None:
@@ -324,8 +366,21 @@ for entry in st.session_state.history:
         else:
             st.write(entry["content"])
 
-question = st.chat_input("Ask about a policy, or request a report...")
+# Streamlit re-runs top-to-bottom on every event; the `processing`
+# flag stays True from submission until the streaming finishes, so
+# the chat_input is greyed out and the user can't fire a second
+# question while the agent is mid-flight.
+is_processing = st.session_state.get("processing", False)
+question = st.chat_input(
+    (
+        "Working on your last question..."
+        if is_processing
+        else "Ask about a policy, or request a report..."
+    ),
+    disabled=is_processing,
+)
 if question:
+    st.session_state.processing = True
     st.session_state.history.append(
         {"role": "user", "content": question}
     )
@@ -458,3 +513,10 @@ if question:
                 "route": route_holder["value"],
             }
         )
+
+        # Stream is finished - re-enable the chat input on the next
+        # rerun. We trigger that rerun explicitly so the disabled
+        # input flips back to active immediately instead of waiting
+        # for the user to interact again.
+        st.session_state.processing = False
+        st.rerun()
