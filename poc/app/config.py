@@ -71,6 +71,19 @@ class Settings(BaseSettings):
     # to the out_of_year fallback.
     kb_covered_years: list[int] = [2020, 2021, 2022, 2024]
 
+    # --- Phase 8: Talk-to-Data ---
+    # Curated KPI CSV (Gold layer). One row per
+    # (year, period, channel, product_line). The Phase 8 executor
+    # filters / groups / aggregates this DataFrame at request time.
+    kpi_csv_path: Path = (
+        POC_ROOT / "data" / "knowledge_base" / "structured"
+        / "insurance_kpis.csv"
+    )
+    kpi_schema_path: Path = (
+        POC_ROOT / "data" / "knowledge_base" / "structured"
+        / "insurance_kpis.schema.json"
+    )
+
     # --- Observability (Phase 5, Aspire Dashboard via OTLP gRPC) ---
     # Default ON. setup_otel() probes the endpoint at startup and
     # self-disables (logs a warning) if Aspire isn't reachable.
