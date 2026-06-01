@@ -8,6 +8,7 @@ Three layers, in order of dependency:
 Public surface:
     from app.data import KpiDataset, Operation, Filters
 """
+from app.data.executor import ExecutionResult, execute
 from app.data.loader import KpiDataset, get_dataset
 from app.data.operations import (
     AGGREGATIONS,
@@ -23,4 +24,6 @@ __all__ = [
     "Filters",
     "AGGREGATIONS",
     "OperationViolation",
+    "execute",
+    "ExecutionResult",
 ]
