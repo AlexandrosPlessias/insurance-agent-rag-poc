@@ -72,15 +72,17 @@ class Settings(BaseSettings):
     kb_covered_years: list[int] = [2020, 2021, 2022, 2024]
 
     # --- Phase 8: Talk-to-Data ---
-    # Curated KPI CSV (Gold layer). One row per
-    # (year, period, channel, product_line). The Phase 8 executor
-    # filters / groups / aggregates this DataFrame at request time.
+    # Curated KPI CSV. Sparse 'showcase' dataset - one row per
+    # (year, month, channel, product_line), cycling through combos,
+    # plus two pre-aggregated annual-rollup rows for 2020 and 2024.
+    # The Phase 8 executor filters / groups / aggregates this
+    # DataFrame at request time.
     kpi_csv_path: Path = (
-        POC_ROOT / "data" / "knowledge_base" / "structured"
-        / "insurance_kpis.csv"
+        POC_ROOT / "data" / "kpi" / "metrics"
+        / "insurance_kpis_2020_2024.csv"
     )
     kpi_schema_path: Path = (
-        POC_ROOT / "data" / "knowledge_base" / "structured"
+        POC_ROOT / "data" / "kpi" / "metrics"
         / "insurance_kpis.schema.json"
     )
 
@@ -91,7 +93,6 @@ class Settings(BaseSettings):
     otel_endpoint: str = "http://localhost:4317"
     otel_service_name: str = "insurance-rag-poc"
     otel_ui_url: str = "http://localhost:18888"
-
 
     @field_validator(
         "chroma_persist_dir",

@@ -23,7 +23,10 @@ log = get_logger(__name__)
 
 # Columns are typed at load time so the executor doesn't have to
 # re-cast. Integer columns that may contain NaN are loaded as
-# nullable Int64.
+# nullable Int64. Column names match the real seed CSV
+# (insurance_kpis_2020_2024.csv) exactly - suffixes _pct / _eur /
+# _score / _count carry over from the source so the planner LLM's
+# operations bind to the same names.
 _DIMENSION_COLS: dict[str, str] = {
     "year": "Int64",
     "period": "string",
@@ -34,18 +37,25 @@ _DIMENSION_COLS: dict[str, str] = {
 _METRIC_TYPES: dict[str, str] = {
     "policies_in_force": "Int64",
     "new_policies": "Int64",
-    "renewal_rate": "Float64",
-    "gross_written_premium": "Int64",
+    "renewal_rate_pct": "Float64",
+    "gross_written_premium_eur": "Int64",
     "claims_reported": "Int64",
-    "claims_paid": "Int64",
+    "claims_paid_eur": "Int64",
     "avg_claim_settlement_days": "Float64",
-    "nps": "Int64",
-    "complaints": "Int64",
-    "fraud_cases": "Int64",
+    "loss_ratio_pct": "Float64",
+    "nps_score": "Int64",
+    "complaints_count": "Int64",
+    "fraud_cases_detected": "Int64",
     "compliance_incidents": "Int64",
-    "operating_expenses": "Int64",
+    "operating_expense_eur": "Int64",
     "digital_adoption_pct": "Float64",
 }
+
+# Marker on rows where channel == 'All' AND product_line == 'All'
+# (annual rollups for 2020 and 2024 only). The executor filters
+# these out by default - they exist as cross-check fixtures, not
+# slice-and-dice rows.
+_ROLLUP_SENTINEL = "All"
 
 
 @dataclass(frozen=True)
@@ -99,6 +109,12 @@ def _read_csv(path: Path) -> pd.DataFrame:
     df = pd.read_csv(path, dtype=dtype_map)
     # Defensive: drop rows that lack a dimension key.
     df = df.dropna(subset=list(_DIMENSION_COLS.keys()))
+    # Tag the annual-rollup rows so the executor can filter them out
+    # by default (channel='All' AND product_line='All').
+    df["is_rollup"] = (
+        (df["channel"] == _ROLLUP_SENTINEL)
+        & (df["product_line"] == _ROLLUP_SENTINEL)
+    )
     # Stable ordering helps `weighted_mean` and `first`/`last` agg
     # produce deterministic results regardless of source row order.
     df = df.sort_values(
