@@ -84,6 +84,40 @@ SAMPLE_QUESTIONS = [
         "rag",
         "2024",
     ),
+    # Phase 8 - data route: single scalar metric query.
+    (
+        "data",
+        "What was the total gross written premium in 2024?",
+    ),
+    # Phase 8 - data route: weighted_mean of a rate metric across
+    # channels. Tests both group_by and the weighted_mean aggregation.
+    (
+        "data",
+        "Renewal rate by channel in 2024",
+    ),
+    # Phase 8 - data route DRILL-DOWN: this follow-up should INHERIT
+    # the previous metric (renewal_rate_pct) and year (2024), and
+    # change only the group_by dimension. The Operation expander
+    # should show 'Inherited' = {metric, filters, aggregation},
+    # 'Changed' = {group_by}.
+    (
+        "data",
+        "Now break that by product line instead",
+    ),
+    # Phase 8 - GUARD: sum on NPS is a rate/snapshot-like aggregation
+    # error. The executor refuses with reason=invalid_aggregation;
+    # the agent surfaces a templated refusal message naming the
+    # allowed aggregations for the metric.
+    (
+        "data",
+        "What is the total NPS summed across all channels in 2024?",
+    ),
+    # Phase 8 - GUARD: 2023 year_gap. Symmetric with Phase 7's RAG
+    # out_of_year fallback - executor refuses with reason=year_gap.
+    (
+        "data",
+        "What was the gross written premium in 2023?",
+    ),
 ]
 
 

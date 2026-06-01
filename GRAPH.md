@@ -18,6 +18,7 @@ flowchart TD
 
     supervisor -->|route = out_of_scope| decline
     supervisor -->|route = report| report
+    supervisor -->|route = data| data
     supervisor -->|route = needs_clarification| clarifier
     supervisor -->|route = out_of_year| fallback
     supervisor -->|route = rag| rag
@@ -26,6 +27,7 @@ flowchart TD
     clarifier[<b>clarifier.ask</b><br/><i>one targeted question</i>]:::worker
     fallback[<b>fallback.out_of_year</b><br/><i>offer nearest covered years</i>]:::worker
     report[<b>report.node</b><br/><i>extract → markdown + chart</i>]:::worker
+    data[<b>data.node</b><br/><i>planner LLM → typed Operation → pandas executor</i>]:::worker
     rag[<b>rag.node</b><br/><i>reformulate → year-filtered retrieve → answer</i>]:::worker
 
     rag --> validator
@@ -38,6 +40,7 @@ flowchart TD
     clarifier --> FINISH
     fallback --> FINISH
     report --> FINISH
+    data --> FINISH
 
     classDef router fill:#0d3b66,stroke:#1d6fa5,color:#fff,stroke-width:1.5px;
     classDef worker fill:#1a472a,stroke:#2e8b57,color:#fff,stroke-width:1.5px;
@@ -58,13 +61,14 @@ flowchart TD
 
 | Node | File | LLM calls | What it returns |
 |---|---|---|---|
-| `supervisor.classify` | [graph/supervisor.py](poc/app/graph/supervisor.py) | 0–1 (skipped on year-gap short-circuit) | `{route, today, target_year?, covered_years, fallback_offered?, clarifier_reason?}`. Routes: `rag`, `report`, `out_of_scope`, `needs_clarification`, `out_of_year` |
+| `supervisor.classify` | [graph/supervisor.py](poc/app/graph/supervisor.py) | 0–1 (skipped on year-gap short-circuit) | `{route, today, target_year?, covered_years, fallback_offered?, clarifier_reason?}`. Routes: `rag`, `report`, `data`, `out_of_scope`, `needs_clarification`, `out_of_year` |
 | `decline.canned` | [graph/supervisor.py](poc/app/graph/supervisor.py) | 0 | `{final_answer, final_citations=[], validated=True}` |
 | `clarifier.ask` | [graph/clarifier.py](poc/app/graph/clarifier.py) | 1 (with deterministic fallback) | `{final_answer (one clarifying question), final_citations=[]}` |
 | `fallback.out_of_year` | [graph/supervisor.py](poc/app/graph/supervisor.py) | 0 | `{final_answer (names the nearest covered years), final_citations=[]}` |
 | `rag.node` | [agents/rag_agent.py](poc/app/agents/rag_agent.py) | 2 (reformulate + answer) | `{reformulated_query, chunks (year-filtered when target_year set), draft_answer}` |
 | `validator.judge` | [agents/validator_agent.py](poc/app/agents/validator_agent.py) | 1 | `{validation: {grounded, citations_ok, critique}, final_answer?, retry_count?}` |
 | `report.node` | [agents/report_agent.py](poc/app/agents/report_agent.py) | 1 (JSON extractor) | `{final_answer (Markdown + base64 chart), final_citations}` |
+| `data.node` | [agents/data_agent.py](poc/app/agents/data_agent.py) | 1 (planner only — executor is pure pandas) | `{final_answer (narrative + Markdown table), data_operation (typed Operation JSON + drilldown/inherited/changed chips), last_data_operation}`. Refuses with typed reasons (`year_gap`, `invalid_aggregation`, `unknown_metric`, …) routed via the same node |
 
 ---
 
