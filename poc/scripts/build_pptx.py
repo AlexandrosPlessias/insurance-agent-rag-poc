@@ -9,7 +9,10 @@ while the user is collecting captures.
 Slide grammar (parsed from deck.md):
     ## <title>             -> starts a new slide
     image: <file>.png      -> embeds docs/screens/<file>.png
-    note: <one-line>       -> caption rendered under the image
+    note: <line>           -> SPEAKER NOTE (PPTX notes pane, NOT
+                              visible on the slide). Author can
+                              leave themselves cues without
+                              polluting the client-facing surface.
     everything else        -> bullets / prose in the slide body
 
 Run:
@@ -48,7 +51,10 @@ GREY_LIGHT = (0xbb, 0xbb, 0xbb)
 class Slide:
     title: str
     body_lines: list[str] = field(default_factory=list)
-    image: str = ""           # filename in docs/screens/, e.g. "10.acme-brand-header.png"
+    # filename in docs/screens/, e.g. "10.acme-brand-header.png"
+    image: str = ""
+    # Speaker note - routed to the PPTX notes pane, never visible
+    # on the slide itself.
     note: str = ""
 
     def has_image(self) -> bool:
@@ -72,7 +78,6 @@ def parse_deck(md_path: Path) -> list[Slide]:
     text = md_path.read_text(encoding="utf-8")
     slides: list[Slide] = []
     current: Slide | None = None
-    pending_note: str | None = None
 
     for raw in text.splitlines():
         line = raw.rstrip()
@@ -94,23 +99,18 @@ def parse_deck(md_path: Path) -> list[Slide]:
         m_img = _IMAGE.match(line)
         if m_img:
             current.image = m_img.group(1)
-            if pending_note:
-                current.note = pending_note
-                pending_note = None
             continue
         m_note = _NOTE.match(line)
         if m_note:
-            # `note:` lines apply to the most recent image. They
-            # may also appear before any image (caption-only slides).
-            if current.image:
-                # Append to existing note (handles multi-image slides
-                # where each gets its own note).
-                if current.note:
-                    current.note += " · " + m_note.group(1)
-                else:
-                    current.note = m_note.group(1)
-            else:
-                pending_note = m_note.group(1)
+            # `note:` is a SPEAKER note that always attaches to the
+            # current slide (routed to the PPTX notes pane, not
+            # rendered on the slide). Multiple notes on one slide
+            # are concatenated.
+            text_line = m_note.group(1)
+            current.note = (
+                f"{current.note}\n{text_line}" if current.note
+                else text_line
+            )
             continue
         # Plain body line.
         if line or current.body_lines:
@@ -134,7 +134,7 @@ def parse_deck(md_path: Path) -> list[Slide]:
 def _add_text_frame(slide, left, top, width, height, lines, *,
                     font_size, color, bold=False, italic=False):
     """Append a TextFrame on the slide with the given lines."""
-    from pptx.util import Emu, Pt
+    from pptx.util import Pt
     from pptx.dml.color import RGBColor
 
     tb = slide.shapes.add_textbox(left, top, width, height)
@@ -209,7 +209,7 @@ def _add_placeholder(slide, left, top, width, height, filename, prs):
 
 def render_pptx(slides: list[Slide], out_path: Path) -> None:
     from pptx import Presentation
-    from pptx.util import Inches, Pt, Emu
+    from pptx.util import Inches, Pt
     from pptx.dml.color import RGBColor
 
     prs = Presentation()
@@ -275,14 +275,6 @@ def render_pptx(slides: list[Slide], out_path: Path) -> None:
                     slide_def.image, prs,
                 )
 
-            if slide_def.note:
-                _add_text_frame(
-                    slide,
-                    img_left, img_top + img_h + Inches(0.05),
-                    img_w, Inches(0.6),
-                    [slide_def.note],
-                    font_size=10, color=GREY, italic=True,
-                )
         else:
             # Full-width prose / bullets.
             _add_text_frame(
@@ -292,6 +284,14 @@ def render_pptx(slides: list[Slide], out_path: Path) -> None:
                 slide_def.body_lines or [""],
                 font_size=18, color=(0x22, 0x22, 0x22),
             )
+
+        # --- Speaker note (NOT visible on the slide) ----------------
+        # Routed to the PPTX notes pane so the presenter sees it in
+        # Presenter View but the audience never does. Keeps the
+        # client-facing surface clean.
+        if slide_def.note:
+            notes_tf = slide.notes_slide.notes_text_frame
+            notes_tf.text = slide_def.note
 
         # --- Footer (slide N / run id placeholder) ------------------
         footer = slide.shapes.add_textbox(
