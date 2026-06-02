@@ -2,7 +2,14 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import chat, conversations, health, ingest, sources
+from app.api.routes import (
+    chat,
+    conversations,
+    health,
+    ingest,
+    reports,
+    sources,
+)
 from app.config import settings
 from app.observability.logging import get_logger
 from app.observability.tracing import setup_otel
@@ -27,6 +34,7 @@ app.include_router(chat.router)
 app.include_router(conversations.router)
 app.include_router(ingest.router)
 app.include_router(sources.router)
+app.include_router(reports.router)
 
 log.info(
     "FastAPI ready - model=%s embed=%s chroma=%s sqlite=%s otel=%s",

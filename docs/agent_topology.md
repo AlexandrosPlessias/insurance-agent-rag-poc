@@ -167,10 +167,16 @@ This is the rule that makes the topology stable. If a future change pulls a node
 
 ### `report.node`
 
+`report.node` is the dispatch point: with `target_year` present it
+hands off to the Phase 9 executive pipeline; without it falls back
+to the legacy Phase 3 single-policy summary.
+
 | MUST | MUST NOT |
 |---|---|
-| Honour `target_year` when present (extends to Phase 9) | Run through the validator |
-| Render Markdown + chart inline | Loop or retry |
+| Dispatch to `app.reporting.executive.build_executive_report(year)` when `target_year` is set (Phase 9) | Run through the validator (report turns ship Markdown + downloads, not a chunk-grounded answer) |
+| Render Markdown + chart inline (legacy path) | Loop or retry |
+| For Phase 9: set `report_kind` / `report_year` / `report_run_id` on the returned state so the UI renders DOCX / PDF / MD download buttons | Have the LLM decide risk severity — that's `thresholds.py` only |
+| For Phase 9: write a `report.generate` audit row carrying `kind='executive'` plus the `ReportDocument.as_audit_payload()` summary (run id, csv hash, severity histogram, recommendation count) | Build the report from scratch on every download — but for v1 we do; production would cache by `(year, csv_sha, git_sha)` |
 
 ### `data.node`
 

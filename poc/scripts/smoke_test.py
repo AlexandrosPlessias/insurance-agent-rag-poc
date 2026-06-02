@@ -101,7 +101,10 @@ SCENARIOS: list[dict] = [
         ],
     },
     {
-        "title": "Phase 8 - Talk-to-Data (scalar + grouped + drill-down + guards)",
+        "title": (
+            "Phase 8 - Talk-to-Data "
+            "(scalar + grouped + drill-down + guards)"
+        ),
         "questions": [
             # Single scalar metric query.
             ("data", "What was the total gross written premium in 2024?"),
@@ -118,6 +121,18 @@ SCENARIOS: list[dict] = [
             # GUARD: 2023 year_gap, symmetric with Phase 7's
             # out_of_year fallback.
             ("data", "What was the gross written premium in 2023?"),
+        ],
+    },
+    {
+        "title": "Phase 9 - Executive annual report (2024)",
+        "questions": [
+            # Routes to report. With target_year=2024 the report_node
+            # dispatches to the executive pipeline (collector ->
+            # narrator -> assemble -> markdown_writer). The on-screen
+            # answer is the rendered Markdown report; the API exposes
+            # GET /reports/2024.{md,docx,pdf} for downloads.
+            ("report",
+             "Give me the 2024 executive annual report"),
         ],
     },
 ]

@@ -353,6 +353,13 @@ def stream_graph(
                 "critique": "",
                 "route": route,
                 "target_year": state.get("target_year"),
+                # Phase 9 - the executive-pipeline path sets these
+                # on state so the UI can render download buttons +
+                # the run-id caption. Legacy policy-summary reports
+                # leave them None / "".
+                "report_kind": state.get("report_kind"),
+                "report_year": state.get("report_year"),
+                "report_run_id": state.get("report_run_id"),
             }
             return
 
