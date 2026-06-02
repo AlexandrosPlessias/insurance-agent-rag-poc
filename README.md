@@ -99,7 +99,7 @@ Phases 1–6 are implemented. Phases 7–10 are designed (one MD per phase) but 
 | **6** ✅ | Per-document ingestion pipeline: PDF → Markdown → metadata sidecar → ChromaDB. Same flow used by the batch script and the `POST /ingest` endpoint for UI uploads | [poc/app/ingestion/](poc/app/ingestion/), [poc/data/knowledge_base/](poc/data/knowledge_base/) |
 | **7** ✅ | Year-aware retrieval (KB covers 2020/2021/2022/2024 — 2023 gap), today-aware reasoning, out-of-year fallback, clarifier node, audit-trail SQLite DB | [poc/app/graph/clarifier.py](poc/app/graph/clarifier.py), [poc/app/audit/](poc/app/audit/), retriever `where_filter`. Details: [Phase 7](#phase-7--year-aware-rag-clarifier-audit-trail-) |
 | **8** ✅ | Talk-to-Data agent over `insurance_kpis_2020_2024.csv` (year / period / channel / product line × 14 KPIs) — natural-language quantitative analysis with drill-down follow-ups and verifiable typed Operation JSON | [poc/app/agents/data_agent.py](poc/app/agents/data_agent.py), [poc/app/data/](poc/app/data/). Details: [Phase 8](#phase-8--talk-to-data-agent-) |
-| **9** 🟡 planned | Executive annual report for a selected year — narrative + KPI highlights + variance commentary + risk indicators + recommendations. Outputs: on-screen Markdown, downloadable DOCX, downloadable PDF | (extends) [poc/app/reporting/](poc/app/reporting/), new `poc/app/reporting/executive/` + `writers/`. Details: [Phase 9](#phase-9--executive-annual-report-) |
+| **9** ✅ | Executive annual report for a selected year — section-by-section pipeline (collector → narrator → assemble) over the Phase 8 KPI data + Phase 1 RAG chunks. Deterministic risk-flag thresholds (no LLM-decided severity), reproducibility hash, three writers (Markdown · DOCX · PDF) | [poc/app/reporting/executive/](poc/app/reporting/executive/) · [poc/app/reporting/writers/](poc/app/reporting/writers/) · [poc/app/api/routes/reports.py](poc/app/api/routes/reports.py). Details: [Phase 9](#phase-9--executive-annual-report-) |
 | **10** 🟡 planned | PoC stakeholder deck (PPTX + PDF) — non-technical problem framing, retrospective, "what I'd do differently" (AG-UI, Azurized models, one-shot report experiment) | (new) `poc/scripts/build_pptx.py`, `docs/presentation/`. Details: [Phase 10](#phase-10--poc-presentation-deck-) |
 
 ### Nice-to-have (not on the roadmap)
@@ -225,7 +225,7 @@ Adds a fourth worker agent that answers quantitative questions over a structured
 - **Audit coupling (with Phase 7).** Every data turn writes a `data.execute` event carrying the final `Operation`, the row count returned, and a hash of the underlying CSV at execution time — so the same answer is reproducible weeks later.
 - **Out of scope.** Joining the KPI dataset against the policy PDFs (cross-source RAG + data is a Phase 9 concern) · forecasting (TimeGEN-1 is in the strategic roadmap, not this phase) · user-uploaded CSVs.
 
-### Phase 9 — Executive Annual Report 🟡
+### Phase 9 — Executive Annual Report ✅
 
 Generates a management-ready annual report for a selected year, on-screen and as a downloadable DOCX or PDF, combining the Talk-to-Data KPIs (Phase 8) with policy narrative from RAG (Phase 1).
 

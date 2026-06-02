@@ -67,7 +67,7 @@ flowchart TD
 | `fallback.out_of_year` | [graph/supervisor.py](poc/app/graph/supervisor.py) | 0 | `{final_answer (names the nearest covered years), final_citations=[]}` |
 | `rag.node` | [agents/rag_agent.py](poc/app/agents/rag_agent.py) | 2 (reformulate + answer) | `{reformulated_query, chunks (year-filtered when target_year set), draft_answer}` |
 | `validator.judge` | [agents/validator_agent.py](poc/app/agents/validator_agent.py) | 1 | `{validation: {grounded, citations_ok, critique}, final_answer?, retry_count?}` |
-| `report.node` | [agents/report_agent.py](poc/app/agents/report_agent.py) | 1 (JSON extractor) | `{final_answer (Markdown + base64 chart), final_citations}` |
+| `report.node` | [agents/report_agent.py](poc/app/agents/report_agent.py) | 1 (JSON extractor) when `target_year` is None · 3 (summary + narrative + recommendations narrators) when `target_year` is set (Phase 9 executive pipeline) | Without `target_year`: `{final_answer (Markdown + base64 chart), final_citations}`. With `target_year`: `{final_answer (executive Markdown), report_kind="executive", report_year, report_run_id}` — DOCX / PDF / MD downloadable via `GET /reports/{year}.{ext}` |
 | `data.node` | [agents/data_agent.py](poc/app/agents/data_agent.py) | 1 (planner only — executor is pure pandas) | `{final_answer (narrative + Markdown table), data_operation (typed Operation JSON + drilldown/inherited/changed chips), last_data_operation}`. Refuses with typed reasons (`year_gap`, `invalid_aggregation`, `unknown_metric`, …) routed via the same node |
 
 ---
