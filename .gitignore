@@ -234,3 +234,7 @@ poc/app/memory/summarizer.py
 memory/*
 .claude/settings.json
 poc/data/audit.sqlite
+# Phase 10 PDF export (regenerated from the PPTX on demand).
+# The PPTX itself IS tracked so reviewers can grab a pre-built deck
+# without running the python-pptx pipeline.
+docs/presentation/insurance-rag-poc.pdf

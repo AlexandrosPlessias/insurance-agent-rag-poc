@@ -305,8 +305,12 @@ with st.sidebar:
             "pandas executor with 5 schema-aware guards · drill-down "
             "with inherited/changed chips · `data.plan`/`data.execute` "
             "stage events + audit  \n"
-            "🟡 **Phase 9** · executive annual report (Markdown · "
-            "DOCX · PDF) — _next_"
+            "✅ **Phase 9** · executive annual report · "
+            "section-by-section pipeline · deterministic risk bands · "
+            "Markdown / DOCX / PDF writers · "
+            "`GET /reports/{year}.{ext}` download API  \n"
+            "✅ **Phase 10** · PoC stakeholder deck — python-pptx "
+            "builder from `deck.md` + screenshot embedding"
         )
 
 

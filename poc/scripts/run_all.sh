@@ -51,10 +51,19 @@ elif [ "${KEEP_OBSERVABILITY_DATA:-false}" = "true" ] \
   STARTED_ASPIRE=true
 else
   color "[1/3] Restarting Aspire Dashboard with empty telemetry ..."
-  bash scripts/run_observability.sh
-  STARTED_ASPIRE=true
-  # Give the OTLP listener a moment so the API's startup probe succeeds.
-  sleep 3
+  # Tolerate Aspire-start failure (daemon stopped, network error,
+  # port busy). Without this guard, set -e + a non-zero exit from
+  # run_observability.sh would kill the API + UI launch too.
+  if bash scripts/run_observability.sh; then
+    STARTED_ASPIRE=true
+    # Give the OTLP listener a moment so the API's startup probe
+    # succeeds.
+    sleep 3
+  else
+    color "  WARN: Aspire failed to start - continuing without observability."
+    color "  Tip: re-run with SKIP_OBSERVABILITY=true + OTEL_ENABLED=false"
+    color "       to silence the API's startup warning."
+  fi
 fi
 
 # ---------- [2/3] FastAPI ----------

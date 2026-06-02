@@ -23,6 +23,8 @@ The supervisor classifies every incoming user message into exactly one of six ro
 
 `needs_clarification` and `out_of_year` are the Phase 7 additions; `data` is the Phase 8 addition. The rest predates them.
 
+> **Phase 10 (PoC presentation deck)** is intentionally absent from this table. It's a non-runtime build artefact — a `python-pptx`-generated stakeholder deck assembled from [`docs/presentation/deck.md`](presentation/deck.md) + [`docs/screens/`](screens/) by [`poc/scripts/build_pptx.py`](../poc/scripts/build_pptx.py). No node in the graph, no operational impact, no audit event. Lives entirely outside the request/response path.
+
 ---
 
 ## 2. Why these are separate nodes (and not internal RAG branches)
