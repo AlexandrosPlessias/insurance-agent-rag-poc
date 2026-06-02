@@ -36,6 +36,21 @@ def _load_schema() -> dict | None:
     return _SCHEMA_CACHE or None
 
 
+def _relative_source_path(pdf_path: Path) -> str:
+    """Store source paths relative to the project root.
+
+    Absolute paths leak the ingester's machine (`/mnt/c/Users/<name>/...`,
+    employer-specific OneDrive folders, etc.) into tracked chunk reports
+    and chunk metadata. Resolve relative-to-project-root when possible;
+    fall back to the filename for files outside the tree.
+    """
+    project_root = Path(__file__).resolve().parents[3]
+    try:
+        return Path(pdf_path).resolve().relative_to(project_root).as_posix()
+    except ValueError:
+        return pdf_path.name
+
+
 def _derive_year(filename: str) -> int | None:
     """Pull a 4-digit year out of the filename (e.g. ..._2020.pdf -> 2020)."""
     m = re.search(r"(?:19|20)\d{2}", filename)
@@ -93,7 +108,7 @@ def build_document_metadata(
     meta: dict = {
         "doc_id": extra.get("doc_id") or pdf_path.stem,
         "source": pdf_path.name,
-        "source_path": str(pdf_path),
+        "source_path": _relative_source_path(pdf_path),
         "title": extra.get("title") or _derive_title(pdf_path.name),
         "description": description,
         "year": (

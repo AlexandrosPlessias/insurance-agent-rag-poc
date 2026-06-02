@@ -13,7 +13,7 @@
 | `keywords` | customer-management-guidelines, refund-policy, theft-handling, data-protection, gdpr, store-credit, incident-tracking, employee-access, fraud-prevention |
 | `page_count` | 5 |
 | `ingestion_date_time` | 2026-05-28T00:33:53.602618+00:00 |
-| `source_path` | /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf |
+| `source_path` | poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf |
 
 ## Statistics
 
@@ -51,7 +51,7 @@
 - `section`: **1. Refund Policy**
 - `section_title`: Refund Policy
 - `source`: Enhanced_Customer_Guidelines_2022.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf
 - `title`: Enhanced Customer Guidelines 2022
 - `year`: 2022
 
@@ -78,7 +78,7 @@ The organization continues to expand its customer-friendly refund practices in l
 - `section`: **1. Refund Policy**
 - `section_title`: Refund Policy
 - `source`: Enhanced_Customer_Guidelines_2022.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf
 - `title`: Enhanced Customer Guidelines 2022
 - `year`: 2022
 
@@ -105,7 +105,7 @@ This dual-acceptance approach acknowledges that many customers lose or discard p
 - `section`: **1. Refund Policy**
 - `section_title`: Refund Policy
 - `source`: Enhanced_Customer_Guidelines_2022.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf
 - `title`: Enhanced Customer Guidelines 2022
 - `year`: 2022
 
@@ -132,7 +132,7 @@ Gift receipts now qualify for store credit refunds. Customers presenting a valid
 - `section`: **2. Theft & Incident Handling**
 - `section_title`: Theft & Incident Handling
 - `source`: Enhanced_Customer_Guidelines_2022.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf
 - `title`: Enhanced Customer Guidelines 2022
 - `year`: 2022
 
@@ -159,7 +159,7 @@ Building on the measured expansion of permitted employee responses introduced la
 - `section`: **2. Theft & Incident Handling**
 - `section_title`: Theft & Incident Handling
 - `source`: Enhanced_Customer_Guidelines_2022.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf
 - `title`: Enhanced Customer Guidelines 2022
 - `year`: 2022
 
@@ -186,7 +186,7 @@ Employees must never cross this line. The tone must remain friendly, the body la
 - `section`: **2. Theft & Incident Handling**
 - `section_title`: Theft & Incident Handling
 - `source`: Enhanced_Customer_Guidelines_2022.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf
 - `title`: Enhanced Customer Guidelines 2022
 - `year`: 2022
 
@@ -213,7 +213,7 @@ This ensures management awareness and supports coordinated decision-making about
 - `section`: **3. Customer Communication**
 - `section_title`: Customer Communication
 - `source`: Enhanced_Customer_Guidelines_2022.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf
 - `title`: Enhanced Customer Guidelines 2022
 - `year`: 2022
 
@@ -240,7 +240,7 @@ Customer communication standards are further strengthened this year with the int
 - `section`: **3. Customer Communication**
 - `section_title`: Customer Communication
 - `source`: Enhanced_Customer_Guidelines_2022.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf
 - `title`: Enhanced Customer Guidelines 2022
 - `year`: 2022
 
@@ -267,7 +267,7 @@ The response framework is updated this year to: Empathize, Acknowledge, Clarify,
 - `section`: **3. Customer Communication**
 - `section_title`: Customer Communication
 - `source`: Enhanced_Customer_Guidelines_2022.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf
 - `title`: Enhanced Customer Guidelines 2022
 - `year`: 2022
 
@@ -294,7 +294,7 @@ A customer waiting in silence without acknowledgment for longer than 7 minutes r
 - `section`: **4. Documentation**
 - `section_title`: Documentation
 - `source`: Enhanced_Customer_Guidelines_2022.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf
 - `title`: Enhanced Customer Guidelines 2022
 - `year`: 2022
 
@@ -321,7 +321,7 @@ Documentation practices undergo significant standardization this year with the i
 - `section`: **4. Documentation**
 - `section_title`: Documentation
 - `source`: Enhanced_Customer_Guidelines_2022.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf
 - `title`: Enhanced Customer Guidelines 2022
 - `year`: 2022
 
@@ -348,7 +348,7 @@ All templates include the following mandatory fields: incident category (selecte
 - `section`: **4. Documentation**
 - `section_title`: Documentation
 - `source`: Enhanced_Customer_Guidelines_2022.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf
 - `title`: Enhanced Customer Guidelines 2022
 - `year`: 2022
 
@@ -375,7 +375,7 @@ This data-driven approach supports proactive management rather than purely react
 - `section`: **5. Data Protection & Privacy**
 - `section_title`: Data Protection & Privacy
 - `source`: Enhanced_Customer_Guidelines_2022.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf
 - `title`: Enhanced Customer Guidelines 2022
 - `year`: 2022
 
@@ -402,7 +402,7 @@ This year marks the full implementation of GDPR-aligned procedures across all st
 - `section`: **5. Data Protection & Privacy**
 - `section_title`: Data Protection & Privacy
 - `source`: Enhanced_Customer_Guidelines_2022.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf
 - `title`: Enhanced Customer Guidelines 2022
 - `year`: 2022
 
@@ -429,7 +429,7 @@ ID verification is now required for all refund transactions exceeding 150 euro, 
 - `section`: **5. Data Protection & Privacy**
 - `section_title`: Data Protection & Privacy
 - `source`: Enhanced_Customer_Guidelines_2022.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2022.pdf
 - `title`: Enhanced Customer Guidelines 2022
 - `year`: 2022
 

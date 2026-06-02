@@ -52,6 +52,19 @@ image: 11.full-topology-stepper.png
 
 ---
 
+## LangGraph — compiled state machine
+
+The seven-route topology as the actual compiled graph
+
+- Source of truth: [`poc/app/graph/builder.py`](../../poc/app/graph/builder.py)
+- Per-node contracts (MUST / MUST-NOT): [`docs/agent_topology.md`](../agent_topology.md)
+- Colour code: 🟦 router · 🟩 worker · 🟧 guard · ⬛ terminal
+- Every node carries an OTel span; every edge is auditable
+
+image: 20.langgraph-topology.png
+
+---
+
 ## Year-aware retrieval & clarifier
 
 Knowledge base covers 2020 · 2021 · 2022 · 2024 — the 2023 gap is intentional
@@ -188,6 +201,22 @@ image: 19.audit-export-csv.png
 - **One-shot executive report** as a side-by-side experiment against
   the per-section pipeline. The challenge is structural stability; the
   prize is dramatically lower latency and cost
+
+---
+
+## Northstar — production architecture on Azure
+
+Where this PoC graduates to with Azurized models + cloud infra
+
+- **RAG generator** — GPT-5.1 for grounded answers
+- **Query reformulator** — mini / nano model for sub-second latency
+- **Executive report narrator** — GPT-5.4 / reasoning-medium (multi-section
+  pipelines benefit disproportionately from a reasoning model)
+- **Vector store** — Azure AI Search with hybrid retrieval
+- **Telemetry** — Azure Monitor + **Langfuse** for LLM-specific signals
+- **Compliance** — EU AI Act record-keeping via immutable Blob Storage
+
+image: 21.azure-northstar.png
 
 ---
 

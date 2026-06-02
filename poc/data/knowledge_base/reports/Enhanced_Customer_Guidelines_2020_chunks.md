@@ -13,7 +13,7 @@
 | `keywords` | customer-management, refund-policy, theft-handling, data-protection, incident-reporting, store-operations, 2020-guidelines |
 | `page_count` | 4 |
 | `ingestion_date_time` | 2026-05-28T00:34:15.583820+00:00 |
-| `source_path` | /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2020.pdf |
+| `source_path` | poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2020.pdf |
 
 ## Statistics
 
@@ -51,7 +51,7 @@
 - `section`: **1. Refund Policy**
 - `section_title`: Refund Policy
 - `source`: Enhanced_Customer_Guidelines_2020.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2020.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2020.pdf
 - `title`: Enhanced Customer Guidelines 2020
 - `year`: 2020
 
@@ -78,7 +78,7 @@ The organization maintains a conservative refund policy designed to protect both
 - `section`: **1. Refund Policy**
 - `section_title`: Refund Policy
 - `source`: Enhanced_Customer_Guidelines_2020.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2020.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2020.pdf
 - `title`: Enhanced Customer Guidelines 2020
 - `year`: 2020
 
@@ -105,7 +105,7 @@ Items must be returned in their original, unopened packaging with all seals, tag
 - `section`: **2. Theft & Incident Handling**
 - `section_title`: Theft & Incident Handling
 - `source`: Enhanced_Customer_Guidelines_2020.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2020.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2020.pdf
 - `title`: Enhanced Customer Guidelines 2020
 - `year`: 2020
 
@@ -132,7 +132,7 @@ The organization takes a zero-tolerance approach to theft while simultaneously p
 - `section`: **2. Theft & Incident Handling**
 - `section_title`: Theft & Incident Handling
 - `source`: Enhanced_Customer_Guidelines_2020.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2020.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2020.pdf
 - `title`: Enhanced Customer Guidelines 2020
 - `year`: 2020
 
@@ -159,7 +159,7 @@ The duty manager is solely responsible for deciding whether to contact in-store 
 - `section`: **2. Theft & Incident Handling**
 - `section_title`: Theft & Incident Handling
 - `source`: Enhanced_Customer_Guidelines_2020.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2020.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2020.pdf
 - `title`: Enhanced Customer Guidelines 2020
 - `year`: 2020
 
@@ -186,7 +186,7 @@ This principle is non-negotiable and applies uniformly across all store location
 - `section`: **3. Customer Communication**
 - `section_title`: Customer Communication
 - `source`: Enhanced_Customer_Guidelines_2020.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2020.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2020.pdf
 - `title`: Enhanced Customer Guidelines 2020
 - `year`: 2020
 
@@ -213,7 +213,7 @@ Effective customer communication is recognized as a foundational element of serv
 - `section`: **3. Customer Communication**
 - `section_title`: Customer Communication
 - `source`: Enhanced_Customer_Guidelines_2020.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2020.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2020.pdf
 - `title`: Enhanced Customer Guidelines 2020
 - `year`: 2020
 
@@ -240,7 +240,7 @@ If the complaint cannot be resolved through simple explanation or immediate acti
 - `section`: **3. Customer Communication**
 - `section_title`: Customer Communication
 - `source`: Enhanced_Customer_Guidelines_2020.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2020.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2020.pdf
 - `title`: Enhanced Customer Guidelines 2020
 - `year`: 2020
 
@@ -267,7 +267,7 @@ Communication should be clear, professional, and easily understood by a general 
 - `section`: **4. Documentation**
 - `section_title`: Documentation
 - `source`: Enhanced_Customer_Guidelines_2020.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2020.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2020.pdf
 - `title`: Enhanced Customer Guidelines 2020
 - `year`: 2020
 
@@ -294,7 +294,7 @@ Accurate and timely documentation of incidents, complaints, and notable customer
 - `section`: **4. Documentation**
 - `section_title`: Documentation
 - `source`: Enhanced_Customer_Guidelines_2020.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2020.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2020.pdf
 - `title`: Enhanced Customer Guidelines 2020
 - `year`: 2020
 
@@ -321,7 +321,7 @@ The store manager is responsible for compiling weekly incident summaries based o
 - `section`: **4. Documentation**
 - `section_title`: Documentation
 - `source`: Enhanced_Customer_Guidelines_2020.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2020.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2020.pdf
 - `title`: Enhanced Customer Guidelines 2020
 - `year`: 2020
 
@@ -348,7 +348,7 @@ Employees are reminded that documentation is not optional. Even minor incidents 
 - `section`: **5. Data Protection & Privacy**
 - `section_title`: Data Protection & Privacy
 - `source`: Enhanced_Customer_Guidelines_2020.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2020.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2020.pdf
 - `title`: Enhanced Customer Guidelines 2020
 - `year`: 2020
 
@@ -375,7 +375,7 @@ The organization recognizes the importance of customer privacy and expects all e
 - `section`: **5. Data Protection & Privacy**
 - `section_title`: Data Protection & Privacy
 - `source`: Enhanced_Customer_Guidelines_2020.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2020.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2020.pdf
 - `title`: Enhanced Customer Guidelines 2020
 - `year`: 2020
 
@@ -402,7 +402,7 @@ ID verification is not currently required for refund transactions regardless of 
 - `section`: **5. Data Protection & Privacy**
 - `section_title`: Data Protection & Privacy
 - `source`: Enhanced_Customer_Guidelines_2020.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2020.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2020.pdf
 - `title`: Enhanced Customer Guidelines 2020
 - `year`: 2020
 
