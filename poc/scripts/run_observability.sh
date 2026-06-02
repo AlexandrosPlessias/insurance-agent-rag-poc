@@ -16,6 +16,21 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
+# Daemon liveness check. `command -v docker` only proves the CLI is
+# on PATH; the daemon may still be stopped (Docker Desktop closed,
+# `dockerd` not running). Without this, `docker pull` would hang ~30s
+# with no output and then fail under set -e, killing the script
+# silently. Fail fast with a useful message instead.
+if ! docker info >/dev/null 2>&1; then
+  echo "ERROR: Docker is installed but the daemon isn't reachable." >&2
+  echo "       On Windows: start Docker Desktop and wait for the" >&2
+  echo "       whale icon to go solid, then retry." >&2
+  echo "       On Linux:   sudo systemctl start docker" >&2
+  echo "       Or skip Aspire entirely:" >&2
+  echo "         SKIP_OBSERVABILITY=true bash scripts/run_all.sh" >&2
+  exit 1
+fi
+
 # Stop any existing instance
 if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
   echo "Stopping existing ${CONTAINER_NAME} ..."
@@ -23,7 +38,15 @@ if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
 fi
 
 echo "Pulling ${IMAGE} (first run can take ~1 min) ..."
-docker pull "${IMAGE}" >/dev/null
+# stdout is NOT redirected so the user sees pull progress. Exit
+# code is checked explicitly to surface a useful message instead
+# of the silent set-e kill.
+if ! docker pull "${IMAGE}"; then
+  echo "ERROR: docker pull failed. Check your network / Docker login" >&2
+  echo "       and retry. To run without Aspire instead, set" >&2
+  echo "       SKIP_OBSERVABILITY=true and rerun scripts/run_all.sh." >&2
+  exit 1
+fi
 
 echo "Starting ${CONTAINER_NAME} ..."
 docker run -d --rm \
