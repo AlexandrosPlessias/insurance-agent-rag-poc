@@ -13,7 +13,7 @@
 | `keywords` | customer-management, refund-policy, theft-handling, data-privacy, retail-sector, fraud-prevention, remote-refunds, digital-proof-of-purchase, tiered-approval, zero-trust-access |
 | `page_count` | 5 |
 | `ingestion_date_time` | 2026-05-28T00:33:33.853668+00:00 |
-| `source_path` | /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf |
+| `source_path` | poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf |
 
 ## Statistics
 
@@ -51,7 +51,7 @@
 - `section`: **1. Refund Policy**
 - `section_title`: Refund Policy
 - `source`: Enhanced_Customer_Guidelines_2024.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
 - `title`: Enhanced Customer Guidelines 2024
 - `year`: 2024
 
@@ -78,7 +78,7 @@ The refund policy for this year represents the culmination of several years of i
 - `section`: **1. Refund Policy**
 - `section_title`: Refund Policy
 - `source`: Enhanced_Customer_Guidelines_2024.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
 - `title`: Enhanced Customer Guidelines 2024
 - `year`: 2024
 
@@ -105,7 +105,7 @@ Physical receipts remain valid and accepted, and for high-value items exceeding 
 - `section`: **1. Refund Policy**
 - `section_title`: Refund Policy
 - `source`: Enhanced_Customer_Guidelines_2024.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
 - `title`: Enhanced Customer Guidelines 2024
 - `year`: 2024
 
@@ -132,7 +132,7 @@ This removes manual calculation, eliminates inconsistency, and provides the cust
 - `section`: **2. Theft & Incident Handling**
 - `section_title`: Theft & Incident Handling
 - `source`: Enhanced_Customer_Guidelines_2024.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
 - `title`: Enhanced Customer Guidelines 2024
 - `year`: 2024
 
@@ -159,7 +159,7 @@ The organization's approach to theft and incident handling reaches a new level o
 - `section`: **2. Theft & Incident Handling**
 - `section_title`: Theft & Incident Handling
 - `source`: Enhanced_Customer_Guidelines_2024.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
 - `title`: Enhanced Customer Guidelines 2024
 - `year`: 2024
 
@@ -186,7 +186,7 @@ No employee should approach, engage with, or deter a suspected individual withou
 - `section`: **2. Theft & Incident Handling**
 - `section_title`: Theft & Incident Handling
 - `source`: Enhanced_Customer_Guidelines_2024.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
 - `title`: Enhanced Customer Guidelines 2024
 - `year`: 2024
 
@@ -213,7 +213,7 @@ These alerts supplement human observation and allow security to respond more qui
 - `section`: **3. Customer Communication**
 - `section_title`: Customer Communication
 - `source`: Enhanced_Customer_Guidelines_2024.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
 - `title`: Enhanced Customer Guidelines 2024
 - `year`: 2024
 
@@ -240,7 +240,7 @@ Customer communication standards reach their most comprehensive form this year w
 - `section`: **3. Customer Communication**
 - `section_title`: Customer Communication
 - `source`: Enhanced_Customer_Guidelines_2024.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
 - `title`: Enhanced Customer Guidelines 2024
 - `year`: 2024
 
@@ -267,7 +267,7 @@ The accessibility-first principle requires employees to proactively identify and
 - `section`: **3. Customer Communication**
 - `section_title`: Customer Communication
 - `source`: Enhanced_Customer_Guidelines_2024.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
 - `title`: Enhanced Customer Guidelines 2024
 - `year`: 2024
 
@@ -294,7 +294,7 @@ The communication framework is enhanced with a resolution confirmation step, cre
 - `section`: **3. Customer Communication**
 - `section_title`: Customer Communication
 - `source`: Enhanced_Customer_Guidelines_2024.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
 - `title`: Enhanced Customer Guidelines 2024
 - `year`: 2024
 
@@ -321,7 +321,7 @@ Quarterly mystery shopper evaluations now assess communication quality against t
 - `section`: **4. Documentation**
 - `section_title`: Documentation
 - `source`: Enhanced_Customer_Guidelines_2024.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
 - `title`: Enhanced Customer Guidelines 2024
 - `year`: 2024
 
@@ -348,7 +348,7 @@ Documentation practices reach full maturity this year with the deployment of a f
 - `section`: **4. Documentation**
 - `section_title`: Documentation
 - `source`: Enhanced_Customer_Guidelines_2024.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
 - `title`: Enhanced Customer Guidelines 2024
 - `year`: 2024
 
@@ -375,7 +375,7 @@ Automated follow-up triggers are now built into the system: any unresolved compl
 - `section`: **4. Documentation**
 - `section_title`: Documentation
 - `source`: Enhanced_Customer_Guidelines_2024.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
 - `title`: Enhanced Customer Guidelines 2024
 - `year`: 2024
 
@@ -402,7 +402,7 @@ Multiple documentation formats are now supported via the mobile app: employees m
 - `section`: **4. Documentation**
 - `section_title`: Documentation
 - `source`: Enhanced_Customer_Guidelines_2024.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
 - `title`: Enhanced Customer Guidelines 2024
 - `year`: 2024
 
@@ -429,7 +429,7 @@ This proactive quality assurance mechanism replaces the previous periodic manual
 - `section`: **5. Data Protection & Privacy**
 - `section_title`: Data Protection & Privacy
 - `source`: Enhanced_Customer_Guidelines_2024.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
 - `title`: Enhanced Customer Guidelines 2024
 - `year`: 2024
 
@@ -456,7 +456,7 @@ Data protection and privacy standards reach their most advanced and comprehensiv
 - `section`: **5. Data Protection & Privacy**
 - `section_title`: Data Protection & Privacy
 - `source`: Enhanced_Customer_Guidelines_2024.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
 - `title`: Enhanced Customer Guidelines 2024
 - `year`: 2024
 
@@ -483,7 +483,7 @@ The verification process is designed to be quick, respectful, and clearly explai
 - `section`: **5. Data Protection & Privacy**
 - `section_title`: Data Protection & Privacy
 - `source`: Enhanced_Customer_Guidelines_2024.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
 - `title`: Enhanced Customer Guidelines 2024
 - `year`: 2024
 
@@ -510,7 +510,7 @@ A zerotrust access model is now in effect: every data access request is verified
 - `section`: **5. Data Protection & Privacy**
 - `section_title`: Data Protection & Privacy
 - `source`: Enhanced_Customer_Guidelines_2024.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2024.pdf
 - `title`: Enhanced Customer Guidelines 2024
 - `year`: 2024
 

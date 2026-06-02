@@ -13,7 +13,7 @@
 | `keywords` | customer-management-guidelines, refund-policy, theft-handling-procedures, data-protection, 2021 |
 | `page_count` | 5 |
 | `ingestion_date_time` | 2026-05-28T00:33:12.918035+00:00 |
-| `source_path` | /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf |
+| `source_path` | poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf |
 
 ## Statistics
 
@@ -51,7 +51,7 @@
 - `section`: **1. Refund Policy**
 - `section_title`: Refund Policy
 - `source`: Enhanced_Customer_Guidelines_2021.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
 - `title`: Enhanced Customer Guidelines 2021
 - `year`: 2021
 
@@ -78,7 +78,7 @@ Following the annual policy review and in response to customer feedback, the org
 - `section`: **1. Refund Policy**
 - `section_title`: Refund Policy
 - `source`: Enhanced_Customer_Guidelines_2021.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
 - `title`: Enhanced Customer Guidelines 2021
 - `year`: 2021
 
@@ -105,7 +105,7 @@ Items must be returned in their original condition with all tags, labels, and ac
 - `section`: **1. Refund Policy**
 - `section_title`: Refund Policy
 - `source`: Enhanced_Customer_Guidelines_2021.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
 - `title`: Enhanced Customer Guidelines 2021
 - `year`: 2021
 
@@ -132,7 +132,7 @@ Store credit may be offered as an alternative resolution when the original recei
 - `section`: **2. Theft & Incident Handling**
 - `section_title`: Theft & Incident Handling
 - `source`: Enhanced_Customer_Guidelines_2021.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
 - `title`: Enhanced Customer Guidelines 2021
 - `year`: 2021
 
@@ -159,7 +159,7 @@ The organization continues to prioritize employee safety above all other conside
 - `section`: **2. Theft & Incident Handling**
 - `section_title`: Theft & Incident Handling
 - `source`: Enhanced_Customer_Guidelines_2021.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
 - `title`: Enhanced Customer Guidelines 2021
 - `year`: 2021
 
@@ -186,7 +186,7 @@ The purpose of this approach is twofold: first, it signals to the individual tha
 - `section`: **2. Theft & Incident Handling**
 - `section_title`: Theft & Incident Handling
 - `source`: Enhanced_Customer_Guidelines_2021.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
 - `title`: Enhanced Customer Guidelines 2021
 - `year`: 2021
 
@@ -213,7 +213,7 @@ This decision authority has not been delegated to frontline staff. A significant
 - `section`: **3. Customer Communication**
 - `section_title`: Customer Communication
 - `source`: Enhanced_Customer_Guidelines_2021.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
 - `title`: Enhanced Customer Guidelines 2021
 - `year`: 2021
 
@@ -240,7 +240,7 @@ Building on the foundation established in the previous year, the organization is
 - `section`: **3. Customer Communication**
 - `section_title`: Customer Communication
 - `source`: Enhanced_Customer_Guidelines_2021.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
 - `title`: Enhanced Customer Guidelines 2021
 - `year`: 2021
 
@@ -267,7 +267,7 @@ A structured response format is introduced this year: Acknowledge, Clarify, Reso
 - `section`: **3. Customer Communication**
 - `section_title`: Customer Communication
 - `source`: Enhanced_Customer_Guidelines_2021.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
 - `title`: Enhanced Customer Guidelines 2021
 - `year`: 2021
 
@@ -294,7 +294,7 @@ This means that when a customer expresses frustration or dissatisfaction, the em
 - `section`: **3. Customer Communication**
 - `section_title`: Customer Communication
 - `source`: Enhanced_Customer_Guidelines_2021.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
 - `title`: Enhanced Customer Guidelines 2021
 - `year`: 2021
 
@@ -321,7 +321,7 @@ All written communication must follow the approved template available on the sha
 - `section`: **4. Documentation**
 - `section_title`: Documentation
 - `source`: Enhanced_Customer_Guidelines_2021.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
 - `title`: Enhanced Customer Guidelines 2021
 - `year`: 2021
 
@@ -348,7 +348,7 @@ The organization is making a significant transition this year from a purely pape
 - `section`: **4. Documentation**
 - `section_title`: Documentation
 - `source`: Enhanced_Customer_Guidelines_2021.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
 - `title`: Enhanced Customer Guidelines 2021
 - `year`: 2021
 
@@ -375,7 +375,7 @@ However, paper forms are no longer considered the primary documentation method, 
 - `section`: **4. Documentation**
 - `section_title`: Documentation
 - `source`: Enhanced_Customer_Guidelines_2021.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
 - `title`: Enhanced Customer Guidelines 2021
 - `year`: 2021
 
@@ -402,7 +402,7 @@ A major operational improvement is the introduction of automated daily incident 
 - `section`: **5. Data Protection & Privacy**
 - `section_title`: Data Protection & Privacy
 - `source`: Enhanced_Customer_Guidelines_2021.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
 - `title`: Enhanced Customer Guidelines 2021
 - `year`: 2021
 
@@ -429,7 +429,7 @@ In response to evolving regulatory expectations and the increasing volume of cus
 - `section`: **5. Data Protection & Privacy**
 - `section_title`: Data Protection & Privacy
 - `source`: Enhanced_Customer_Guidelines_2021.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
 - `title`: Enhanced Customer Guidelines 2021
 - `year`: 2021
 
@@ -456,7 +456,7 @@ Accepted forms of ID include national identity cards, passports, and driving lic
 - `section`: **5. Data Protection & Privacy**
 - `section_title`: Data Protection & Privacy
 - `source`: Enhanced_Customer_Guidelines_2021.pdf
-- `source_path`: /mnt/c/Users/alexandros.plessias/OneDrive - Accenture/Documents/Projects/2026/insurance-agent-rag-poc/poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
+- `source_path`: poc/data/knowledge_base/raw/Enhanced_Customer_Guidelines_2021.pdf
 - `title`: Enhanced Customer Guidelines 2021
 - `year`: 2021
 

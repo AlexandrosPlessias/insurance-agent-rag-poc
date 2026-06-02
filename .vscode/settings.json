@@ -1,6 +1,6 @@
 {
     "python.venvFolders": [
-        "poc/.venv"
+        "${workspaceFolder}/poc"
     ],
     "editor.formatOnSave": true,
     "editor.rulers": [

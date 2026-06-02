@@ -14,7 +14,7 @@ VENV_DIR="${VENV_DIR:-.venv}"
 SKIP_OBSERVABILITY="${SKIP_OBSERVABILITY:-false}"
 ASPIRE_IMAGE="${ASPIRE_IMAGE:-mcr.microsoft.com/dotnet/aspire-dashboard:9.0}"
 
-echo "[1/6] Installing system packages..."
+echo "[1/7] Installing system packages..."
 sudo apt-get update
 sudo apt-get install -y \
   python3 python3-venv python3-dev \
@@ -30,34 +30,90 @@ sudo apt-get install -y \
   f'Python 3.10+ required, found {sys.version.split()[0]}'"
 echo "Using $($PYTHON_BIN --version)"
 
-echo "[2/6] Creating Python venv at $VENV_DIR..."
+echo "[2/7] Creating Python venv at $VENV_DIR..."
 $PYTHON_BIN -m venv "$VENV_DIR"
 # shellcheck disable=SC1091
 source "$VENV_DIR/bin/activate"
 
-echo "[3/6] Installing Python deps (incl. OpenTelemetry SDK + instrumentations)..."
+echo "[3/7] Installing Python deps (incl. OpenTelemetry SDK + instrumentations)..."
 pip install --upgrade pip wheel
 pip install -r requirements.txt
 
-echo "[4/6] Installing Ollama..."
+echo "[4/7] Installing Ollama..."
 if ! command -v ollama >/dev/null 2>&1; then
   curl -fsSL https://ollama.com/install.sh | sh
 fi
 
-echo "[5/6] Pulling local models (this can take a while)..."
+echo "[5/7] Pulling local models (this can take a while)..."
 ollama pull qwen2.5:7b
 ollama pull nomic-embed-text
 
-echo "[6/6] Pre-pulling Aspire Dashboard image (Phase 5 observability)..."
+echo "[6/7] Installing Docker (for the Phase 5 Aspire observability backend)..."
+if [ "$SKIP_OBSERVABILITY" = "true" ]; then
+  echo "  Skipped (SKIP_OBSERVABILITY=true). Install later with:"
+  echo "    sudo apt-get install -y docker.io"
+elif command -v docker >/dev/null 2>&1; then
+  echo "  Docker CLI already present ($(docker --version 2>/dev/null \
+    | head -1))."
+  if docker info >/dev/null 2>&1; then
+    echo "  Daemon is reachable - nothing to do."
+  else
+    echo "  Daemon NOT reachable. If you're on Windows with Docker"
+    echo "  Desktop, open it and wait for the whale icon to settle."
+    echo "  On native Linux/WSL:  sudo systemctl start docker"
+  fi
+else
+  # Detect WSL vs native Linux. On WSL we still install docker.io
+  # (works fine; some users prefer it over Docker Desktop), but flag
+  # the alternative.
+  IS_WSL=false
+  if grep -qiE '(microsoft|wsl)' /proc/version 2>/dev/null; then
+    IS_WSL=true
+  fi
+  if [ "$IS_WSL" = "true" ]; then
+    echo "  WSL detected. Installing docker.io (apt). If you'd rather"
+    echo "  use Docker Desktop on Windows with WSL integration, abort"
+    echo "  now (Ctrl+C), install Docker Desktop, then rerun this script."
+  else
+    echo "  Native Linux detected. Installing docker.io (apt)."
+  fi
+  sudo apt-get install -y docker.io
+  # Add the current user to the 'docker' group so future invocations
+  # don't need sudo. Takes effect after a fresh login / `newgrp docker`.
+  if ! id -nG "$USER" | grep -qw docker; then
+    sudo usermod -aG docker "$USER"
+    echo "  Added $USER to the 'docker' group. Run 'newgrp docker' (or"
+    echo "  log out and back in) so 'docker' works without sudo."
+  fi
+  # Start the daemon if it isn't already up.
+  if ! sudo service docker status >/dev/null 2>&1; then
+    sudo service docker start || true
+  fi
+  if docker info >/dev/null 2>&1 \
+     || sudo docker info >/dev/null 2>&1; then
+    echo "  Docker daemon reachable."
+  else
+    echo "  WARN: docker installed but daemon not reachable yet."
+    echo "        Try:  sudo service docker start"
+    echo "        Then: bash scripts/run_observability.sh"
+  fi
+fi
+
+echo "[7/7] Pre-pulling Aspire Dashboard image (Phase 5 observability)..."
 if [ "$SKIP_OBSERVABILITY" = "true" ]; then
   echo "  Skipped (SKIP_OBSERVABILITY=true). Pull later with:"
   echo "    docker pull $ASPIRE_IMAGE"
 elif ! command -v docker >/dev/null 2>&1; then
-  echo "  Docker not found - skipping. Install Docker Desktop (with WSL"
-  echo "  integration) to enable the Aspire observability backend, or"
-  echo "  set OTEL_ENABLED=false in .env to silence the startup warning."
+  echo "  Docker still not found - skipping image pre-pull."
+  echo "  Set OTEL_ENABLED=false in .env to silence the API startup"
+  echo "  warning about Aspire being unreachable."
+elif ! docker info >/dev/null 2>&1 \
+     && ! sudo docker info >/dev/null 2>&1; then
+  echo "  Docker daemon not reachable - skipping image pre-pull."
+  echo "  Start the daemon and run: docker pull $ASPIRE_IMAGE"
 else
-  if docker pull "$ASPIRE_IMAGE"; then
+  if docker pull "$ASPIRE_IMAGE" \
+     || sudo docker pull "$ASPIRE_IMAGE"; then
     echo "  OK - image cached"
   else
     echo "  WARN: docker pull failed; run_observability.sh will retry" >&2

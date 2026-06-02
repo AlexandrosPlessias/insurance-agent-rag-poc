@@ -100,7 +100,7 @@ Phases 1–6 are implemented. Phases 7–10 are designed (one MD per phase) but 
 | **7** ✅ | Year-aware retrieval (KB covers 2020/2021/2022/2024 — 2023 gap), today-aware reasoning, out-of-year fallback, clarifier node, audit-trail SQLite DB | [poc/app/graph/clarifier.py](poc/app/graph/clarifier.py), [poc/app/audit/](poc/app/audit/), retriever `where_filter`. Details: [Phase 7](#phase-7--year-aware-rag-clarifier-audit-trail-) |
 | **8** ✅ | Talk-to-Data agent over `insurance_kpis_2020_2024.csv` (year / period / channel / product line × 14 KPIs) — natural-language quantitative analysis with drill-down follow-ups and verifiable typed Operation JSON | [poc/app/agents/data_agent.py](poc/app/agents/data_agent.py), [poc/app/data/](poc/app/data/). Details: [Phase 8](#phase-8--talk-to-data-agent-) |
 | **9** ✅ | Executive annual report for a selected year — section-by-section pipeline (collector → narrator → assemble) over the Phase 8 KPI data + Phase 1 RAG chunks. Deterministic risk-flag thresholds (no LLM-decided severity), reproducibility hash, three writers (Markdown · DOCX · PDF) | [poc/app/reporting/executive/](poc/app/reporting/executive/) · [poc/app/reporting/writers/](poc/app/reporting/writers/) · [poc/app/api/routes/reports.py](poc/app/api/routes/reports.py). Details: [Phase 9](#phase-9--executive-annual-report-) |
-| **10** 🟡 planned | PoC stakeholder deck (PPTX + PDF) — non-technical problem framing, retrospective, "what I'd do differently" (AG-UI, Azurized models, one-shot report experiment) | (new) `poc/scripts/build_pptx.py`, `docs/presentation/`. Details: [Phase 10](#phase-10--poc-presentation-deck-) |
+| **10** ✅ | PoC stakeholder deck — Markdown source of truth ([docs/presentation/deck.md](docs/presentation/deck.md)) + python-pptx builder that embeds live-app screenshots from `docs/screens/`. Renders TODO placeholders for shots not yet captured so the deck always builds. 14 slides covering problem framing, capability tour, observability, retrospective | [poc/scripts/build_pptx.py](poc/scripts/build_pptx.py) · [docs/presentation/](docs/presentation/). Details: [Phase 10](#phase-10--poc-presentation-deck-) |
 
 ### Nice-to-have (not on the roadmap)
 
@@ -257,7 +257,7 @@ Generates a management-ready annual report for a selected year, on-screen and as
 - **One-shot experiment (called out under Phase 10 retrospective).** Keep the section pipeline as the production path; build a one-call experimental mode behind a feature flag and compare quality on the same year. The user wants this explicitly piloted.
 - **Out of scope.** Multi-year reports (one report = one year for v1) · review-and-revise loop · live data refresh (the report is a point-in-time artefact).
 
-### Phase 10 — PoC Presentation deck 🟡
+### Phase 10 — PoC Presentation deck ✅
 
 Final stakeholder deliverable. A short, opinionated deck (PDF + PPTX) that explains the PoC to a non-technical reader, captures what made the work interesting, and is honest about what should be done differently next time. Hand-curated content — not auto-generated like the Phase 9 report.
 
