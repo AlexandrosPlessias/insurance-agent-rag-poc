@@ -234,3 +234,6 @@ poc/app/memory/summarizer.py
 memory/*
 .claude/settings.json
 poc/data/audit.sqlite
+# Phase 10 deck build artefact (regenerated from docs/presentation/deck.md)
+docs/presentation/insurance-rag-poc.pptx
+docs/presentation/insurance-rag-poc.pdf
