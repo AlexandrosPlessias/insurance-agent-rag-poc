@@ -76,10 +76,63 @@ def _extract_policy_data(chunks: list[RetrievedChunk]) -> dict:
         return parsed
 
 
+def _executive_report(state: GraphState, target_year: int) -> dict:
+    """Phase 9 executive annual report.
+
+    Dispatched when the supervisor route is `report` AND a
+    target_year is set. Builds the section-by-section pipeline
+    (collector -> narrator -> assemble) via
+    app.reporting.executive.build_executive_report, then renders
+    Markdown for the in-chat reply. The DOCX + PDF download
+    endpoints (api.routes.reports) re-build the same
+    ReportDocument server-side from the year on demand.
+    """
+    from app.reporting.executive import build_executive_report
+    from app.reporting.writers import render_markdown
+
+    doc = build_executive_report(target_year)
+    markdown = render_markdown(doc)
+    audit_record(
+        state,
+        event_type=audit_events.REPORT_GENERATE,
+        payload={
+            "kind": "executive",
+            **doc.as_audit_payload(),
+        },
+    )
+    log.info(
+        "Executive report done: year=%d run_id=%s recs=%d md=%d chars",
+        target_year,
+        doc.cover.report_run_id,
+        len(doc.recommendations.items),
+        len(markdown),
+    )
+    return {
+        "chunks": [],
+        "draft_answer": markdown,
+        "final_answer": markdown,
+        "final_citations": [],
+        "validated": True,
+        "retry_count": 0,
+        # Phase 9: expose the run id + the doc payload so the UI
+        # (Step 8) can show the DOCX / PDF download buttons and
+        # the risk-indicator badges without re-running the pipeline.
+        "report_kind": "executive",
+        "report_run_id": doc.cover.report_run_id,
+        "report_year": target_year,
+    }
+
+
 def report_node(state: GraphState) -> dict:
-    """Build a Markdown policy report. Skips validation."""
+    """Build a Markdown policy report. Skips validation.
+
+    Phase 9: when target_year is present, dispatches to the
+    executive annual-report pipeline. Without a year we keep the
+    legacy Phase 3 single-policy summary.
+    """
     question = state.get("question") or ""
     user_activity = state.get("user_activity", []) or []
+    target_year = state.get("target_year")
 
     with tracer.start_as_current_span("report.node") as span, \
             track_node("report", route="report"):
@@ -90,6 +143,19 @@ def report_node(state: GraphState) -> dict:
         )
         span.set_attribute("question.preview", question[:80])
         span.set_attribute("report.user_activity_items", len(user_activity))
+
+        # Phase 9 dispatch.
+        if target_year is not None:
+            span.set_attribute("report.kind", "executive")
+            span.set_attribute("report.target_year", int(target_year))
+            log.info(
+                "Report agent -> EXECUTIVE pipeline for year=%d",
+                int(target_year),
+            )
+            return _executive_report(state, int(target_year))
+
+        # Legacy Phase 3 single-policy summary path below.
+        span.set_attribute("report.kind", "policy_summary")
         log.info(
             "Report agent invoked: %r (user_activity=%d items)",
             question[:80],
@@ -97,12 +163,7 @@ def report_node(state: GraphState) -> dict:
         )
         t_total = time.perf_counter()
 
-        target_year = state.get("target_year")
-        where_filter = (
-            {"year": int(target_year)} if target_year is not None else None
-        )
-        if target_year is not None:
-            span.set_attribute("report.target_year", int(target_year))
+        where_filter = None
         chunks = retrieve(question, k=REPORT_K, where_filter=where_filter)
         span.set_attribute("report.chunk_count", len(chunks))
         record_rag_chunks(len(chunks), route="report")

@@ -566,6 +566,38 @@ def render_reformulation(reformulated: str, original: str) -> None:
         st.code(reformulated, language="text")
 
 
+def render_report_downloads(year: int | None, run_id: str = "") -> None:
+    """Phase 9 - DOCX + PDF download buttons under an executive report.
+
+    Renders link_buttons to the API's GET /reports/{year}.docx and
+    .pdf endpoints. Year+run_id are surfaced together so the
+    download filename matches what the user sees in the chat.
+    """
+    if not year:
+        return
+    api = settings.ui_api_url.rstrip("/")
+    cols = st.columns([2, 2, 2, 4])
+    cols[0].link_button(
+        "📄 Download DOCX",
+        f"{api}/reports/{year}.docx",
+        use_container_width=True,
+    )
+    cols[1].link_button(
+        "📑 Download PDF",
+        f"{api}/reports/{year}.pdf",
+        use_container_width=True,
+    )
+    cols[2].link_button(
+        "📝 Download MD",
+        f"{api}/reports/{year}.md",
+        use_container_width=True,
+    )
+    if run_id:
+        cols[3].caption(
+            f"_Report id `{run_id}` · same id = same numbers_"
+        )
+
+
 def render_operation_expander(op: dict | None) -> None:
     """Phase 8: 'How this was computed' expander for data turns.
 
@@ -640,6 +672,15 @@ for entry in st.session_state.history:
                     entry.get("validated", True),
                     entry.get("critique", ""),
                 )
+            # Phase 9: replay download buttons for executive reports.
+            if (
+                route == "report"
+                and entry.get("report_kind") == "executive"
+            ):
+                render_report_downloads(
+                    entry.get("report_year"),
+                    entry.get("report_run_id", ""),
+                )
             if route == "data":
                 render_operation_expander(entry.get("data_operation"))
             else:
@@ -673,6 +714,13 @@ if question:
         route_holder = {"value": ""}
         error_holder = {"value": ""}
         report_holder = {"value": ""}
+        # Phase 9: an executive report turn carries a year + a
+        # report_run_id on the `done` event, so the UI can render
+        # DOCX / PDF / MD download buttons that hit the API's
+        # /reports/{year}.{ext} endpoints.
+        report_kind_holder = {"value": ""}
+        report_year_holder: dict = {"value": None}
+        report_run_id_holder = {"value": ""}
         # Phase 8 data turn: tokens come as a single Markdown blob,
         # so we capture them like a report and render with st.markdown
         # AFTER the stream. The Operation JSON travels on the `done`
@@ -756,6 +804,16 @@ if question:
                     op = event.get("data_operation")
                     if op:
                         data_operation_holder["value"] = op
+                    # Phase 9 - executive report metadata.
+                    rk = event.get("report_kind")
+                    if rk:
+                        report_kind_holder["value"] = rk
+                        report_year_holder["value"] = event.get(
+                            "report_year"
+                        )
+                        report_run_id_holder["value"] = (
+                            event.get("report_run_id") or ""
+                        )
                 elif etype == "error":
                     error_holder["value"] = event.get("value", "")
 
@@ -768,6 +826,13 @@ if question:
         if route_holder["value"] == "report" and report_holder["value"]:
             answer = report_holder["value"]
             st.markdown(answer, unsafe_allow_html=False)
+            # Phase 9: executive-pipeline report turns offer
+            # downloadable DOCX / PDF / MD via the API endpoints.
+            if report_kind_holder["value"] == "executive":
+                render_report_downloads(
+                    report_year_holder["value"],
+                    report_run_id_holder["value"],
+                )
 
         if route_holder["value"] == "data" and data_holder["value"]:
             answer = data_holder["value"]
@@ -810,6 +875,11 @@ if question:
                 # answer so the replay loop can re-render the
                 # 'How this was computed' expander when scrolling back.
                 "data_operation": data_operation_holder["value"],
+                # Phase 9: executive-report metadata so the replay
+                # loop can re-render the DOCX/PDF download buttons.
+                "report_kind": report_kind_holder["value"],
+                "report_year": report_year_holder["value"],
+                "report_run_id": report_run_id_holder["value"],
             }
         )
 

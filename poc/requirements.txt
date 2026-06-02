@@ -32,9 +32,14 @@ httpx>=0.27.0
 # --- Frontend ---
 streamlit>=1.38.0
 
-# --- Reporting (Phase 3) ---
+# --- Reporting (Phase 3 / Phase 9) ---
 pandas>=2.2.0
 matplotlib>=3.9.0
+# Phase 9 executive annual report writers. python-docx for DOCX,
+# reportlab for PDF (preferred over weasyprint to avoid the GTK
+# system dependency on WSL).
+python-docx>=1.1.0
+reportlab>=4.2.0
 
 # --- Observability (Phase 5) ---
 opentelemetry-api>=1.27.0
