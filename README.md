@@ -14,6 +14,7 @@ The PoC runs **100% locally** on WSL2 — no external LLM API calls, no cloud de
 | **[USAGE.md](USAGE.md)** | Day-to-day operation — running the stack, ingesting policy PDFs, observability in Aspire, troubleshooting |
 | **[GRAPH.md](GRAPH.md)** | LangGraph state diagram + per-node + edge reference |
 | [docs/agent_topology.md](docs/agent_topology.md) | Why the supervisor / clarifier / fallback / RAG / validator are separate nodes — design rationale + per-node contracts |
+| [docs/agentic.md](docs/agentic.md) | 📋 Phase 11 — Planner · Orchestrator · Workers · Tools · Skills capability catalogue + extension playbook |
 | [docs/ingestion.md](docs/ingestion.md) | Phase 6 ingestion & chunking pipeline (design + tuning) |
 | [docs/PoC_scope.md](docs/PoC_scope.md) | Original scope & 5-phase plan |
 | [docs/insurance_rag_strategic_roadmap.md](docs/insurance_rag_strategic_roadmap.md) | Strategic roadmap |
@@ -278,6 +279,110 @@ Final stakeholder deliverable. A short, opinionated deck (PDF + PPTX) that expla
     - **Azurize the model layer.** Drop Ollama 7B for production: **GPT-5.1** as the RAG generator (substantial grounded-answer quality lift over local 7B) · **mini / nano model** for the query reformulator (sub-second latency, cheap, small task) · **GPT-5.4 / reasoning-medium** for the executive report (multi-section pipeline benefits disproportionately from a reasoning model).
     - **End-to-end report generation in a single LLM call** as a side-by-side experiment against the per-section pipeline. The challenge is getting a stable executive-grade structure out of one shot; the prize is dramatically lower latency and cost. Worth one focused spike before committing to the orchestrated pipeline as the long-term path.
 - **Out of scope.** Animated transitions / video walk-through · speaker-notes export (notes live as block-comments in the source Markdown but no separate render) · CI rebuild on every commit (single make target is enough).
+
+### Phase 11 — Agentic Multi-Intent Architecture (+ Feedback) 📋
+
+Phase 11 upgrades the supervisor → single-worker topology to a state-of-the-art **Planner · Orchestrator · Workers · Tools · Skills** agentic stack — the kind of architecture you'd expect from a production AI platform team. **Primary deliverable:** the agentic multi-intent stack. **Secondary deliverable:** thumbs-up/down feedback support, attached to the new architecture so reviewers can score the multi-intent answers. Branch: `poc/phase-11-feedback-and-parallel`. Single PR.
+
+#### 1 — Primary: agentic multi-intent stack
+
+Today the graph routes each user message to ONE of four workers. *"What's the refund window AND the 2024 loss ratio?"* picks one branch and silently drops the other. The new architecture treats every turn as a small workflow planned and executed by specialised agents.
+
+- **`Planner` agent.** One structured-output LLM call against a small fast model (`qwen2.5:3b` — full 7B reserved for workers). Reads the question + conversation context + the live **Skill registry**, emits a typed `Plan` — a DAG of `Step` objects: `{step_id, skill_name, args, depends_on: list[step_id]}`. The Planner **subsumes the Phase 1–10 supervisor's classification role** — single-intent turns are just degenerate Plans with one Step; the rest of the pipeline runs identically. A self-critique sub-call validates the plan against three rules before publishing: every `skill_name` exists, the dependency graph is acyclic, no Step needs a clarification that hasn't fired yet.
+- **`Orchestrator` agent.** Walks the DAG. For every Step whose deps are satisfied, dispatches to the owning worker via LangGraph's `Send()` API — independent Steps fan out in parallel, dependent Steps wait on their parents. Maintains a per-Step result cache so dependents see **structured outputs** (not just raw text). Handles partial failure (one Step fails → orchestrator either re-plans, returns partial, or surfaces a 502-style apology) so a flaky worker doesn't kill the turn. Enforces per-turn budgets (`max_steps`, `max_tool_calls`, `max_seconds`) — overrun → graceful early-stop with whatever partial result is ready.
+- **`Worker` agents.** RAG · Data · Report · Memory. Each worker is reduced to a thin shell that loads a Skill spec and invokes its prompt + tools. Workers are stateless — all per-turn state lives in the LangGraph reducer.
+- **`Tools`.** Atomic, side-effect-free functions exposed via Pydantic schemas. Every tool gets its own OTel span + audit row. Initial set:
+    - `vector_search(query, year_filter)` → `list[Chunk]`
+    - `kpi_query(operation: Operation)` → `DataFrame`
+    - `knowledge_base_lookup(doc_id, section)` → `str`
+    - `clarifier_check(question)` → `ClarifierVerdict`
+    - `audit_write(event_type, payload)` → `None`
+
+    Tools are bound to the LLM via structured tool-use (`bind_tools`) — no string parsing of model output anywhere in the worker layer.
+- **`Skills`.** A Skill = `{name, description, system_prompt, tools, input_schema, output_schema}` — a reusable capability bundle. The Skill registry is loaded at planner-time so adding a new capability (e.g. *"summarise a customer complaint"*) is one new file in `app/skills/`, not a graph refactor. Initial set: `answer_policy_question` (RAG worker) · `compute_kpi` (Data worker) · `executive_section_summary` (Report worker) · `clarify_year` (any worker — invoked when a Step needs a year). The Planner sees `name + description + input/output schemas` only (**never** the system prompt) so a malicious user can't jailbreak the Planner into hijacking a worker.
+- **`Assembler`.** Final node. Concatenates Step outputs under H3 headers, merges citations into a single block, normalises footnote numbering. Same `ReportDocument`-style structured-output pattern as Phase 9.
+
+**State-of-the-art touches.**
+- **Structured outputs end to end.** Pydantic at every agent boundary; no JSON-extract-from-prose.
+- **Tool use via OpenAI-style function calling** (`langchain.chat_models.bind_tools` over local Ollama).
+- **Streaming everywhere.** Planner emits the plan as it forms · orchestrator emits each Step's start/end · workers stream token-by-token. The UI renders live progress per Step.
+- **Reflection loops.** Planner self-critiques before publishing the plan · Assembler self-critiques the final answer for citation completeness before returning.
+- **Audit replay.** Every Plan / Step / Tool call is one audit row keyed by `trace_id` — reviewers can re-execute a turn deterministically from the audit log alone.
+- **OTel span hierarchy.** `chat.turn` → `planner.plan` → `orchestrator.execute` → `step.<id>` → `tool.<name>`. Aspire shows the whole turn as one collapsible tree.
+
+**Risks + mitigations.**
+- *Planner adds one LLM call per turn (~200 ms uniform-pipeline tax)* → use a 3B fast model. The N=1 heuristic short-circuit + Orchestrator fast-lane stay **deferred** behind `settings.agentic.fast_path` so the uniform-topology promise (consistent OTel spans + audit rows on every turn) holds by default. See [docs/agentic.md § 8](docs/agentic.md#8--future-optimisation-n1-bypass) for the staged escape hatch if production latency ever demands it.
+- *DAG bugs (cycle, missing dep)* → self-critique sub-call catches structural errors before execution; orchestrator re-validates at runtime.
+- *Cross-Step dependency leaks PII into downstream prompts* → tool outputs flow through a passthrough sanitiser before becoming inputs to dependent Steps.
+- *Phase 7/8/9 smoke tests will break* (new nodes + new audit rows) — **explicit smoke-test update is part of the phase, not a side effect.**
+- *Skill registry sprawl* → enforce a `skills/__init__.py` registry export + Pydantic-validated metadata on every Skill.
+
+**Out of scope (next-phase pointers).**
+- Long-running plans + human-in-the-loop approvals → [Phase 12](#phase-12--human-in-the-loop--telegram-channel-).
+- Multi-modal audio I/O → [Phase 13](#phase-13--multi-modal-voice-).
+- Cross-conversation plans → [Phase 14](#phase-14--cross-conversation-planning-).
+- Recursive Skill composition (Skills authoring sub-Skills) → [Phase 15](#phase-15--recursive-skill-composition-).
+- Distributed worker execution · Skill marketplace UI / versioning / A-B comparison → no phase yet.
+
+#### 2 — Secondary: feedback support
+
+A thin slice attached to the new architecture so reviewers can score the multi-intent answers.
+
+- **UI.** Thumbs row under every assistant message in Streamlit, with an optional comment textarea.
+- **API.** `POST /feedback {trace_id, plan_id, user_id, score: +1|-1, comment?}` — schema-validated, latest-wins on `(trace_id, user_id)` with an `updated_at` column for traceability.
+- **Storage.** New `event_type='feedback.received'` row in the existing `audit_events` table — **no new table.** Keeps the storage surface unified per the Phase 7 audit pattern; CSV export gains `feedback_score` + `feedback_comment` columns via a JSON-extract over `payload_json`.
+- **Telemetry.** OTel event `feedback.received` keyed by `trace_id` so Aspire stitches the verdict onto the original chat-turn trace.
+
+#### Done criteria
+
+- *"Refund window AND 2024 loss ratio?"* returns both answers under separate H3 headers in one turn, with the Plan visible in the audit log.
+- Adding a new Skill is a **one-file PR** — no changes to Planner / Orchestrator / Workers.
+- Every Step + Tool call appears as a span in Aspire under the parent `chat.turn` trace.
+- Phase 7/8/9 smoke tests are updated to match the new topology and pass.
+- A 👎 on any answer persists to `audit_events` and appears in the CSV export within the same session.
+
+### Phase 12 — Human-in-the-Loop & Telegram channel 📋
+
+Phase 12 turns the Phase 11 Orchestrator into a **suspendable workflow engine**: certain Steps (or whole Plans) pause for human approval before executing, and the approval round-trip happens over a messaging channel — Telegram first because it's the cheapest local-friendly option (`python-telegram-bot` + a self-hosted bot token), with Slack and Microsoft Teams as drop-in alternatives behind the same `ApprovalChannel` interface.
+
+- **Approval-gated Steps.** Skills declare `requires_approval: bool` in their metadata. When the Orchestrator dispatches an approval-gated Step, it persists the Plan state, emits an `approval.requested` audit row, and surfaces an inline approval card in the UI **and** an actionable message on the configured channel. Reviewers approve / reject from either side; the Orchestrator resumes from the persisted Plan once a verdict arrives.
+- **Telegram integration.** A bot polls for `/approve <token>` / `/reject <token> <reason>` commands. Tokens are short-lived (`exp=15min`), HMAC-signed, and one-shot — the audit log records who approved, when, from which chat-id. Channel is config-driven (`settings.approvals.channel = telegram | slack | teams | ui_only`).
+- **Plan persistence.** Suspended Plans persist to a new `plans` row keyed by `plan_id`, with `state ∈ {pending, approved, rejected, expired, executing, done}` and a `resume_payload` blob (the Orchestrator's continuation state). The audit-replay story extends naturally — every state transition is one `plan.<state_change>` audit event.
+- **Use cases.** *"Generate the executive annual report → pause → compliance officer approves → send to leadership"* · *"Bulk-ingest a new policy PDF → pause → legal reviews the metadata + first 3 chunks → orchestrator continues the ingestion pipeline"* · *"Customer-facing data answer flagged by Validator → pause → senior agent approves before sending"*.
+- **Out of scope.** SMS / WhatsApp approval (paid carriers · regulatory hassle) · approval-chain workflows (one approver per gate in Phase 12) · push notifications via Apple/Google services.
+
+### Phase 13 — Multi-modal voice 📋
+
+Phase 13 adds **audio in and audio out** as first-class modalities. Customers in a branch can dictate a question and hear the answer; the architecture stays 100 % local — no Whisper-API, no ElevenLabs.
+
+- **Speech-to-text Tool.** New `speech_to_text(audio_blob, language)` Tool wrapping a local Whisper.cpp build (small or medium model — quantised, CPU-friendly). Streamed transcription so the Planner can begin building the Plan before the user finishes speaking.
+- **Text-to-speech Tool.** New `text_to_speech(text, voice_id)` Tool wrapping a local TTS engine (Piper or Coqui-TTS — Piper preferred for latency and small model size). Voice cloning explicitly out of scope.
+- **UI.** Streamlit voice-input widget (`st.audio_input`) + an audio-output player below every assistant message. Both gated by a `settings.voice.enabled` flag — voice is **opt-in** to avoid surprising users with microphone prompts.
+- **Audit + privacy.** Audio blobs are **never** persisted by default — only their sha256 + transcript are recorded in `audit_events`. Behind a `settings.audit.retain_audio = true` flag, blobs land in a separate `audit_audio/` directory with a 30-day TTL. The privacy posture (nothing leaves the workstation) is unchanged.
+- **OTel.** New spans `tool.speech_to_text` + `tool.text_to_speech` with `model_id`, `audio_length_ms`, `latency_ms` attributes. WER (word-error rate) recorded as a metric where the user corrects the transcript.
+- **Out of scope.** Image / vision inputs (deferred — no phase yet) · voice cloning · real-time bidirectional voice (the loop is request/response, not streaming dialog) · multilingual TTS beyond the languages Piper ships with.
+
+### Phase 14 — Cross-conversation planning 📋
+
+Phase 14 lifts Plans from **per-turn** artefacts to **first-class memory objects** that span sessions, days, and users.
+
+- **Plan persistence beyond a turn.** Plans land in a `plans` table (introduced in Phase 12 for HITL — same schema) but with no expiry. A user can pick up *"the 2024 annual report you were generating last Tuesday"* via a resume-token chip in the UI or `/resume <plan_id>` in chat.
+- **Plan-aware memory.** The Phase 4 episodic memory module learns about Plans: rolling-summarisation includes *"currently executing Plan X · awaiting Step Y · 3 of 7 Steps complete"* so the assistant doesn't lose context across sessions.
+- **Multi-user plans.** Plans can have multiple `participant` user_ids — *"compliance officer A approved Step 2, regional manager B will approve Step 3"*. ACLs enforced at the Orchestrator: a Step can only resume for a user listed in its `allowed_participants`.
+- **Plan migration on schema change.** When a Skill's `input_schema` or `output_schema` evolves, persisted Plans referencing the old schema get a migration hook (Skills declare `schema_version`; orchestrator runs a registered `migrate_v{n}_to_v{n+1}` before resuming).
+- **UI.** New sidebar panel: *"Your plans"* — pending · in-progress · done · expired — with a one-click resume.
+- **Out of scope.** Plan branching / forking (a Plan is linear in Phase 14 even when re-planned) · cross-tenant plans (single-tenant PoC) · plan-of-plans (meta-orchestration; that's Phase 15 territory).
+
+### Phase 15 — Recursive Skill composition 📋
+
+Phase 15 lets a **Skill emit a sub-Plan** mid-execution — *"I need to dig deeper here, so spawn three child Skills, wait for them, fold their results back into my own output."* The Orchestrator becomes recursive.
+
+- **Sub-Plan emission.** A Worker, mid-Step, can return a `SubPlanRequest{steps: [...], merge_strategy}` instead of a normal `StepResult`. The Orchestrator pauses the parent Step, dispatches the sub-Plan, and resumes the parent with the sub-Plan's structured results once it completes.
+- **Recursion budgets.** New `max_recursion_depth` (default: 3) and shared `max_steps` / `max_tool_calls` / `max_seconds` budgets that span parent + children. Overrun → graceful early-stop, partial result. **Cycle detection** — a Step that re-emits its own `skill_name` in its sub-Plan is rejected at the orchestrator.
+- **Audit + OTel.** Sub-Plans get their own `plan_id` and audit subtree; OTel renders parent → sub-Plan → child Steps as a nested span tree. Replay tools handle the recursion transparently because every `plan.emitted` row already references its parent (a new column on the `plans` table).
+- **Use cases.** *"Summarise customer complaint → mid-Step the Skill realises it needs three sub-summaries, one per year mentioned in the complaint → spawn three `executive_section_summary` Skills → merge → return the umbrella summary"* · *"Generate annual report → individual section Skills each spawn their own data-quality-check sub-Plans"*.
+- **Safety.** Sub-Plans pass through the **same Planner self-critique** rules as top-level Plans (no cycles, all `skill_name`s registered, no unfired clarifications). The Worker emitting a sub-Plan can't author Skills the Planner couldn't have authored.
+- **Out of scope.** Skill marketplaces / Skills loaded from external sources (still strictly `app/skills/`) · cross-thread sub-Plan parallelism (still single-process) · sub-Plans that mutate the parent's `args` (immutable inputs).
 
 ---
 
