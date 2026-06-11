@@ -1,0 +1,46 @@
+name: Sync wiki from docs/wiki
+
+# Source of truth lives in `docs/wiki/` on the main repo. This workflow
+# transforms relative links (which only resolve inside the main repo) into
+# absolute URLs against `blob/dev` (text) or `raw/dev` (binary), then pushes
+# the result to the `<repo>.wiki.git` repo so the public wiki at
+# `/<repo>/wiki` stays in sync. Do NOT edit the wiki via the GitHub UI —
+# UI edits will be overwritten on the next sync.
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - "docs/wiki/**"
+      - ".github/scripts/transform_wiki_links.py"
+      - ".github/workflows/sync-wiki.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main repo
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Transform relative links to absolute URLs
+        run: |
+          python .github/scripts/transform_wiki_links.py \
+            --src docs/wiki \
+            --dst "${RUNNER_TEMP}/wiki-out"
+          echo "--- transformed files ---"
+          ls -la "${RUNNER_TEMP}/wiki-out"
+
+      - name: Push to wiki repo
+        uses: Andrew-Chen-Wang/github-wiki-action@v4
+        with:
+          path: ${{ runner.temp }}/wiki-out/
+          token: ${{ secrets.GITHUB_TOKEN }}

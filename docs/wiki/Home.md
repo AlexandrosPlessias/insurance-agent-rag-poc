@@ -1,6 +1,6 @@
 # ACME Insurances — Local Agentic RAG PoC
 
-> Draft GitHub Wiki home page. Push to the `<repo>.wiki.git` clone to publish.
+> 🤖 **Auto-synced** from [`docs/wiki/Home.md`](https://github.com/AlexandrosPlessias/insurance-agent-rag-poc/blob/dev/docs/wiki/Home.md) on every merge to `dev` — do not edit via the wiki UI, your changes will be overwritten on the next sync.
 
 An end-to-end Proof of Concept for an insurance branch-operator assistant that
 answers policy + KPI questions in seconds, cites the exact paragraph it used,
