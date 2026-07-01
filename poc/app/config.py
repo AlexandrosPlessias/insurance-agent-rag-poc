@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     # --- Ollama ---
     ollama_host: str = "http://localhost:11434"
     llm_model: str = "qwen2.5:7b"
+    # Phase 11: fast 3B model for the Planner — keeps planning latency
+    # low; the heavier 7B is reserved for the actual workers.
+    planner_model: str = "qwen2.5:3b"
     embed_model: str = "nomic-embed-text"
 
     # --- Storage paths ---

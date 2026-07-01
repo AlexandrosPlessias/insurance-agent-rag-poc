@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import (
     chat,
     conversations,
+    feedback,
     health,
     ingest,
     reports,
@@ -35,6 +36,7 @@ app.include_router(conversations.router)
 app.include_router(ingest.router)
 app.include_router(sources.router)
 app.include_router(reports.router)
+app.include_router(feedback.router)
 
 log.info(
     "FastAPI ready - model=%s embed=%s chroma=%s sqlite=%s otel=%s",

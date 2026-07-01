@@ -8,27 +8,48 @@ The PoC runs **100% locally** on WSL2 — no external LLM API calls, no cloud de
 
 ## 📚 Documentation
 
+#### Operations
+
 | Doc | When to read it |
 |---|---|
 | **[SETUP.md](SETUP.md)** | First-time install — WSL2 prerequisites, bootstrap script, configuration, verification |
-| **[USAGE.md](USAGE.md)** | Day-to-day operation — running the stack, ingesting policy PDFs, observability in Aspire, troubleshooting |
-| **[GRAPH.md](GRAPH.md)** | LangGraph state diagram + per-node + edge reference |
-| [docs/agent_topology.md](docs/agent_topology.md) | Why the supervisor / clarifier / fallback / RAG / validator are separate nodes — design rationale + per-node contracts |
-| [docs/agentic.md](docs/agentic.md) | 📋 Phase 11 — Planner · Orchestrator · Workers · Tools · Skills capability catalogue + extension playbook |
+| **[USAGE.md](USAGE.md)** | Day-to-day operation — running the stack, ingesting PDFs, observability in Aspire, troubleshooting |
+
+#### Architecture
+
+| Doc | When to read it |
+|---|---|
+| **[docs/architecture/GRAPH.md](docs/architecture/GRAPH.md)** | LangGraph state diagram + per-node + edge reference |
+| [docs/agentic.md](docs/agentic.md) | ✅ Phase 11 — Planner · Orchestrator · Workers · Tools · Skills capability catalogue + extension playbook |
 | [docs/ingestion.md](docs/ingestion.md) | Phase 6 ingestion & chunking pipeline (design + tuning) |
-| [docs/PoC_scope.md](docs/PoC_scope.md) | Original scope & 5-phase plan |
-| [docs/insurance_rag_strategic_roadmap.md](docs/insurance_rag_strategic_roadmap.md) | Strategic roadmap |
+| [docs/agentic.md § 10](docs/agentic.md#10--legacy-phase-110-contracts) | Phase 1–10 per-node MUST/MUST-NOT contracts — appended to `docs/agentic.md` |
+
+#### Strategic vision
+
+| Doc | When to read it |
+|---|---|
+| [docs/insurance_rag_strategic_roadmap.md](docs/insurance_rag_strategic_roadmap.md) | Enterprise Azure production architecture vision — PoC coverage mapping in § 5 |
+
+#### Presentation
+
+| Doc | When to read it |
+|---|---|
+| [docs/presentation/deck.md](docs/presentation/deck.md) | 16-slide stakeholder deck (PPTX source of truth) |
+| [docs/presentation/README.md](docs/presentation/README.md) | Screenshot-capture runbook for the deck |
 
 ---
 
 ## 🚀 Key Features
 
-### 1. 🤖 Multi-Agent Orchestration & Core Framework
-Coordinated specialized agents over short-term (session) and long-term (cross-conversation) memory:
-*   🔍 **RAG Agent** — retrieval-augmented Q&A grounded in policy documents.
-*   🧭 **Supervisor** — routes each user message to RAG, Report, or polite-decline.
-*   📊 **Report Agent** — extracts structured fields, renders a Markdown report with an embedded matplotlib chart.
-*   ✅ **Validator** — LLM-as-judge for groundedness + citation correctness, with a 1-retry loop.
+### 1. 🤖 Agentic Multi-Agent Orchestration (Phase 11)
+Planner · Orchestrator · Workers · Skills · Tools — every turn is a small DAG workflow:
+*   🗺 **Planner** (`qwen2.5:3b`) — parses any question into a typed `Plan` (DAG of Steps), handles multi-intent questions in one turn.
+*   🔀 **Orchestrator** — walks the DAG via LangGraph `Send()`, parallel-dispatches ready Steps, enforces budgets.
+*   ⚙️ **Workers** — thin shells that load a Skill spec and call its Tools; four families: RAG, Data, Report, Memory.
+*   🧩 **Skills registry** — auto-discovered from `app/skills/`; adding a capability is one file, no graph changes.
+*   🔧 **Tools** — atomic, side-effect-free functions (`vector_search`, `kpi_query`, `knowledge_base_lookup`, `clarifier_check`, `audit_write`).
+*   🗂 **Assembler** — merges Step outputs under H3 headers, deduplicates citations, surfaces partial-answer badges.
+*   ✅ **Validator** (legacy path) — LLM-as-judge still available inside the RAG worker for single-step turns.
 
 ### 2. ⚖️ Responsible AI (RAI) & Compliance (EU AI Act / GDPR)
 *   **Regulatory alignment** — EU AI Act record-keeping via OpenTelemetry traces; GDPR-friendly because nothing leaves the workstation.
@@ -40,7 +61,7 @@ Coordinated specialized agents over short-term (session) and long-term (cross-co
 
 ### 4. ⚙️ LLM Deployment, Fine-Tuning & Cost Optimization
 *   **Local inference** — Ollama serves `qwen2.5:7b` quantised. No per-token cost.
-*   **Externalised prompts** — every agent prompt lives in [poc/app/llm/prompts/](poc/app/llm/prompts/), tunable without code changes.
+*   **Externalised prompts** — every agent prompt lives in [poc/app/llm/prompts/](poc/app/llm/prompts/); Skill prompts are grouped under [prompts/skills/](poc/app/llm/prompts/skills/), all tunable without code changes.
 
 ---
 
@@ -61,12 +82,17 @@ insurance-agent-rag-poc/
     ├── app/                        # main application package
     │   ├── api/                    # FastAPI backend (routes, schemas, deps)
     │   ├── ui/                     # Streamlit frontend
-    │   ├── graph/                  # LangGraph supervisor + state machine
-    │   ├── agents/                 # 4 worker agents (RAG, Memory, Report, Validator)
+    │   ├── graph/                  # LangGraph state machine (planner → orchestrator → worker → assembler)
+    │   ├── agents/                 # Planner, Assembler + 4 worker agents (RAG, Memory, Report, Validator)
+    │   ├── skills/                 # Skill registry + 5 Skill specs (Phase 11)
+    │   ├── tools/                  # Atomic tool registry + 5 tools (Phase 11)
     │   ├── rag/                    # PDF loader, chunker, vector store, retriever
+    │   ├── data/                   # KPI dataset loader, Operation schema, pandas executor (Phase 8)
     │   ├── memory/                 # SQLite episodic memory (Phase 4)
-    │   ├── reporting/              # Markdown + chart generation (Phase 3)
+    │   ├── reporting/              # Markdown + chart + executive annual report (Phase 3/9)
+    │   ├── audit/                  # Audit-event store + middleware (Phase 7)
     │   ├── llm/                    # Ollama clients + prompt templates
+    │   │   └── prompts/skills/     # Skill-specific system prompts (Phase 11)
     │   ├── observability/          # OTel tracing/logging/metrics (Phase 5)
     │   ├── utils/                  # citation helpers, shared utilities
     │   └── config.py               # pydantic-settings configuration
@@ -88,7 +114,7 @@ insurance-agent-rag-poc/
 
 ## 🗺 Implementation Roadmap
 
-Phases 1–6 are implemented. Phases 7–10 are designed (one MD per phase) but not yet built.
+Phases 1–11 are implemented. Phases 12–15 are designed but not yet built.
 
 | Phase | Focus | Key Modules |
 |---|---|---|
@@ -102,6 +128,7 @@ Phases 1–6 are implemented. Phases 7–10 are designed (one MD per phase) but 
 | **8** ✅ | Talk-to-Data agent over `insurance_kpis_2020_2024.csv` (year / period / channel / product line × 14 KPIs) — natural-language quantitative analysis with drill-down follow-ups and verifiable typed Operation JSON | [poc/app/agents/data_agent.py](poc/app/agents/data_agent.py), [poc/app/data/](poc/app/data/). Details: [Phase 8](#phase-8--talk-to-data-agent-) |
 | **9** ✅ | Executive annual report for a selected year — section-by-section pipeline (collector → narrator → assemble) over the Phase 8 KPI data + Phase 1 RAG chunks. Deterministic risk-flag thresholds (no LLM-decided severity), reproducibility hash, three writers (Markdown · DOCX · PDF) | [poc/app/reporting/executive/](poc/app/reporting/executive/) · [poc/app/reporting/writers/](poc/app/reporting/writers/) · [poc/app/api/routes/reports.py](poc/app/api/routes/reports.py). Details: [Phase 9](#phase-9--executive-annual-report-) |
 | **10** ✅ | PoC stakeholder deck — Markdown source of truth ([docs/presentation/deck.md](docs/presentation/deck.md)) + python-pptx builder that embeds live-app screenshots from `docs/screens/`. Renders TODO placeholders for shots not yet captured so the deck always builds. 14 slides covering problem framing, capability tour, observability, retrospective | [poc/scripts/build_pptx.py](poc/scripts/build_pptx.py) · [docs/presentation/](docs/presentation/). Details: [Phase 10](#phase-10--poc-presentation-deck-) |
+| **11** ✅ | Agentic multi-intent stack + thumbs feedback — Planner · Orchestrator · Workers · Skills · Tools DAG replacing the Phase 1–10 supervisor→single-worker routing; `POST /feedback`; `plan_id` threaded end-to-end | [poc/app/agents/planner_agent.py](poc/app/agents/planner_agent.py) · [poc/app/graph/orchestrator.py](poc/app/graph/orchestrator.py) · [poc/app/skills/](poc/app/skills/) · [poc/app/tools/](poc/app/tools/) · [poc/app/api/routes/feedback.py](poc/app/api/routes/feedback.py). Details: [Phase 11](#phase-11--agentic-multi-intent-architecture--feedback-) |
 
 ### Nice-to-have (not on the roadmap)
 
@@ -269,7 +296,7 @@ Final stakeholder deliverable. A short, opinionated deck (PDF + PPTX) that expla
     - Visual: one annotated screenshot of a chat turn with a citation popover open.
 - **Slide B — What interested you?** Author's voice. Things that were genuinely fun to build.
     - **Full open solution.** Self-imposed constraint: zero paid LLM APIs. Every design choice ran through the "does this still work on a 7B local model?" filter — which is why it ended up so well-grounded.
-    - **Diagram design.** [GRAPH.md](GRAPH.md) and the per-phase architecture sketches. Drawing the state machine before writing the code shaped what actually got built.
+    - **Diagram design.** [docs/architecture/GRAPH.md](docs/architecture/GRAPH.md) and the per-phase architecture sketches. Drawing the state machine before writing the code shaped what actually got built.
     - **The "View chunk" button + Download PDF.** Compliance plumbing disguised as UX — the reviewer can verify any answer by opening the chunk popover or the source PDF in two clicks.
     - **Per-document ingestion → Aspire telemetry.** Chunker / vectorstore spans land in Aspire with attributes that make chunking choices visible (sections, chunks_kept vs skipped). Crucial debugging surface — in past projects we used to back up the index nightly into Postgres just to be able to diff embeddings and verify correct indexing; here the diff lives in telemetry.
     - **A real business-output report from a 7B parameter model.** The Markdown + base64 chart format is a deliberate squeeze of a small local model into a serious deliverable shape.
@@ -280,7 +307,7 @@ Final stakeholder deliverable. A short, opinionated deck (PDF + PPTX) that expla
     - **End-to-end report generation in a single LLM call** as a side-by-side experiment against the per-section pipeline. The challenge is getting a stable executive-grade structure out of one shot; the prize is dramatically lower latency and cost. Worth one focused spike before committing to the orchestrated pipeline as the long-term path.
 - **Out of scope.** Animated transitions / video walk-through · speaker-notes export (notes live as block-comments in the source Markdown but no separate render) · CI rebuild on every commit (single make target is enough).
 
-### Phase 11 — Agentic Multi-Intent Architecture (+ Feedback) 📋
+### Phase 11 — Agentic Multi-Intent Architecture (+ Feedback) ✅
 
 Phase 11 upgrades the supervisor → single-worker topology to a state-of-the-art **Planner · Orchestrator · Workers · Tools · Skills** agentic stack — the kind of architecture you'd expect from a production AI platform team. **Primary deliverable:** the agentic multi-intent stack. **Secondary deliverable:** thumbs-up/down feedback support, attached to the new architecture so reviewers can score the multi-intent answers. Branch: `poc/phase-11-feedback-and-parallel`. Single PR.
 
@@ -299,7 +326,7 @@ Today the graph routes each user message to ONE of four workers. *"What's the re
     - `audit_write(event_type, payload)` → `None`
 
     Tools are bound to the LLM via structured tool-use (`bind_tools`) — no string parsing of model output anywhere in the worker layer.
-- **`Skills`.** A Skill = `{name, description, system_prompt, tools, input_schema, output_schema}` — a reusable capability bundle. The Skill registry is loaded at planner-time so adding a new capability (e.g. *"summarise a customer complaint"*) is one new file in `app/skills/`, not a graph refactor. Initial set: `answer_policy_question` (RAG worker) · `compute_kpi` (Data worker) · `executive_section_summary` (Report worker) · `clarify_year` (any worker — invoked when a Step needs a year). The Planner sees `name + description + input/output schemas` only (**never** the system prompt) so a malicious user can't jailbreak the Planner into hijacking a worker.
+- **`Skills`.** A Skill = `{name, description, system_prompt, tools_used, input_fields}` — a reusable capability bundle. System prompts live in `app/llm/prompts/skills/`. The Skill registry is loaded at planner-time so adding a new capability (e.g. *"summarise a customer complaint"*) is one new file in `app/skills/` plus a prompt in `prompts/skills/`, not a graph refactor. Initial set: `answer-policy-question` (RAG worker) · `compute-kpi` (Data worker) · `executive-section-summary` (Report worker) · `clarify-year` · `out-of-year-fallback` · `decline` (no-LLM canned refusal for out-of-scope questions). The Planner sees `name + description + input_fields` only (**never** the system prompt) so a malicious user can't jailbreak the Planner into hijacking a worker.
 - **`Assembler`.** Final node. Concatenates Step outputs under H3 headers, merges citations into a single block, normalises footnote numbering. Same `ReportDocument`-style structured-output pattern as Phase 9.
 
 **State-of-the-art touches.**
@@ -328,7 +355,7 @@ Today the graph routes each user message to ONE of four workers. *"What's the re
 
 A thin slice attached to the new architecture so reviewers can score the multi-intent answers.
 
-- **UI.** Thumbs row under every assistant message in Streamlit, with an optional comment textarea.
+- **UI.** Thumbs row under each assistant turn that carries a `plan_id`, with an optional comment textarea.
 - **API.** `POST /feedback {trace_id, plan_id, user_id, score: +1|-1, comment?}` — schema-validated, latest-wins on `(trace_id, user_id)` with an `updated_at` column for traceability.
 - **Storage.** New `event_type='feedback.received'` row in the existing `audit_events` table — **no new table.** Keeps the storage surface unified per the Phase 7 audit pattern; CSV export gains `feedback_score` + `feedback_comment` columns via a JSON-extract over `payload_json`.
 - **Telemetry.** OTel event `feedback.received` keyed by `trace_id` so Aspire stitches the verdict onto the original chat-turn trace.

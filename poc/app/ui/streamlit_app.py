@@ -19,11 +19,14 @@ from app.ui.api_client import (  # noqa: E402
     list_conversations,
     source_url,
     stream_chat,
+    submit_feedback,
     upload_document,
 )
 
 # Initialise OTel for the UI process - no-op if OTEL_ENABLED=false.
-setup_otel(service_suffix="ui")
+# Skip LangChain instrumentation: the UI never calls LangChain directly,
+# and importing it here would add several seconds to the first page load.
+setup_otel(service_suffix="ui", instrument_langchain=False)
 
 st.set_page_config(
     page_title="ACME Insurances · Assistant",
@@ -45,25 +48,11 @@ st.caption("Policy & claims assistant · local RAG · PoC")
 # small badge row under the status pill so the user can see at a glance
 # what each agent calls into. Order matters for the left-to-right layout.
 PIPELINE_TOPOLOGY: list[tuple[str, str, str | None, list[str]]] = [
-    # tier 1 - always runs
-    ("supervisor", "Supervisor", None,
-        ["LLM", "regex(year)"]),
-    # tier 2 - exactly one of these fires
-    ("rag",        "RAG",        "rag",
-        ["LLM", "Chroma", "embed"]),
-    ("report",     "Report",     "report",
-        ["LLM", "Chroma", "matplotlib"]),
-    ("data",       "Data",       "data",
-        ["LLM", "pandas"]),
-    ("clarifier",  "Clarifier",  "needs_clarification",
-        ["LLM"]),
-    ("fallback",   "Fallback",   "out_of_year",
-        ["template"]),
-    ("decline",    "Decline",    "out_of_scope",
-        ["template"]),
-    # tier 3 - only on the rag path
-    ("validator",  "Validator",  "rag",
-        ["LLM"]),
+    # Phase 11 — Planner → Orchestrator → Worker(s) → Assembler
+    ("planner",      "Planner",      None, ["LLM(3B)"]),
+    ("orchestrator", "Orchestrator", None, ["DAG"]),
+    ("worker",       "Worker",       None, ["skills"]),
+    ("assembler",    "Assembler",    None, ["merge"]),
 ]
 
 # --- Session-state defaults ---
@@ -73,6 +62,8 @@ if "conversation_id" not in st.session_state:
     st.session_state.conversation_id = None
 if "history" not in st.session_state:
     st.session_state.history = []
+if "rated_turns" not in st.session_state:
+    st.session_state.rated_turns = set()
 
 
 # --- Cached API calls ---
@@ -129,11 +120,13 @@ def _load_history(conv_id: int) -> list[dict]:
 def _switch_conversation(conv_id: int) -> None:
     st.session_state.conversation_id = conv_id
     st.session_state.history = _load_history(conv_id)
+    st.session_state.rated_turns = set()
 
 
 def _start_new_conversation() -> None:
     st.session_state.conversation_id = None
     st.session_state.history = []
+    st.session_state.rated_turns = set()
 
 
 # --- Sidebar (ACME-branded) ---
@@ -310,7 +303,12 @@ with st.sidebar:
             "Markdown / DOCX / PDF writers · "
             "`GET /reports/{year}.{ext}` download API  \n"
             "✅ **Phase 10** · PoC stakeholder deck — python-pptx "
-            "builder from `deck.md` + screenshot embedding"
+            "builder from `deck.md` + screenshot embedding  \n"
+            "✅ **Phase 11** · Agentic multi-intent stack — Planner "
+            "(qwen2.5:3b) · Orchestrator (LangGraph Send() DAG) · "
+            "Worker thin-shells · Skills registry · Tools registry · "
+            "Assembler (H3 merge + citation dedup) · "
+            "Feedback (👍👎 → audit_events)"
         )
 
 
@@ -345,6 +343,27 @@ DATA_SUBSTAGES: list[tuple[str, str, str]] = [
     ("data.plan",    "plan",    "LLM"),
     ("data.execute", "execute", "pandas"),
 ]
+
+# Phase 11 - sub-stages emitted inside the RAG worker step.
+# Keys are suffixes; full stage key = "worker.{step_id}.{suffix}".
+WORKER_SUBSTAGES: list[tuple[str, str, str]] = [
+    ("reformulate", "reformulate", "LLM"),
+    ("retrieve",    "retrieve",    "Chroma"),
+    ("answer",      "answer",      "LLM"),
+]
+
+_SKILL_LABELS: dict[str, str] = {
+    "answer-policy-question":    "Policy Q&A",
+    "compute-kpi":               "KPI Query",
+    "executive-section-summary": "Exec Report",
+    "clarify-year":              "Clarify Year",
+    "out-of-year-fallback":      "Year Guard",
+    "decline":                   "Out of Scope",
+}
+
+
+def _prettify_skill(skill: str) -> str:
+    return _SKILL_LABELS.get(skill, skill.replace("-", " ").title())
 
 
 def _render_substage(col, label: str, tool: str, status: str) -> None:
@@ -398,30 +417,73 @@ def _render_tools_row(col, tools: list[str], dim: bool = False) -> None:
     )
 
 
+def _build_dynamic_topology(
+    stages: dict,
+) -> list[tuple[str, str, str | None, list[str]]]:
+    """Expand PIPELINE_TOPOLOGY's single 'worker' entry into N per-step columns.
+
+    Detects active step IDs from keys like 'worker.step-1' in stages.
+    Falls back to the original placeholder column when no steps exist yet.
+    """
+    step_ids = sorted(
+        {
+            k.split(".")[1]
+            for k in stages
+            if k.startswith("worker.")
+            and k.count(".") == 1
+            and k.split(".")[1].startswith("step-")
+        },
+        key=lambda s: int(s.split("-")[1]),
+    )
+    topology: list[tuple[str, str, str | None, list[str]]] = []
+    for entry in PIPELINE_TOPOLOGY:
+        if entry[0] != "worker":
+            topology.append(entry)
+        elif step_ids:
+            for sid in step_ids:
+                skill = stages.get(f"worker.{sid}.skill", "Worker")
+                topology.append((f"worker.{sid}", skill, None, ["LLM", "Chroma"]))
+        else:
+            topology.append(entry)
+    return topology
+
+
 def render_stepper(slot, stages: dict, route: str = "") -> None:
     """Render the full graph topology every turn.
 
-    All seven nodes (Supervisor + 5 branches + Validator) are visible
-    from the moment the turn starts so the user can see the whole
-    pipeline. As the backend emits `stage` events, nodes on the active
-    route's path flip green (done) or blue (running); branches the
-    supervisor *didn't* pick stay greyed out, so the visualisation
-    showcases every flow and the one that fired. Under each node we
-    render the tools the agent calls (LLM, Chroma, embed, ...) so the
-    'graphical state' surfaces what's actually being invoked.
+    Uses _build_dynamic_topology to expand the single 'worker' entry into
+    one column per active step, so parallel / sequential workers each get
+    their own pill. Orchestrator shows a live (X/N) progress count derived
+    from completed worker steps vs the total declared by the planner.
     """
+    effective_topology = _build_dynamic_topology(stages)
+
+    # Orchestrator progress: count steps done vs total declared by planner.
+    completed_workers = sum(
+        1 for k, v in stages.items()
+        if k.startswith("worker.")
+        and k.count(".") == 1
+        and k.split(".")[1].startswith("step-")
+        and v == "done"
+    )
+    total_str = stages.get("orchestrator.total", "")
+
     with slot.container():
-        cols = st.columns(len(PIPELINE_TOPOLOGY))
-        for col, (key, label, owner, tools) in zip(cols, PIPELINE_TOPOLOGY):
+        cols = st.columns(len(effective_topology))
+        for col, (key, label, owner, tools) in zip(cols, effective_topology):
             on_path = _on_active_path(route, owner)
             status = stages.get(key, "pending") if on_path else "off_path"
 
+            # Dynamic labels.
+            display_label = label
+            if key == "orchestrator" and total_str and status == "running":
+                display_label = f"{label} ({completed_workers}/{total_str})"
+
             if status == "done":
-                col.success(f"✓ {label}")
+                col.success(f"✓ {display_label}")
             elif status == "running":
-                col.info(f"⟳ {label} …")
+                col.info(f"⟳ {display_label} …")
             elif status == "off_path":
-                # Branch we did NOT take - dimmed and visually quiet.
                 col.markdown(
                     f"<div style='padding: .5rem .5rem; "
                     f"border-radius: .375rem; "
@@ -431,11 +493,10 @@ def render_stepper(slot, stages: dict, route: str = "") -> None:
                     f"font-size: .82rem; "
                     f"text-decoration: line-through "
                     f"rgba(150,150,150,.35);'>"
-                    f"{label}</div>",
+                    f"{display_label}</div>",
                     unsafe_allow_html=True,
                 )
             else:
-                # On-path but not yet reached - pending pill.
                 col.markdown(
                     f"<div style='padding: .5rem .75rem; "
                     f"border-radius: .375rem; "
@@ -444,29 +505,31 @@ def render_stepper(slot, stages: dict, route: str = "") -> None:
                     f"color: rgba(180,200,255,.85); "
                     f"text-align: center; "
                     f"font-size: .92rem;'>"
-                    f"○ {label}</div>",
+                    f"○ {display_label}</div>",
                     unsafe_allow_html=True,
                 )
 
             _render_tools_row(col, tools, dim=(status == "off_path"))
 
-            # RAG-only: render reformulate / retrieve / answer sub-pills
-            # when the RAG branch is on the active path. Each lights
-            # up independently as the backend emits `rag.<step>` stage
-            # events. We skip them entirely on off-path turns so the
-            # decline / clarifier / fallback turns stay visually tight.
             if key == "rag" and on_path:
                 for sub_key, sub_label, sub_tool in RAG_SUBSTAGES:
                     sub_status = stages.get(sub_key, "pending")
                     _render_substage(col, sub_label, sub_tool, sub_status)
 
-            # Phase 8: same pattern for the data node's sub-stages.
-            # plan + execute light up off `data.plan` / `data.execute`
-            # events; other turns leave the cell untouched.
             if key == "data" and on_path:
                 for sub_key, sub_label, sub_tool in DATA_SUBSTAGES:
                     sub_status = stages.get(sub_key, "pending")
                     _render_substage(col, sub_label, sub_tool, sub_status)
+
+            # Phase 11: per-step worker sub-stages. key = "worker.step-N".
+            if key.startswith("worker.step-") and on_path:
+                has_substages = any(
+                    f"{key}.{suf}" in stages for suf, _, _ in WORKER_SUBSTAGES
+                )
+                if has_substages:
+                    for suf, sub_label, sub_tool in WORKER_SUBSTAGES:
+                        sub_status = stages.get(f"{key}.{suf}", "pending")
+                        _render_substage(col, sub_label, sub_tool, sub_status)
 
 
 def render_citations(citations: list[dict]) -> None:
@@ -652,7 +715,7 @@ USER_AVATAR = "👤"
 
 
 # --- Replay prior turns ---
-for entry in st.session_state.history:
+for _turn_idx, entry in enumerate(st.session_state.history):
     avatar = (
         ASSISTANT_AVATAR if entry["role"] == "assistant" else USER_AVATAR
     )
@@ -689,6 +752,70 @@ for entry in st.session_state.history:
                 render_operation_expander(entry.get("data_operation"))
             else:
                 render_citations(entry.get("citations", []))
+            # Phase 11: feedback thumbs for any turn that has a plan_id.
+            _entry_plan_id = entry.get("plan_id", "")
+            if _entry_plan_id:
+                _fb_key = (
+                    f"{st.session_state.conversation_id}_{_turn_idx}"
+                )
+                if _fb_key not in st.session_state.rated_turns:
+                    st.markdown(
+                        "<hr style='margin: .5rem 0; opacity: .15;'>",
+                        unsafe_allow_html=True,
+                    )
+                    fb_cols = st.columns([1, 1, 10])
+                    with fb_cols[0]:
+                        if st.button(
+                            "👍",
+                            key=f"fb_up_{_fb_key}",
+                            help="This answer was helpful",
+                        ):
+                            try:
+                                submit_feedback(
+                                    trace_id=_entry_plan_id,
+                                    score=1,
+                                    user_id=st.session_state.user_id,
+                                    plan_id=_entry_plan_id,
+                                    conversation_id=st.session_state.conversation_id,
+                                )
+                                st.session_state.rated_turns.add(_fb_key)
+                                st.toast(
+                                    "Feedback recorded — thanks!",
+                                    icon="👍",
+                                )
+                            except Exception:
+                                st.toast(
+                                    "Could not record feedback.",
+                                    icon="⚠️",
+                                )
+                            st.rerun()
+                    with fb_cols[1]:
+                        if st.button(
+                            "👎",
+                            key=f"fb_dn_{_fb_key}",
+                            help="This answer needs improvement",
+                        ):
+                            try:
+                                submit_feedback(
+                                    trace_id=_entry_plan_id,
+                                    score=-1,
+                                    user_id=st.session_state.user_id,
+                                    plan_id=_entry_plan_id,
+                                    conversation_id=st.session_state.conversation_id,
+                                )
+                                st.session_state.rated_turns.add(_fb_key)
+                                st.toast(
+                                    "Feedback recorded — thanks!",
+                                    icon="👎",
+                                )
+                            except Exception:
+                                st.toast(
+                                    "Could not record feedback.",
+                                    icon="⚠️",
+                                )
+                            st.rerun()
+                else:
+                    st.caption("✓ Feedback sent")
         else:
             st.write(entry["content"])
 
@@ -731,6 +858,9 @@ if question:
         # event and feeds the 'How this was computed' expander.
         data_holder = {"value": ""}
         data_operation_holder: dict = {"value": None}
+        # Phase 11 — plan_id for feedback + trace_id from OTel.
+        plan_id_holder = {"value": ""}
+        trace_id_holder = {"value": ""}
 
         def token_stream():
             for event in stream_chat(
@@ -745,33 +875,52 @@ if question:
                         st.session_state.conversation_id = int(cid)
                 elif etype == "stage":
                     node = event["node"]
+                    info = event.get("info", "")
                     status = (
                         "running"
                         if event["status"] == "started"
                         else "done"
                     )
-                    stages[node] = status
-                    if (
-                        node == "supervisor"
-                        and event.get("status") == "done"
-                    ):
-                        info = event.get("info", "")
-                        # Order matters: check the more-specific Phase
-                        # 7 / 8 routes before the generic "rag"
-                        # substring. 'data' has to win over 'rag'
-                        # too even though they share no characters.
-                        if "needs_clarification" in info:
-                            route_holder["value"] = "needs_clarification"
-                        elif "out_of_year" in info:
-                            route_holder["value"] = "out_of_year"
-                        elif "out_of_scope" in info:
-                            route_holder["value"] = "out_of_scope"
-                        elif "report" in info:
-                            route_holder["value"] = "report"
-                        elif "data" in info:
-                            route_holder["value"] = "data"
-                        elif "rag" in info:
-                            route_holder["value"] = "rag"
+                    # Phase 11 worker routing:
+                    #   worker.step-N          → per-step pill
+                    #   worker.step-N.substage → per-step sub-stage pills
+                    # Orchestrator stays non-green until assembler finishes.
+                    if node.startswith("worker."):
+                        parts = node.split(".")
+                        if len(parts) == 2:
+                            # worker.step-N started/done
+                            step_id = parts[1]
+                            if status == "running":
+                                for token in info.split():
+                                    if token.startswith("skill="):
+                                        stages[f"worker.{step_id}.skill"] = (
+                                            _prettify_skill(token[6:])
+                                        )
+                                        break
+                                # clear sub-stages from any prior run of
+                                # this step (retry scenario)
+                                for suf, _, _ in WORKER_SUBSTAGES:
+                                    stages.pop(f"worker.{step_id}.{suf}", None)
+                            stages[f"worker.{step_id}"] = status
+                        elif len(parts) >= 3:
+                            # worker.step-N.substage
+                            stages[f"worker.{parts[1]}.{parts[2]}"] = status
+                    elif node == "orchestrator":
+                        if status == "running":
+                            # capture total step count for progress display
+                            for token in info.split():
+                                if token.startswith("steps="):
+                                    stages["orchestrator.total"] = token[6:]
+                                    break
+                        # orchestrator backend-done: stay non-green until
+                        # assembler finishes so the pill turns green together
+                        # with the final answer being ready.
+                        stages["orchestrator"] = "running"
+                    elif node == "assembler" and status == "done":
+                        stages["orchestrator"] = "done"
+                        stages["assembler"] = "done"
+                    else:
+                        stages[node] = status
                     render_stepper(
                         stepper_slot,
                         stages,
@@ -801,10 +950,9 @@ if question:
                     critique_holder["value"] = event.get(
                         "critique", ""
                     )
-                    if not route_holder["value"]:
-                        route_holder["value"] = event.get(
-                            "route", ""
-                        )
+                    route_holder["value"] = (
+                        event.get("route") or route_holder["value"] or "agentic"
+                    )
                     op = event.get("data_operation")
                     if op:
                         data_operation_holder["value"] = op
@@ -818,6 +966,11 @@ if question:
                         report_run_id_holder["value"] = (
                             event.get("report_run_id") or ""
                         )
+                    # Phase 11 - feedback identifiers.
+                    plan_id_holder["value"] = event.get("plan_id") or ""
+                    trace_id_holder["value"] = (
+                        event.get("trace_id") or ""
+                    )
                 elif etype == "error":
                     error_holder["value"] = event.get("value", "")
 
@@ -884,6 +1037,8 @@ if question:
                 "report_kind": report_kind_holder["value"],
                 "report_year": report_year_holder["value"],
                 "report_run_id": report_run_id_holder["value"],
+                # Phase 11: plan_id for feedback buttons in history replay.
+                "plan_id": plan_id_holder["value"],
             }
         )
 
@@ -892,3 +1047,35 @@ if question:
         # Drop the cached conversation list so the sidebar reflects
         # the new row on the next rerun instead of waiting for TTL.
         _invalidate_conversation_cache()
+        # Render feedback buttons in the live block immediately after the
+        # response using keys that mirror what the history-replay loop will
+        # use.  When the user clicks, Streamlit reruns; the live block is
+        # skipped (question=None) and the history-replay handler processes
+        # the click — no bare st.rerun() needed here, which avoids the
+        # chat_input re-delivery loop present in some Streamlit builds.
+        _live_plan_id = plan_id_holder["value"]
+        if _live_plan_id:
+            _live_turn_idx = len(st.session_state.history) - 1
+            _live_fb_key = (
+                f"{st.session_state.conversation_id}_{_live_turn_idx}"
+            )
+            if _live_fb_key not in st.session_state.rated_turns:
+                st.markdown(
+                    "<hr style='margin: .5rem 0; opacity: .15;'>",
+                    unsafe_allow_html=True,
+                )
+                fb_live_cols = st.columns([1, 1, 10])
+                with fb_live_cols[0]:
+                    st.button(
+                        "👍",
+                        key=f"fb_up_{_live_fb_key}",
+                        help="This answer was helpful",
+                    )
+                with fb_live_cols[1]:
+                    st.button(
+                        "👎",
+                        key=f"fb_dn_{_live_fb_key}",
+                        help="This answer needs improvement",
+                    )
+            else:
+                st.caption("✓ Feedback sent")

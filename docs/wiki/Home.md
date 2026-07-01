@@ -15,7 +15,7 @@ no document or customer detail ever leaves the workstation.
 |---|---|
 | Install the stack on a fresh machine | [Setup](#setup) · [`SETUP.md`](../../SETUP.md) |
 | Run the assistant + ingest PDFs | [Usage](#usage) · [`USAGE.md`](../../USAGE.md) |
-| Understand how the agents are wired | [Architecture](#architecture) · [`GRAPH.md`](../../GRAPH.md) |
+| Understand how the agents are wired | [Architecture](#architecture) · [`GRAPH.md`](../architecture/GRAPH.md) |
 | See the stakeholder pitch | [`docs/presentation/deck.md`](../presentation/deck.md) · pre-built [`insurance-rag-poc.pptx`](../presentation/insurance-rag-poc.pptx) |
 | Trace each phase of work | [Roadmap](#roadmap) · main [`README.md`](../../README.md) |
 
@@ -25,43 +25,46 @@ no document or customer detail ever leaves the workstation.
 
 ```
                   ┌────────────────┐
-                  │   Streamlit    │  Chat UI · download buttons ·
-                  │     (UI)       │  trace_id pill · view-chunk popovers
+                  │   Streamlit    │  Chat UI · plan stepper · thumbs feedback ·
+                  │     (UI)       │  download buttons · view-chunk popovers
                   └───────┬────────┘
                           │  HTTP
                           ▼
                   ┌────────────────┐
-                  │    FastAPI     │  /chat · /ingest · /reports/{year}.{md|docx|pdf}
-                  │   (Backend)    │  /audit/export · /health
+                  │    FastAPI     │  /chat · /feedback · /ingest
+                  │   (Backend)    │  /reports/{year}.{md|docx|pdf} · /health
                   └───────┬────────┘
                           │
                           ▼
-            ┌──────────────────────────┐
-            │       LangGraph          │  Supervisor → Worker → Validator
-            │   (state machine)        │  with year-clarifier + out-of-year guard
-            └─────┬─────────┬───────┬──┘
-                  │         │       │
-       RAG agent  │  Report │       │  Data agent
-       (Phase 1)  │  agent  │       │  (Phase 8)
-                  │ (Ph. 3/9)       │
-                  ▼         ▼       ▼
-            ┌──────────┐  ┌──────────────┐  ┌─────────────┐
-            │ ChromaDB │  │ Executive    │  │ KPI CSV     │
-            │ (Phase 6)│  │ Annual Report│  │ + schema    │
-            └──────────┘  │  (Phase 9)   │  │ sidecar     │
-                          └──────────────┘  └─────────────┘
+         ┌─────────────────────────────────┐
+         │           LangGraph             │  Phase 11 agentic topology
+         │  Planner → Orchestrator         │
+         │     → [Workers] → Assembler     │
+         └──┬──────────┬───────────┬───────┘
+            │ Skill    │ Skill     │ Skill
+            ▼          ▼           ▼
+         ┌──────┐  ┌──────┐  ┌──────────┐
+         │ RAG  │  │ Data │  │  Report  │  workers dispatch via Tools
+         │ agent│  │ agent│  │  agent   │
+         └──┬───┘  └──┬───┘  └────┬─────┘
+            │         │           │
+            ▼         ▼           ▼
+         ChromaDB   KPI CSV   Executive
+         (Phase 6)  (Ph. 8)   pipeline (Ph. 9)
 
   Cross-cutting:
     • OpenTelemetry → Aspire Dashboard (Phase 5)
     • SQLite audit trail + episodic memory (Phase 4 / 7)
+    • Skills: app/skills/  ·  Skill prompts: app/llm/prompts/skills/
+    • Tools: app/tools/    ·  Feedback: POST /feedback
 ```
 
 **Tech stack.** Python 3.12 · LangGraph · FastAPI · Streamlit · Ollama
-(`qwen2.5:7b` + `nomic-embed-text`) · ChromaDB · SQLite · OpenTelemetry +
+(`qwen2.5:7b` + `qwen2.5:3b` planner + `nomic-embed-text`) · ChromaDB · SQLite · OpenTelemetry +
 .NET Aspire Dashboard · python-pptx · python-docx · reportlab.
 
 Diagrams: [`docs/architecture/high_level_architecture.png`](../architecture/high_level_architecture.png) ·
-[`GRAPH.md`](../../GRAPH.md) (LangGraph state machine).
+[`GRAPH.md`](../architecture/GRAPH.md) (LangGraph state machine).
 
 ---
 
@@ -98,9 +101,13 @@ Full details + troubleshooting: [`SETUP.md`](../../SETUP.md).
 
 | Action | How |
 |---|---|
-| Ask a policy question | Type in the Streamlit chat; the supervisor routes to RAG |
-| Ask a quantitative question | *"What was the 2024 loss ratio by product?"* → Data agent |
-| Generate the executive report | *"Generate the 2024 annual report"* → 3 download buttons (MD / DOCX / PDF) |
+| Ask a policy question | Type in the Streamlit chat; the Planner routes to `answer-policy-question` |
+| Ask a multi-intent question | *"Refund window AND 2024 loss ratio?"* — both answers in one turn under separate H3 headers |
+| Ask a quantitative question | *"What was the 2024 loss ratio by product?"* → `compute-kpi` Skill → Data worker |
+| Generate the executive report | *"Generate the 2024 annual report"* → `executive-section-summary` → 3 download buttons (MD / DOCX / PDF) |
+| Rate an answer | Thumbs up / down row under each scored assistant turn (turns that carry a `plan_id`); stored to `audit_events` via `POST /feedback` |
+| Ask an out-of-scope question | *"What is 1+1?"* or any non-insurance topic → Planner routes to the `decline` Skill; canned refusal returned in < 1 s with no LLM call |
+| View feedback scores | `python poc/scripts/view_feedback.py` — formatted table of all 👍/👎 votes; `--user` and `--limit` filters available |
 | Ingest a new PDF | Drag-and-drop in the UI sidebar **or** `python poc/scripts/ingest_pdfs.py` |
 | Export audit trail | `python poc/scripts/audit_export.py` → CSV (PowerBI-ready) |
 | Watch traces live | Open Aspire dashboard while you chat |
@@ -127,7 +134,7 @@ Full guide: [`USAGE.md`](../../USAGE.md).
 | 8 — Talk-to-Data agent | ✅ | Typed `Operation` JSON + pandas executor over a real KPI CSV |
 | 9 — Executive Annual Report | ✅ | Section pipeline · 3 writers (MD/DOCX/PDF) · deterministic risk bands |
 | 10 — Stakeholder deck | ✅ | `python-pptx` rendered from `deck.md`; LangGraph + Azure northstar slides |
-| **11 — Agentic multi-intent (+ feedback)** | 📋 planned | **Planner · Orchestrator · Workers · Tools · Skills** stack — uniform pipeline, structured outputs, audit replay. Thumbs-feedback ships alongside. See [`docs/agentic.md`](../agentic.md). |
+| **11 — Agentic multi-intent (+ feedback)** | ✅ | **Planner · Orchestrator · Workers · Tools · Skills** stack — uniform pipeline, structured outputs, `plan_id` on every turn, thumbs-feedback, `decline` Skill for out-of-scope refusals. See [`docs/agentic.md`](../agentic.md). |
 | **12 — Human-in-the-Loop & Telegram channel** | 📋 planned | Suspendable Plans · approval gates between Steps · Telegram bot (Slack / Teams pluggable) · `plans` table |
 | **13 — Multi-modal voice** | 📋 planned | Local Whisper.cpp + Piper TTS as Tools · audio in/out in Streamlit · no cloud STT/TTS |
 | **14 — Cross-conversation planning** | 📋 planned | Plans become first-class memory · resume-tokens · multi-user participants · Skill schema migration |
@@ -139,16 +146,33 @@ Detailed per-phase write-ups live in the main [`README.md`](../../README.md). Th
 
 ## 📚 Deep-dive index
 
+#### Operations
+
 | Doc | What it covers |
 |---|---|
 | [`README.md`](../../README.md) | Full project overview + per-phase functional/out-of-scope bullets |
 | [`SETUP.md`](../../SETUP.md) | First-time install — WSL2 prerequisites, bootstrap, configuration, verification |
 | [`USAGE.md`](../../USAGE.md) | Day-to-day operation — running, ingestion, observability, troubleshooting |
-| [`GRAPH.md`](../../GRAPH.md) | LangGraph compiled state machine + per-node + edge reference |
-| [`docs/agent_topology.md`](../agent_topology.md) | Per-node MUST / MUST-NOT contracts — design rationale (Phase 1–10 baseline) |
-| [`docs/agentic.md`](../agentic.md) | 📋 **Phase 11** — Planner · Orchestrator · Workers · Tools · Skills capability catalogue + extension playbook |
+
+#### Architecture
+
+| Doc | What it covers |
+|---|---|
+| [`GRAPH.md`](../architecture/GRAPH.md) | LangGraph compiled state machine + per-node + edge reference |
+| [`docs/agentic.md`](../agentic.md) | ✅ **Phase 11** — Planner · Orchestrator · Workers · Tools · Skills capability catalogue + extension playbook |
 | [`docs/ingestion.md`](../ingestion.md) | Phase 6 ingestion + chunking design + tuning |
-| [`docs/insurance_rag_strategic_roadmap.md`](../insurance_rag_strategic_roadmap.md) | Strategic / long-term roadmap |
+| [`docs/agentic.md § 10`](../agentic.md#10--legacy-phase-110-contracts) | Phase 1–10 per-node MUST/MUST-NOT contracts (appended to `agentic.md`) |
+
+#### Strategic vision
+
+| Doc | What it covers |
+|---|---|
+| [`docs/insurance_rag_strategic_roadmap.md`](../insurance_rag_strategic_roadmap.md) | Enterprise Azure production architecture vision — PoC coverage mapping in § 5 |
+
+#### Presentation
+
+| Doc | What it covers |
+|---|---|
 | [`docs/presentation/deck.md`](../presentation/deck.md) | 16-slide stakeholder deck (source of truth for the PPTX) |
 | [`docs/presentation/README.md`](../presentation/README.md) | Screenshot-capture runbook for the deck |
 

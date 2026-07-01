@@ -26,6 +26,7 @@ class ChatResponse(BaseModel):
     reformulated_query: str = ""
     conversation_id: int | None = None
     route: str = ""
+    plan_id: str = ""   # Phase 11: for client-side feedback submission
 
 
 class HealthResponse(BaseModel):
@@ -56,3 +57,20 @@ class Message(BaseModel):
     route: str | None = None
     citations: list[Citation] = []
     created_at: str
+
+
+# --- Feedback (Phase 11) ---
+
+
+class FeedbackRequest(BaseModel):
+    trace_id: str
+    plan_id: str = ""
+    user_id: str = "default_user"
+    score: int = Field(..., ge=-1, le=1)   # +1 thumbs-up, -1 thumbs-down
+    comment: str | None = None
+    conversation_id: int | None = None
+
+
+class FeedbackResponse(BaseModel):
+    ok: bool
+    row_id: int

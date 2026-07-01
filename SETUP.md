@@ -12,7 +12,7 @@ First-time installation of the PoC inside WSL2. After this, see [USAGE.md](USAGE
 | **Ubuntu** (inside WSL2) | 22.04 or 24.04 |
 | **Disk** | ~10 GB free (models + dependencies + indexes) |
 | **RAM** | 16 GB minimum recommended (`qwen2.5:7b` ≈ 4.7 GB resident) |
-| **Python** | 3.10+ — installed by the bootstrap script |
+| **Python** | 3.11+ — installed by the bootstrap script |
 | **Ollama** | Installed by the bootstrap script |
 | **Docker** on WSL (Docker Desktop with WSL integration is fine) | Required only for the Aspire observability backend; the app itself runs natively |
 
@@ -42,7 +42,7 @@ The script does six things:
 | [2/6] | Creates `poc/.venv` |
 | [3/6] | `pip install -r poc/requirements.txt` (incl. OpenTelemetry SDK + instrumentations) |
 | [4/6] | Installs Ollama if missing |
-| [5/6] | Pulls `qwen2.5:7b` and `nomic-embed-text` (~5 GB total, **takes 10–20 min on first run**) |
+| [5/6] | Pulls `qwen2.5:7b`, `qwen2.5:3b` (Planner fast lane, Phase 11), and `nomic-embed-text` (~6.5 GB total, **takes 10–20 min on first run**) |
 | [6/6] | Pre-pulls the Aspire Dashboard Docker image (~150 MB). Skipped if Docker isn't installed or `SKIP_OBSERVABILITY=true`. |
 
 ---
@@ -61,7 +61,8 @@ Defaults work out of the box. Adjust only what you need:
 | Variable | Default | Purpose |
 |---|---|---|
 | `OLLAMA_HOST` | `http://localhost:11434` | Local Ollama daemon |
-| `LLM_MODEL` | `qwen2.5:7b` | Reasoning model |
+| `LLM_MODEL` | `qwen2.5:7b` | Worker reasoning model |
+| `PLANNER_MODEL` | `qwen2.5:3b` | Planner fast-lane model (Phase 11) |
 | `EMBED_MODEL` | `nomic-embed-text` | Embedding model |
 | `CHROMA_PERSIST_DIR` | `poc/data/chroma_db` | Vector store on disk |
 | `SQLITE_PATH` | `poc/data/memory.sqlite` | Episodic memory (Phase 4) |
@@ -109,7 +110,7 @@ If that passes, you're done with setup. Head to [USAGE.md](USAGE.md).
 | `set: pipefail: invalid option name` or `bad interpreter: /bin/bash^M` | CRLF line endings — `sed -i 's/\r$//' poc/scripts/*.sh` |
 | `sh: invalid option name` running a script | You used `sh script.sh`. Use `bash script.sh` — Ubuntu's `/bin/sh` is `dash` |
 | `E: Unable to locate package python3.11` | The script now uses `python3` (whatever the distro ships); rerun `bash poc/scripts/setup_wsl.sh` |
-| `zstd` missing during Ollama install | Already added to apt install in step [1/5]; rerun if you bootstrapped before this fix |
+| `zstd` missing during Ollama install | Already added to apt install in step [1/6]; rerun if you bootstrapped before this fix |
 | `ollama: command not found` | Re-run `bash poc/scripts/setup_wsl.sh` or install manually: `curl -fsSL https://ollama.com/install.sh \| sh` |
 | Out of memory pulling `qwen2.5:7b` | Use the lighter fallback: `ollama pull llama3.1:8b` and set `LLM_MODEL=llama3.1:8b` in `.env` |
 | `ModuleNotFoundError: No module named 'app'` | You're not in `poc/` — `cd poc` first, or use the provided `bash poc/scripts/run_*.sh` wrappers |

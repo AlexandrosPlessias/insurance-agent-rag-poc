@@ -1,7 +1,16 @@
 """GraphState TypedDict shared across all LangGraph nodes."""
-from typing import Literal, TypedDict
+from typing import Annotated, Literal, TypedDict
 
 from app.rag.retriever import RetrievedChunk
+
+
+# ---------------------------------------------------------------------------
+# Phase 11 – Planner / Orchestrator data models
+# ---------------------------------------------------------------------------
+
+def _merge_step_results(current: dict | None, update: dict) -> dict:
+    """Reducer: merge two step_results dicts (worker fan-out safe)."""
+    return {**(current or {}), **update}
 
 
 class ValidationResult(TypedDict, total=False):
@@ -75,3 +84,19 @@ class GraphState(TypedDict, total=False):
     final_answer: str
     final_citations: list[RetrievedChunk]
     validated: bool
+
+    # --- Phase 9: Executive report metadata ---
+    report_kind: str      # "executive" | "policy_summary"
+    report_run_id: str    # UUID for download endpoints
+    report_year: int      # year of the executive report
+
+    # --- Phase 11: Planner / Orchestrator ---
+    # plan: Plan serialised as a plain dict for LangGraph state compatibility.
+    # step_results uses a merge-reducer so parallel workers each write their
+    # own step_id key without clobbering one another.
+    plan: dict
+    step_results: Annotated[dict, _merge_step_results]
+    partial_failure: bool
+    skipped_steps: list[str]
+    # current_step is worker-local: injected via Send() and never merged.
+    current_step: dict

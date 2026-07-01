@@ -124,14 +124,17 @@ After running `bash poc/scripts/run_all.sh`, open **http://localhost:18888**.
 | Tab | What you see |
 |---|---|
 | **Structured logs** | Application logs with `trace_id` / `span_id` enrichment. Filter by `service.name = insurance-rag-poc-api` |
-| **Traces** | One trace per `/chat` POST containing the full graph chain (Supervisor → RAG → Validator), HTTP spans from FastAPI, httpx client spans, and OpenInference LangChain spans with prompt / completion previews and token counts |
+| **Traces** | One trace per `/chat` POST. Phase 11 topology: `chat.turn` → `planner.plan` → `orchestrator.execute` → `step.<id>` (one per Plan Step, parallel) → `assembler.merge`. HTTP spans from FastAPI, httpx client spans, and OpenInference LangChain spans with prompt / completion previews and token counts |
 | **Metrics** | `rag_poc.node.invocations`, `rag_poc.node.duration`, `rag_poc.validator.outcomes`, `rag_poc.rag.chunks_retrieved` |
 
 ### Useful trace span attributes
 
 Every node span carries:
 - `user.id` and `conversation.id` — set in both `/chat` and `/chat/stream` handlers
-- `supervisor.route` — `rag` / `report` / `out_of_scope` / `needs_clarification` / `out_of_year`
+- **Phase 11 Planner span** (`planner.plan`): `plan.plan_id`, `plan.n_steps`, `plan.rationale`
+- **Phase 11 Worker spans** (`step.<id>`): `step.step_id`, `step.skill_name`, `step.status`
+- **Phase 11 Assembler span** (`assembler.merge`): `assembler.partial`, `assembler.citations_count`
+- `supervisor.route` — `rag` / `report` / `out_of_scope` / `needs_clarification` / `out_of_year` *(Phase 1–10 legacy path, still emitted inside worker nodes)*
 - `supervisor.today`, `supervisor.covered_years`, `supervisor.target_year`, `supervisor.year_source` *(Phase 7)*
 - `rag.retry_count`, `rag.chunk_count`, `rag.has_critique`, `rag.target_year` *(Phase 7)*
 - `retrieve.where_filter` — present on `rag.retrieve` whenever year-scoped *(Phase 7)*
@@ -167,6 +170,16 @@ Find year-fallback turns (someone asked about 2023):
 ```
 supervisor.route = "out_of_year"
 fallback.target_year = 2023
+```
+
+Find multi-step Plans (Phase 11):
+```
+plan.n_steps > 1
+```
+
+Find turns where the user left a thumbs-down (Phase 11):
+```
+event_type = "feedback.received"
 ```
 
 ### Clearing telemetry between runs
@@ -285,6 +298,8 @@ Use these reports to:
 
 ## 6. Year-aware routing & audit trail (Phase 7)
 
+> **Phase 11 note.** The supervisor-based routing documented below has been superseded by the Phase 11 Planner · Orchestrator · Workers · Skills architecture. The five supervisor routes still fire **inside** the worker nodes (the RAG worker still checks year coverage, the clarifier Skill still asks for a year), but the top-level graph now goes `planner → orchestrator → worker → assembler` for every turn. See [docs/agentic.md](../docs/agentic.md) for the current architecture.
+
 ### Knowledge base coverage
 
 `settings.kb_covered_years = [2020, 2021, 2022, 2024]` (see [poc/app/config.py](poc/app/config.py)). **2023 is an intentional gap.** When the supervisor extracts a `target_year` that isn't in this list, the request short-circuits to the **out-of-year fallback** node — no retrieval, no LLM call, just a templated reply naming the nearest covered years.
@@ -295,7 +310,7 @@ Use these reports to:
 |---|---|---|
 | `rag` | Year resolved (from the question or recent history) **and** question is about policy content | No — runs validator + 1-retry |
 | `report` | Words like "summary", "report", "overview", "breakdown" | Yes |
-| `out_of_scope` | Greetings, math, chit-chat, non-insurance | Yes — `decline.canned` |
+| `out_of_scope` | Greetings, math, chit-chat, non-insurance | Yes — `decline.canned` *(Phase 11 equivalent: `decline` Skill — same canned message, no LLM call)* |
 | `needs_clarification` | Question is RAG-ish but no year is mentioned and history can't resolve one | Yes — `clarifier.ask` emits one targeted question |
 | `out_of_year` | A year was named but it isn't in `kb_covered_years` | Yes — `fallback.out_of_year` offers nearest covered years |
 
@@ -315,6 +330,9 @@ Every routing / retrieval / validation / clarifier / fallback decision writes a 
 | `year_fallback` | `{requested, offered, covered_years}` |
 | `report.generate` | `{target_year, chunk_count, chart_present, markdown_chars, sources}` |
 | `decline.canned` | `{reason}` |
+| `planner.plan` | `{plan_id, steps: [...], rationale, n_steps}` *(Phase 11)* |
+| `orchestrator.step` | `{step_id, skill_name, status, latency_ms}` *(Phase 11)* |
+| `feedback.received` | `{plan_id, trace_id, score, comment, user_id, updated_at}` *(Phase 11)* |
 
 ### Exporting for compliance review
 
@@ -332,6 +350,46 @@ python scripts/audit_export.py --out /tmp/q3_audit.csv
 ```
 
 The CSV keeps `payload_json` as a single column so Excel / PowerBI can ingest it without per-event schemas.
+
+### Viewing user feedback (Phase 11)
+
+After users rate answers with the 👍 / 👎 buttons in the chat UI, each vote is stored as a `feedback.received` row in `audit.sqlite`. Use `view_feedback.py` to print a summary table:
+
+```bash
+cd poc && source .venv/bin/activate
+
+# All feedback (up to 200 rows)
+python scripts/view_feedback.py
+
+# Filter by a specific user
+python scripts/view_feedback.py --user alice
+
+# Show last N entries only
+python scripts/view_feedback.py --limit 20
+```
+
+Example output:
+
+```
+--------------------------------------------------------------------
+Timestamp             User               Score   Plan ID                               Conv    Comment
+--------------------------------------------------------------------
+2026-07-01T17:45:12   default_user       👍 +1   3f2a1b9c-48d1-4e2a-...                 42
+2026-07-01T17:46:03   default_user       👎 -1   7e8c4d2a-91f0-4c3b-...                 43
+--------------------------------------------------------------------
+
+Total: 2 feedback entries — 👍 1  👎 1
+```
+
+Each row shows:
+- **Timestamp** — UTC time the feedback was submitted
+- **User** — the `user_id` from the chat session
+- **Score** — `👍 +1` (helpful) or `👎 -1` (needs improvement)
+- **Plan ID** — the Phase 11 plan that generated the answer (links to `planner.plan` audit rows)
+- **Conv** — conversation ID for cross-referencing `memory.sqlite`
+- **Comment** — optional free-text (not yet exposed in the UI, available via the API)
+
+> **Note:** When OTel is enabled the `trace_id` field carries the Aspire span ID so you can jump from a feedback row directly to its trace. When OTel is disabled the `plan_id` is stored as the `trace_id` so rows remain uniquely identifiable.
 
 ### Inspecting from the SQLite shell
 
@@ -414,3 +472,5 @@ Logs go to **stderr** (visible in the terminal) **and** to Aspire's Structured l
 | Every question turns into a clarifier "which year?" prompt | Phase 7 escalates RAG-ish questions to the clarifier when no year is mentioned. Either mention a year in the question, or answer the clarifier so the next turn inherits the year from history |
 | Year-fallback fires when you asked about a covered year | Check `supervisor.target_year` in the trace. Regex may have latched onto an unrelated `20xx` token in the question. If that's the case, rephrase or set the year explicitly |
 | Audit DB grows large in long sessions | `python scripts/audit_export.py --out backup.csv` then delete `poc/data/audit.sqlite` — it's re-created lazily on the next request |
+| Streamlit crashes in a loop with `TypeError: setup_otel() …` | Stale Python module cache from a live code edit without restarting. Kill ports 8000 and 8501 (`fuser -k 8000/tcp && fuser -k 8501/tcp`) then restart with `run_all.sh` |
+| `address already in use` on port 8000 or 8501 | A previous session's process is still running. Find and kill it: `fuser -k 8000/tcp && fuser -k 8501/tcp` |

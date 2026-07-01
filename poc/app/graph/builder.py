@@ -1,16 +1,16 @@
 """Compile the LangGraph state machine.
 
-Topology (Phase 8):
+Topology (Phase 11):
 
-    START -> supervisor
-    supervisor --(out_of_scope)--------> decline    --> END
-    supervisor --(report)--------------> report     --> END
-    supervisor --(needs_clarification)-> clarifier  --> END
-    supervisor --(out_of_year)---------> fallback   --> END
-    supervisor --(data)----------------> data       --> END
-    supervisor --(rag)----------------->  rag --> validator
-    validator  --(retry)---------------> rag (max 1 retry)
-    validator  --(end)-----------------> END
+    START -> planner -> orchestrator
+    orchestrator --(Send "worker" per ready step)--> worker (x N, parallel)
+    worker -> orchestrator  (loop until all steps done)
+    orchestrator --(all done)--> assembler -> END
+
+The orchestrator node is a no-op relay; all routing logic lives in
+`route_orchestrator` (conditional edge). Workers loop back after each
+step so dependent steps fire as soon as their prerequisites land in
+step_results.
 
 See GRAPH.md at the repo root for the rendered Mermaid version.
 """
@@ -18,18 +18,14 @@ from functools import lru_cache
 
 from langgraph.graph import END, START, StateGraph
 
-from app.agents.data_agent import data_node
-from app.agents.rag_agent import rag_node
-from app.agents.report_agent import report_node
-from app.agents.validator_agent import validator_node
-from app.graph.clarifier import clarifier_node
-from app.graph.edges import route_from_supervisor, route_from_validator
-from app.graph.state import GraphState
-from app.graph.supervisor import (
-    decline_node,
-    fallback_node,
-    supervisor_node,
+from app.agents.assembler_agent import assembler_node
+from app.agents.planner_agent import planner_node
+from app.graph.orchestrator import (
+    orchestrator_node,
+    route_orchestrator,
+    worker_node,
 )
+from app.graph.state import GraphState
 from app.observability.logging import get_logger
 
 log = get_logger(__name__)
@@ -37,43 +33,29 @@ log = get_logger(__name__)
 
 @lru_cache(maxsize=1)
 def get_graph():
-    log.info("Compiling LangGraph state machine ...")
+    log.info("Compiling LangGraph state machine (Phase 11) ...")
     builder = StateGraph(GraphState)
 
-    builder.add_node("supervisor", supervisor_node)
-    builder.add_node("decline", decline_node)
-    builder.add_node("clarifier", clarifier_node)
-    builder.add_node("fallback", fallback_node)
-    builder.add_node("rag", rag_node)
-    builder.add_node("validator", validator_node)
-    builder.add_node("report", report_node)
-    builder.add_node("data", data_node)
+    builder.add_node("planner", planner_node)
+    builder.add_node("orchestrator", orchestrator_node)
+    builder.add_node("worker", worker_node)
+    builder.add_node("assembler", assembler_node)
 
-    builder.add_edge(START, "supervisor")
+    builder.add_edge(START, "planner")
+    builder.add_edge("planner", "orchestrator")
+
+    # route_orchestrator returns list[Send] (fan-out) or "assembler" (string).
     builder.add_conditional_edges(
-        "supervisor",
-        route_from_supervisor,
-        {
-            "rag": "rag",
-            "report": "report",
-            "data": "data",
-            "out_of_scope": "decline",
-            "needs_clarification": "clarifier",
-            "out_of_year": "fallback",
-        },
+        "orchestrator",
+        route_orchestrator,
+        {"assembler": "assembler"},
     )
-    builder.add_edge("decline", END)
-    builder.add_edge("clarifier", END)
-    builder.add_edge("fallback", END)
-    builder.add_edge("report", END)
-    builder.add_edge("data", END)
-    builder.add_edge("rag", "validator")
-    builder.add_conditional_edges(
-        "validator",
-        route_from_validator,
-        {"retry": "rag", "end": END},
-    )
+
+    # Each worker runs one step then hands control back to the orchestrator
+    # so dependent steps are evaluated immediately after a dep completes.
+    builder.add_edge("worker", "orchestrator")
+    builder.add_edge("assembler", END)
 
     graph = builder.compile()
-    log.info("Graph compiled.")
+    log.info("Graph compiled (Phase 11).")
     return graph

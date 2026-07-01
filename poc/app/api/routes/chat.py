@@ -58,18 +58,35 @@ def _load_memory(
 
 
 def _citation_dicts(state: dict) -> list[dict]:
+    """Convert final_citations to plain dicts.
+
+    Phase 11 orchestrator stores citations as dicts; Phase 1-10 legacy path
+    stores them as RetrievedChunk dataclasses — handle both.
+    """
     chunks = state.get("final_citations") or state.get("chunks") or []
-    return [
-        {
-            "source": c.source,
-            "content": c.content,
-            "download_url": f"/sources/{c.source}",
-            "section": getattr(c, "section", "") or "",
-            "section_title": getattr(c, "section_title", "") or "",
-            "chunk_index": int(getattr(c, "chunk_index", 0) or 0),
-        }
-        for c in chunks
-    ]
+    out = []
+    for c in chunks:
+        if isinstance(c, dict):
+            src = c.get("source", "")
+            out.append({
+                "source": src,
+                "content": c.get("content", ""),
+                "download_url": f"/sources/{src}",
+                "section": c.get("section", "") or "",
+                "section_title": c.get("section_title", "") or "",
+                "chunk_index": int(c.get("chunk_index", 0) or 0),
+            })
+        else:
+            src = c.source
+            out.append({
+                "source": src,
+                "content": c.content,
+                "download_url": f"/sources/{src}",
+                "section": getattr(c, "section", "") or "",
+                "section_title": getattr(c, "section_title", "") or "",
+                "chunk_index": int(getattr(c, "chunk_index", 0) or 0),
+            })
+    return out
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -123,12 +140,15 @@ def chat(
         state.get("validated"),
         len(citation_dicts),
     )
+    plan_id = (state.get("plan") or {}).get("plan_id", "")
+
     return ChatResponse(
         answer=answer,
         citations=[Citation(**c) for c in citation_dicts],
         reformulated_query=state.get("reformulated_query", ""),
         conversation_id=conv_id,
         route=route,
+        plan_id=plan_id,
     )
 
 

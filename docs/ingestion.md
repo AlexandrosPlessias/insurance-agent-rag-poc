@@ -234,7 +234,7 @@ If you want per-document idempotency without nuking everything, you'd add a dele
 
 ---
 
-## 11. UI upload pipeline (future)
+## 11. UI upload pipeline
 
 The `POST /ingest` endpoint ([api/routes/ingest.py](../poc/app/api/routes/ingest.py)) wraps the same `ingest_document` function:
 
