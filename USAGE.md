@@ -351,6 +351,46 @@ python scripts/audit_export.py --out /tmp/q3_audit.csv
 
 The CSV keeps `payload_json` as a single column so Excel / PowerBI can ingest it without per-event schemas.
 
+### Viewing user feedback (Phase 11)
+
+After users rate answers with the 👍 / 👎 buttons in the chat UI, each vote is stored as a `feedback.received` row in `audit.sqlite`. Use `view_feedback.py` to print a summary table:
+
+```bash
+cd poc && source .venv/bin/activate
+
+# All feedback (up to 200 rows)
+python scripts/view_feedback.py
+
+# Filter by a specific user
+python scripts/view_feedback.py --user alice
+
+# Show last N entries only
+python scripts/view_feedback.py --limit 20
+```
+
+Example output:
+
+```
+--------------------------------------------------------------------
+Timestamp             User               Score   Plan ID                               Conv    Comment
+--------------------------------------------------------------------
+2026-07-01T17:45:12   default_user       👍 +1   3f2a1b9c-48d1-4e2a-...                 42
+2026-07-01T17:46:03   default_user       👎 -1   7e8c4d2a-91f0-4c3b-...                 43
+--------------------------------------------------------------------
+
+Total: 2 feedback entries — 👍 1  👎 1
+```
+
+Each row shows:
+- **Timestamp** — UTC time the feedback was submitted
+- **User** — the `user_id` from the chat session
+- **Score** — `👍 +1` (helpful) or `👎 -1` (needs improvement)
+- **Plan ID** — the Phase 11 plan that generated the answer (links to `planner.plan` audit rows)
+- **Conv** — conversation ID for cross-referencing `memory.sqlite`
+- **Comment** — optional free-text (not yet exposed in the UI, available via the API)
+
+> **Note:** When OTel is enabled the `trace_id` field carries the Aspire span ID so you can jump from a feedback row directly to its trace. When OTel is disabled the `plan_id` is stored as the `trace_id` so rows remain uniquely identifiable.
+
 ### Inspecting from the SQLite shell
 
 The `sqlite3` CLI is installed by `setup_wsl.sh` ([1/6] step). If you're on a machine where it isn't available (`Command 'sqlite3' not found`), install it with `sudo apt install sqlite3`, **or** use the Python one-liner below.

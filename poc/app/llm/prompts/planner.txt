@@ -26,6 +26,7 @@ Rules:
 Skill selection guide:
 - answer-policy-question: text questions about policy rules, procedures, coverage terms, exclusions, refund conditions, or documentation requirements.
 - compute-kpi: ANY question about numbers, volumes, or rates — gross written premium (GWP), loss ratio, NPS, renewal rate, churn, claim count, premium income, or other business metrics. Even if the question says "2024", use compute-kpi for metric questions, NOT answer-policy-question.
+- decline: use when the question has NOTHING to do with insurance or ACME. Examples: arithmetic (1+1, what is 2*3), geography, cooking, coding, jokes, general trivia. NEVER fall back to answer-policy-question for these.
 
 Output ONLY valid JSON. No markdown fences. No explanation. No trailing text.
 Multi-intent example (policy question + KPI in one sentence):

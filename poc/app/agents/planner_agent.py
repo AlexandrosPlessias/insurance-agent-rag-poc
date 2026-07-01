@@ -181,8 +181,7 @@ def planner_node(state: GraphState) -> dict:
                 ],
             }
 
-        if "plan_id" not in plan_dict:
-            plan_dict["plan_id"] = plan_id
+        plan_dict["plan_id"] = plan_id
 
         # Programmatic self-critique.
         with tracer.start_as_current_span("planner.self_critique"):

@@ -99,6 +99,7 @@ def submit_feedback(
     score: int,
     user_id: str = "default_user",
     plan_id: str = "",
+    conversation_id: int | None = None,
     comment: str | None = None,
 ) -> dict:
     """POST a thumbs-up (+1) or thumbs-down (-1) verdict to /feedback."""
@@ -108,6 +109,8 @@ def submit_feedback(
         "user_id": user_id,
         "plan_id": plan_id,
     }
+    if conversation_id is not None:
+        payload["conversation_id"] = conversation_id
     if comment is not None:
         payload["comment"] = comment
     r = httpx.post(f"{_base()}/feedback", json=payload, timeout=5.0)

@@ -51,6 +51,7 @@ def submit_feedback(request: FeedbackRequest) -> FeedbackResponse:
         event_type=audit_events.FEEDBACK_RECEIVED,
         user_id=request.user_id,
         trace_id=request.trace_id,
+        conversation_id=request.conversation_id,
         payload=payload,
     )
     log.info("Feedback persisted: row_id=%d", row_id)

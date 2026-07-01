@@ -106,6 +106,7 @@ Full details + troubleshooting: [`SETUP.md`](../../SETUP.md).
 | Ask a quantitative question | *"What was the 2024 loss ratio by product?"* → `compute-kpi` Skill → Data worker |
 | Generate the executive report | *"Generate the 2024 annual report"* → `executive-section-summary` → 3 download buttons (MD / DOCX / PDF) |
 | Rate an answer | Thumbs up / down row under the assistant message; stored to `audit_events` via `POST /feedback` |
+| View feedback scores | `python poc/scripts/view_feedback.py` — formatted table of all 👍/👎 votes; `--user` and `--limit` filters available |
 | Ingest a new PDF | Drag-and-drop in the UI sidebar **or** `python poc/scripts/ingest_pdfs.py` |
 | Export audit trail | `python poc/scripts/audit_export.py` → CSV (PowerBI-ready) |
 | Watch traces live | Open Aspire dashboard while you chat |

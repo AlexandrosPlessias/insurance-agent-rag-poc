@@ -168,6 +168,8 @@ def _dispatch(
         return _invoke_clarifier(args, state)
     if skill_name == "out-of-year-fallback":
         return _invoke_fallback(args, state)
+    if skill_name == "decline":
+        return _invoke_decline(args, state)
 
     return (
         f"(unknown skill: {skill_name})",
@@ -297,3 +299,19 @@ def _invoke_fallback(
         step_state["target_year"] = int(args["requested_year"])
     result = fallback_node(step_state)
     return result.get("final_answer", ""), [], True, "", {}
+
+
+def _invoke_decline(
+    args: dict, state: GraphState
+) -> tuple[str, list[dict], bool, str, dict]:
+    """Return a canned out-of-scope refusal — no LLM call needed."""
+    return (
+        "I'm ACME's insurance assistant. I can only help with insurance "
+        "policy questions, KPI metrics, and document summaries. "
+        "That question is outside my scope — please ask me something "
+        "related to ACME's insurance products or policies.",
+        [],
+        True,
+        "",
+        {},
+    )

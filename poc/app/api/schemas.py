@@ -68,6 +68,7 @@ class FeedbackRequest(BaseModel):
     user_id: str = "default_user"
     score: int = Field(..., ge=-1, le=1)   # +1 thumbs-up, -1 thumbs-down
     comment: str | None = None
+    conversation_id: int | None = None
 
 
 class FeedbackResponse(BaseModel):

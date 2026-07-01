@@ -24,7 +24,9 @@ from app.ui.api_client import (  # noqa: E402
 )
 
 # Initialise OTel for the UI process - no-op if OTEL_ENABLED=false.
-setup_otel(service_suffix="ui")
+# Skip LangChain instrumentation: the UI never calls LangChain directly,
+# and importing it here would add several seconds to the first page load.
+setup_otel(service_suffix="ui", instrument_langchain=False)
 
 st.set_page_config(
     page_title="ACME Insurances · Assistant",
@@ -60,6 +62,8 @@ if "conversation_id" not in st.session_state:
     st.session_state.conversation_id = None
 if "history" not in st.session_state:
     st.session_state.history = []
+if "rated_turns" not in st.session_state:
+    st.session_state.rated_turns = set()
 
 
 # --- Cached API calls ---
@@ -116,11 +120,13 @@ def _load_history(conv_id: int) -> list[dict]:
 def _switch_conversation(conv_id: int) -> None:
     st.session_state.conversation_id = conv_id
     st.session_state.history = _load_history(conv_id)
+    st.session_state.rated_turns = set()
 
 
 def _start_new_conversation() -> None:
     st.session_state.conversation_id = None
     st.session_state.history = []
+    st.session_state.rated_turns = set()
 
 
 # --- Sidebar (ACME-branded) ---
@@ -347,11 +353,12 @@ WORKER_SUBSTAGES: list[tuple[str, str, str]] = [
 ]
 
 _SKILL_LABELS: dict[str, str] = {
-    "answer-policy-question":   "Policy Q&A",
-    "compute-kpi":              "KPI Query",
-    "executive-section-summary":"Exec Report",
-    "clarify-year":             "Clarify Year",
-    "out-of-year-fallback":     "Year Guard",
+    "answer-policy-question":    "Policy Q&A",
+    "compute-kpi":               "KPI Query",
+    "executive-section-summary": "Exec Report",
+    "clarify-year":              "Clarify Year",
+    "out-of-year-fallback":      "Year Guard",
+    "decline":                   "Out of Scope",
 }
 
 
@@ -708,7 +715,7 @@ USER_AVATAR = "👤"
 
 
 # --- Replay prior turns ---
-for entry in st.session_state.history:
+for _turn_idx, entry in enumerate(st.session_state.history):
     avatar = (
         ASSISTANT_AVATAR if entry["role"] == "assistant" else USER_AVATAR
     )
@@ -745,6 +752,70 @@ for entry in st.session_state.history:
                 render_operation_expander(entry.get("data_operation"))
             else:
                 render_citations(entry.get("citations", []))
+            # Phase 11: feedback thumbs for any turn that has a plan_id.
+            _entry_plan_id = entry.get("plan_id", "")
+            if _entry_plan_id:
+                _fb_key = (
+                    f"{st.session_state.conversation_id}_{_turn_idx}"
+                )
+                if _fb_key not in st.session_state.rated_turns:
+                    st.markdown(
+                        "<hr style='margin: .5rem 0; opacity: .15;'>",
+                        unsafe_allow_html=True,
+                    )
+                    fb_cols = st.columns([1, 1, 10])
+                    with fb_cols[0]:
+                        if st.button(
+                            "👍",
+                            key=f"fb_up_{_fb_key}",
+                            help="This answer was helpful",
+                        ):
+                            try:
+                                submit_feedback(
+                                    trace_id=_entry_plan_id,
+                                    score=1,
+                                    user_id=st.session_state.user_id,
+                                    plan_id=_entry_plan_id,
+                                    conversation_id=st.session_state.conversation_id,
+                                )
+                                st.session_state.rated_turns.add(_fb_key)
+                                st.toast(
+                                    "Feedback recorded — thanks!",
+                                    icon="👍",
+                                )
+                            except Exception:
+                                st.toast(
+                                    "Could not record feedback.",
+                                    icon="⚠️",
+                                )
+                            st.rerun()
+                    with fb_cols[1]:
+                        if st.button(
+                            "👎",
+                            key=f"fb_dn_{_fb_key}",
+                            help="This answer needs improvement",
+                        ):
+                            try:
+                                submit_feedback(
+                                    trace_id=_entry_plan_id,
+                                    score=-1,
+                                    user_id=st.session_state.user_id,
+                                    plan_id=_entry_plan_id,
+                                    conversation_id=st.session_state.conversation_id,
+                                )
+                                st.session_state.rated_turns.add(_fb_key)
+                                st.toast(
+                                    "Feedback recorded — thanks!",
+                                    icon="👎",
+                                )
+                            except Exception:
+                                st.toast(
+                                    "Could not record feedback.",
+                                    icon="⚠️",
+                                )
+                            st.rerun()
+                else:
+                    st.caption("✓ Feedback sent")
         else:
             st.write(entry["content"])
 
@@ -947,51 +1018,6 @@ if question:
         else:
             render_citations(citations)
 
-        # Phase 11 — feedback thumbs row.
-        # Shown for any turn that carries a trace_id. Score is persisted
-        # to the audit trail via POST /feedback; the UI is fire-and-forget
-        # (no page rerun needed).
-        _tid = trace_id_holder["value"]
-        _pid = plan_id_holder["value"]
-        if _tid:
-            st.markdown(
-                "<hr style='margin: .5rem 0; opacity: .15;'>",
-                unsafe_allow_html=True,
-            )
-            fb_cols = st.columns([1, 1, 10])
-            with fb_cols[0]:
-                if st.button(
-                    "👍",
-                    key=f"fb_up_{st.session_state.conversation_id}_{len(st.session_state.history)}",
-                    help="This answer was helpful",
-                ):
-                    try:
-                        submit_feedback(
-                            trace_id=_tid,
-                            score=1,
-                            user_id=st.session_state.user_id,
-                            plan_id=_pid,
-                        )
-                        st.toast("Feedback recorded — thanks!", icon="👍")
-                    except Exception:
-                        st.toast("Could not record feedback.", icon="⚠️")
-            with fb_cols[1]:
-                if st.button(
-                    "👎",
-                    key=f"fb_dn_{st.session_state.conversation_id}_{len(st.session_state.history)}",
-                    help="This answer needs improvement",
-                ):
-                    try:
-                        submit_feedback(
-                            trace_id=_tid,
-                            score=-1,
-                            user_id=st.session_state.user_id,
-                            plan_id=_pid,
-                        )
-                        st.toast("Feedback recorded — thanks!", icon="👎")
-                    except Exception:
-                        st.toast("Could not record feedback.", icon="⚠️")
-
         st.session_state.history.append(
             {
                 "role": "assistant",
@@ -1011,6 +1037,8 @@ if question:
                 "report_kind": report_kind_holder["value"],
                 "report_year": report_year_holder["value"],
                 "report_run_id": report_run_id_holder["value"],
+                # Phase 11: plan_id for feedback buttons in history replay.
+                "plan_id": plan_id_holder["value"],
             }
         )
 
@@ -1019,3 +1047,35 @@ if question:
         # Drop the cached conversation list so the sidebar reflects
         # the new row on the next rerun instead of waiting for TTL.
         _invalidate_conversation_cache()
+        # Render feedback buttons in the live block immediately after the
+        # response using keys that mirror what the history-replay loop will
+        # use.  When the user clicks, Streamlit reruns; the live block is
+        # skipped (question=None) and the history-replay handler processes
+        # the click — no bare st.rerun() needed here, which avoids the
+        # chat_input re-delivery loop present in some Streamlit builds.
+        _live_plan_id = plan_id_holder["value"]
+        if _live_plan_id:
+            _live_turn_idx = len(st.session_state.history) - 1
+            _live_fb_key = (
+                f"{st.session_state.conversation_id}_{_live_turn_idx}"
+            )
+            if _live_fb_key not in st.session_state.rated_turns:
+                st.markdown(
+                    "<hr style='margin: .5rem 0; opacity: .15;'>",
+                    unsafe_allow_html=True,
+                )
+                fb_live_cols = st.columns([1, 1, 10])
+                with fb_live_cols[0]:
+                    st.button(
+                        "👍",
+                        key=f"fb_up_{_live_fb_key}",
+                        help="This answer was helpful",
+                    )
+                with fb_live_cols[1]:
+                    st.button(
+                        "👎",
+                        key=f"fb_dn_{_live_fb_key}",
+                        help="This answer needs improvement",
+                    )
+            else:
+                st.caption("✓ Feedback sent")
