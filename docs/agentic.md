@@ -1,12 +1,12 @@
 # Agentic Architecture (Phase 11)
 
 > Capability catalogue for the Planner · Orchestrator · Workers · Tools · Skills stack introduced in Phase 11.
-> Topology diagram lives in [GRAPH.md § Phase 11](../GRAPH.md#phase-11--agentic-topology-planned).
+> Topology diagram lives in [GRAPH.md § Phase 11](GRAPH.md#phase-11--agentic-topology).
 > Roadmap context: [README.md § Phase 11](../README.md#phase-11--agentic-multi-intent-architecture--feedback-).
 
 This document is the design-of-record for the Phase 11 agentic stack. It complements
-[GRAPH.md](../GRAPH.md) (graph shape) and [docs/agent_topology.md](agent_topology.md)
-(per-node MUST / MUST-NOT contracts, which Phase 11 extends rather than replaces).
+[GRAPH.md](GRAPH.md) (graph shape + diagrams). The Phase 1–10 per-node MUST / MUST-NOT
+contracts are preserved in [§ 10 below](#10--legacy-phase-110-contracts).
 
 ---
 
@@ -198,32 +198,30 @@ class Skill(BaseModel):
 | `executive_section_summary` | report | `kpi_query`, `vector_search`, `knowledge_base_lookup` | One section of the Phase 9 executive pipeline |
 | `clarify_year` | any | (none) | Emits a year-clarification question; resumes on next turn |
 | `out_of_year_fallback` | any | (none) | Names nearest covered years; refuses to invent 2023 data |
+| `decline` | any | (none) | Politely refuses questions unrelated to insurance or ACME — no LLM call, no tools, canned message |
 
 **Registration.** Adding a new Skill is a **one-file PR**:
 
 ```python
 # poc/app/skills/summarise_complaint.py
-from app.skills.base import Skill
-from app.tools import knowledge_base_lookup, vector_search
-
-class SummariseComplaintInput(BaseModel):
-    complaint_id: str
-    target_audience: Literal["customer", "ombudsman"]
-
-class SummariseComplaintOutput(BaseModel):
-    summary: str
-    citations: list[Citation]
+from app.llm import load_prompt
+from app.skills import Skill
 
 skill = Skill(
-    name="summarise_complaint",
+    name="summarise-complaint",
     description="Summarise a customer complaint thread for a given audience.",
     owner_worker="rag",
-    system_prompt=Path("prompts/summarise_complaint.txt").read_text(),
-    tools=[knowledge_base_lookup, vector_search],
-    input_schema=SummariseComplaintInput,
-    output_schema=SummariseComplaintOutput,
+    model="qwen2.5:7b",
+    system_prompt=load_prompt("skills/summarise_complaint"),
+    input_fields={
+        "complaint_id": "str – the complaint thread ID",
+        "target_audience": "'customer' | 'ombudsman'",
+    },
+    tools_used=["knowledge_base_lookup", "vector_search"],
 )
 ```
+
+Prompt template at `poc/app/llm/prompts/skills/summarise_complaint.txt`.
 
 The `skills/__init__.py` registry auto-discovers any module exporting a
 `skill: Skill` symbol. **No changes to Planner / Orchestrator / Workers required.**
@@ -303,16 +301,15 @@ Aspire renders this as one collapsible tree per chat turn. Every span carries:
 All events land in the existing `audit_events` table ([poc/app/audit/schema.sql](../poc/app/audit/schema.sql)),
 keyed by `trace_id`. No new tables.
 
-| `event_type` | `payload_json` shape |
-|---|---|
-| `plan.emitted` | `{plan_id, steps: [...], rationale, budget}` |
-| `step.dispatched` | `{step_id, skill_name, args, depends_on}` |
-| `step.completed` | `{step_id, output, latency_ms, tokens}` |
-| `step.failed` | `{step_id, reason, retriable, exception_class}` |
-| `step.skipped` | `{step_id, reason: "dependency_failed" \| "budget_exhausted"}` |
-| `tool.called` | `{tool_name, args, output_sha, latency_ms}` |
-| `assembler.merged` | `{plan_id, final_answer_sha, citations_count, partial}` |
-| `feedback.received` | `{plan_id, score, comment, user_id}` |
+| `event_type` | `payload_json` shape | Source |
+|---|---|---|
+| `planner.plan` | `{plan_id, steps: [...], rationale, n_steps}` | `agents/planner_agent.py` |
+| `orchestrator.step` | `{step_id, skill_name, status, latency_ms}` | `graph/orchestrator.py` |
+| `feedback.received` | `{plan_id, trace_id, score, comment, user_id, updated_at}` | `api/routes/feedback.py` |
+
+All Phase 1–10 event types (`supervisor.route`, `rag.retrieve`, `validator.judge`, etc.) are
+unchanged — Phase 11 adds three new types on top; it does not replace the existing taxonomy.
+The full list is the canonical source: [`poc/app/audit/events.py`](../poc/app/audit/events.py).
 
 ### Replay
 
@@ -411,7 +408,7 @@ class SkillMetadata(BaseModel):
 ### Add a new Skill
 
 1. Create `poc/app/skills/<skill_name>.py` with a `skill: Skill` export.
-2. Drop the system prompt into `poc/app/llm/prompts/<skill_name>.txt`.
+2. Drop the system prompt into `poc/app/llm/prompts/skills/<skill_name>.txt`.
 3. (If new Tools are needed) implement them under `poc/app/tools/`.
 4. Add a smoke-test scenario in `poc/scripts/smoke_test.py` that triggers
    the Planner into emitting a Step with this Skill.
@@ -510,10 +507,116 @@ Still phase-less (no design yet):
 
 ---
 
-## 10 · References
+## 10 · Legacy Phase 1–10 contracts
 
-- Graph shape: [GRAPH.md § Phase 11](../GRAPH.md#phase-11--agentic-topology-planned)
+> **Superseded by Phase 11.** The supervisor → single-worker routing below was the active
+> topology through Phase 10. Phase 11 replaced it with the Planner · Orchestrator · Workers ·
+> Skills stack documented in §§ 1–9 above. The per-node contracts and decision matrix remain
+> accurate for the legacy code paths that continue to run inside Phase 11 worker nodes.
+
+### Routes
+
+The supervisor classified every message into exactly one of six routes:
+
+| Route | Picked when | Terminal node | LLM calls |
+|---|---|---|---|
+| `rag` | Year resolved **and** policy content question | `validator` (1-retry loop) | 3+ (reformulate + answer + validator, ×2 on retry) |
+| `report` | "summary" / "report" / "breakdown" language | `report` | 1–3 |
+| `data` | Quantitative question over the KPI dataset | `data.node` | 1 (planner only — executor is pure pandas) |
+| `out_of_scope` | Greetings, chit-chat, non-insurance | `decline.canned` | 0 |
+| `needs_clarification` | RAG-ish question but no resolvable year | `clarifier.ask` | 1 |
+| `out_of_year` | Year named but not in `kb_covered_years` | `fallback.out_of_year` | **0** |
+
+### Decision matrix
+
+| Question has year? | Year covered? | LLM classifies as | Final route |
+|---|---|---|---|
+| No, history has none | — | `rag` | `needs_clarification` *(override)* |
+| No, history has one | covered | `rag` | `rag` (year inherited) |
+| Yes | covered | `rag` | `rag` |
+| Yes | covered | `report` | `report` |
+| Yes | covered | `out_of_scope` | `out_of_scope` |
+| Yes | **not** covered | (skipped) | `out_of_year` *(no LLM call)* |
+| No | — | `report` | `report` |
+| No | — | `out_of_scope` | `out_of_scope` |
+
+Two hard overrides fire after LLM classification:
+1. `target_year ∉ covered_years` always wins — the supervisor never calls the LLM for a 2023 question.
+2. `rag` + no resolvable year → `needs_clarification`.
+
+### Per-node contracts
+
+**`supervisor.classify`**
+
+| MUST | MUST NOT |
+|---|---|
+| Inject `today` and `covered_years` into state at entry | Call the embedding model or the retriever |
+| Run deterministic regex year-extraction first | Generate the final user-facing answer |
+| Short-circuit to `out_of_year` before any LLM call when year not covered | Make more than one LLM call per turn |
+| Override `rag → needs_clarification` when no year is resolvable | Persist anything outside its single `supervisor.route` audit event |
+
+**`rag.node`**
+
+| MUST | MUST NOT |
+|---|---|
+| Honour `where_filter={"year": target_year}` when `state.target_year` is set | Ask the user any meta-conversational question |
+| Run reformulate → retrieve → answer | Refuse a question because of a year gap (supervisor's job) |
+| Pass `chunks` and `draft_answer` to the validator | Skip the validator |
+| Write `rag.retrieve` and `rag.answer` audit events | Persist a final answer directly to memory |
+
+**`validator.judge`**
+
+| MUST | MUST NOT |
+|---|---|
+| Judge groundedness + citation correctness against retrieved chunks | Run on clarifier / fallback / decline output |
+| Increment `retry_count` on first failure; accept as unverified after one retry | Loop indefinitely |
+| Emit `validator.judge` audit event with the full validation dict | Generate or rewrite the final answer |
+
+**`clarifier.ask`**
+
+| MUST | MUST NOT |
+|---|---|
+| Emit exactly one short clarifying question | Attempt to answer the original question |
+| Fall back to a deterministic templated question if the LLM call fails | Retrieve chunks |
+| End the turn | Loop back to the supervisor |
+
+**`fallback.out_of_year`**
+
+| MUST | MUST NOT |
+|---|---|
+| Name the nearest covered years (one below, one above) | Call any LLM |
+| Be templated and reproducible | Retrieve chunks |
+| End the turn | Suggest a year not in `kb_covered_years` |
+
+**`decline.canned`**
+
+| MUST | MUST NOT |
+|---|---|
+| Return the static decline message | Call any LLM |
+| End the turn | Engage with the off-topic content |
+
+**`report.node`**
+
+| MUST | MUST NOT |
+|---|---|
+| Dispatch to `executive.build_executive_report(year)` when `target_year` is set | Run through the validator |
+| Render Markdown + chart inline (legacy path, no `target_year`) | Loop or retry |
+| Set `report_kind` / `report_year` / `report_run_id` on state for DOCX/PDF/MD downloads | Let the LLM decide risk severity — that's `thresholds.py` only |
+
+**`data.node`**
+
+| MUST | MUST NOT |
+|---|---|
+| Emit exactly one typed `Operation` JSON from the planner LLM | Let the LLM generate executable code |
+| Run the executor against `KpiDataset.df` with schema-aware guards | Aggregate a rate/snapshot metric with `sum` |
+| Filter out `is_rollup` rows by default to avoid double-counting | Touch year 2023 (symmetric with `out_of_year`) |
+| Write `data.plan` and `data.execute` audit events | Validate via `validator.judge` |
+
+---
+
+## 11 · References
+
+- Graph shape + diagrams: [GRAPH.md](GRAPH.md)
 - Roadmap: [README.md § Phase 11](../README.md#phase-11--agentic-multi-intent-architecture--feedback-)
-- Per-node MUST / MUST-NOT contracts (Phase 1–10 baseline): [docs/agent_topology.md](agent_topology.md)
 - Audit schema: [poc/app/audit/schema.sql](../poc/app/audit/schema.sql)
 - LangGraph `Send()` reference: <https://langchain-ai.github.io/langgraph/concepts/low_level/#send>

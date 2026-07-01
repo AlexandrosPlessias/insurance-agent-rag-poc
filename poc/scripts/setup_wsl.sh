@@ -25,9 +25,10 @@ sudo apt-get install -y \
 # stdlib sqlite3 module - this is just so `sqlite3 audit.sqlite`
 # in USAGE.md doesn't error out for first-time users.
 
-# Require Python 3.10+ (Ubuntu 22.04 ships 3.10, Ubuntu 24.04 ships 3.12).
-"$PYTHON_BIN" -c "import sys; assert sys.version_info >= (3, 10), \
-  f'Python 3.10+ required, found {sys.version.split()[0]}'"
+# Require Python 3.11+ (Ubuntu 22.04 ships 3.10 -- install 3.11 via deadsnakes
+# PPA if needed; Ubuntu 24.04 ships 3.12).
+"$PYTHON_BIN" -c "import sys; assert sys.version_info >= (3, 11), \
+  f'Python 3.11+ required, found {sys.version.split()[0]}'"
 echo "Using $($PYTHON_BIN --version)"
 
 echo "[2/7] Creating Python venv at $VENV_DIR..."
@@ -46,6 +47,7 @@ fi
 
 echo "[5/7] Pulling local models (this can take a while)..."
 ollama pull qwen2.5:7b
+ollama pull qwen2.5:3b
 ollama pull nomic-embed-text
 
 echo "[6/7] Installing Docker (for the Phase 5 Aspire observability backend)..."

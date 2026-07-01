@@ -22,6 +22,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.agents.rag_agent import answer_question  # noqa: E402
+from app.audit import events as audit_events  # noqa: E402
+from app.audit.middleware import get_audit_store  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.ingestion.pipeline import ingest_document  # noqa: E402
 from app.memory.store import MemoryStore  # noqa: E402
@@ -133,6 +135,18 @@ SCENARIOS: list[dict] = [
             # GET /reports/2024.{md,docx,pdf} for downloads.
             ("report",
              "Give me the 2024 executive annual report"),
+        ],
+    },
+    {
+        "title": "Phase 11 - Multi-intent (policy RAG + KPI data, single turn)",
+        "questions": [
+            # Two intents in one sentence: the Planner should produce a
+            # 2-step plan (answer-policy-question + compute-kpi) so the
+            # orchestrator dispatches two workers and the assembler merges
+            # both answers into a single response.
+            ("agentic",
+             "What is the refund policy in the 2024 guidelines, "
+             "and what was the gross written premium in 2024?"),
         ],
     },
 ]
@@ -274,6 +288,51 @@ def main() -> int:
                 for c in result.citations:
                     print(f"  - {c.as_citation()}")
             print(f"\n[elapsed: {dt:.1f}s]")
+
+    # --- Phase 11 feedback smoke test ---
+    # Verify the full feedback round-trip: write a feedback.received row
+    # as smoke_user, read it back, assert the values are correct.
+    print("\n" + "=" * 72)
+    print("FEEDBACK SMOKE TEST")
+    print("=" * 72)
+
+    audit_store = get_audit_store()
+    test_plan_id = "smoke-test-plan-0000"
+    from datetime import datetime, timezone
+    row_id = audit_store.log(
+        event_type=audit_events.FEEDBACK_RECEIVED,
+        user_id=USER_ID,
+        trace_id=test_plan_id,
+        payload={
+            "plan_id": test_plan_id,
+            "score": 1,
+            "comment": "smoke test thumbs-up",
+            "updated_at": datetime.now(timezone.utc).isoformat(
+                timespec="seconds"
+            ),
+        },
+    )
+    assert row_id > 0, f"FAIL: feedback write returned row_id={row_id}"
+    print(f"  Write OK  : row_id={row_id}")
+
+    feedback_rows = [
+        r for r in audit_store.iter_all()
+        if r["event_type"] == audit_events.FEEDBACK_RECEIVED
+        and r.get("user_id") == USER_ID
+    ]
+    assert feedback_rows, "FAIL: no feedback.received rows found after write"
+
+    last = feedback_rows[-1]
+    assert last["payload"]["score"] == 1, (
+        f"FAIL: expected score=1, got {last['payload']['score']}"
+    )
+    assert last["payload"]["plan_id"] == test_plan_id, (
+        f"FAIL: plan_id mismatch: {last['payload']['plan_id']!r}"
+    )
+    print(f"  Read-back OK: score={last['payload']['score']}  "
+          f"plan_id={last['payload']['plan_id']}")
+    print(f"  Total feedback rows for {USER_ID!r}: {len(feedback_rows)}")
+    print("  [PASS] feedback.received round-trip verified")
 
     print("\n" + "=" * 72)
     print(

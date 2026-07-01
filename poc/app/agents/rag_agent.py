@@ -211,11 +211,14 @@ def answer_question(
         "user_activity": user_activity or [],
     }
     state = get_graph().invoke(initial)
+    raw_citations = state.get("final_citations") or state.get("chunks") or []
+    citations = [
+        RetrievedChunk(**c) if isinstance(c, dict) else c
+        for c in raw_citations
+    ]
     return RagResponse(
         answer=state.get("final_answer", state.get("draft_answer", "")),
-        citations=state.get("final_citations")
-        or state.get("chunks")
-        or [],
+        citations=citations,
         reformulated_query=state.get("reformulated_query", ""),
         validated=state.get("validated", True),
         retry_count=state.get("retry_count", 0),

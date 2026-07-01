@@ -91,6 +91,33 @@ def get_messages(conversation_id: int) -> list[dict]:
     return r.json()
 
 
+# --- Feedback (Phase 11) ---
+
+
+def submit_feedback(
+    trace_id: str,
+    score: int,
+    user_id: str = "default_user",
+    plan_id: str = "",
+    conversation_id: int | None = None,
+    comment: str | None = None,
+) -> dict:
+    """POST a thumbs-up (+1) or thumbs-down (-1) verdict to /feedback."""
+    payload: dict = {
+        "trace_id": trace_id,
+        "score": score,
+        "user_id": user_id,
+        "plan_id": plan_id,
+    }
+    if conversation_id is not None:
+        payload["conversation_id"] = conversation_id
+    if comment is not None:
+        payload["comment"] = comment
+    r = httpx.post(f"{_base()}/feedback", json=payload, timeout=5.0)
+    r.raise_for_status()
+    return r.json()
+
+
 # --- Ingestion (Phase 6) ---
 
 

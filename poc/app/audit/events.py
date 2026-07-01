@@ -31,6 +31,11 @@ DECLINE = "decline.canned"
 DATA_PLAN = "data.plan"
 DATA_EXECUTE = "data.execute"
 
+# Phase 11: Planner / Orchestrator / Feedback
+PLANNER_PLAN = "planner.plan"
+ORCHESTRATOR_STEP = "orchestrator.step"
+FEEDBACK_RECEIVED = "feedback.received"
+
 
 EventType = Literal[
     "supervisor.route",
@@ -43,4 +48,7 @@ EventType = Literal[
     "decline.canned",
     "data.plan",
     "data.execute",
+    "planner.plan",
+    "orchestrator.step",
+    "feedback.received",
 ]

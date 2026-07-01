@@ -292,6 +292,7 @@ def _otel_pipeline_snapshot(label: str) -> None:
 def setup_otel(
     app: Any | None = None,
     service_suffix: str | None = None,
+    instrument_langchain: bool = True,
 ) -> None:
     global _INSTALLED
     if _INSTALLED:
@@ -322,8 +323,9 @@ def setup_otel(
         # above its (removed) definition. It double-shipped every log.
         _instrument_httpx()
         _otel_pipeline_snapshot("after-instrument-httpx")
-        _instrument_langchain()
-        _otel_pipeline_snapshot("after-instrument-langchain")
+        if instrument_langchain:
+            _instrument_langchain()
+            _otel_pipeline_snapshot("after-instrument-langchain")
         if app is not None:
             _instrument_fastapi(app)
             _otel_pipeline_snapshot("after-instrument-fastapi")
