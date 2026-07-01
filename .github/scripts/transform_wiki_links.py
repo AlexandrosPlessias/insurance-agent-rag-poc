@@ -31,6 +31,7 @@ SUBSTITUTIONS: list[tuple[str, str]] = [
     (r"\.\./\.\./GRAPH\.md", f"{BLOB}/GRAPH.md"),
     (r"\.\./\.\./README\.md", f"{BLOB}/README.md"),
     # ../<file>  (relative to docs/wiki/) → blob/dev/docs/<file>
+    (r"\.\./architecture/GRAPH\.md", f"{BLOB}/docs/architecture/GRAPH.md"),
     (r"\.\./agentic\.md", f"{BLOB}/docs/agentic.md"),
     (r"\.\./agent_topology\.md", f"{BLOB}/docs/agent_topology.md"),
     (r"\.\./ingestion\.md", f"{BLOB}/docs/ingestion.md"),
