@@ -105,7 +105,8 @@ Full details + troubleshooting: [`SETUP.md`](../../SETUP.md).
 | Ask a multi-intent question | *"Refund window AND 2024 loss ratio?"* — both answers in one turn under separate H3 headers |
 | Ask a quantitative question | *"What was the 2024 loss ratio by product?"* → `compute-kpi` Skill → Data worker |
 | Generate the executive report | *"Generate the 2024 annual report"* → `executive-section-summary` → 3 download buttons (MD / DOCX / PDF) |
-| Rate an answer | Thumbs up / down row under the assistant message; stored to `audit_events` via `POST /feedback` |
+| Rate an answer | Thumbs up / down row under each scored assistant turn (turns that carry a `plan_id`); stored to `audit_events` via `POST /feedback` |
+| Ask an out-of-scope question | *"What is 1+1?"* or any non-insurance topic → Planner routes to the `decline` Skill; canned refusal returned in < 1 s with no LLM call |
 | View feedback scores | `python poc/scripts/view_feedback.py` — formatted table of all 👍/👎 votes; `--user` and `--limit` filters available |
 | Ingest a new PDF | Drag-and-drop in the UI sidebar **or** `python poc/scripts/ingest_pdfs.py` |
 | Export audit trail | `python poc/scripts/audit_export.py` → CSV (PowerBI-ready) |
@@ -133,7 +134,7 @@ Full guide: [`USAGE.md`](../../USAGE.md).
 | 8 — Talk-to-Data agent | ✅ | Typed `Operation` JSON + pandas executor over a real KPI CSV |
 | 9 — Executive Annual Report | ✅ | Section pipeline · 3 writers (MD/DOCX/PDF) · deterministic risk bands |
 | 10 — Stakeholder deck | ✅ | `python-pptx` rendered from `deck.md`; LangGraph + Azure northstar slides |
-| **11 — Agentic multi-intent (+ feedback)** | ✅ | **Planner · Orchestrator · Workers · Tools · Skills** stack — uniform pipeline, structured outputs, `plan_id` on every turn, thumbs-feedback. See [`docs/agentic.md`](../agentic.md). |
+| **11 — Agentic multi-intent (+ feedback)** | ✅ | **Planner · Orchestrator · Workers · Tools · Skills** stack — uniform pipeline, structured outputs, `plan_id` on every turn, thumbs-feedback, `decline` Skill for out-of-scope refusals. See [`docs/agentic.md`](../agentic.md). |
 | **12 — Human-in-the-Loop & Telegram channel** | 📋 planned | Suspendable Plans · approval gates between Steps · Telegram bot (Slack / Teams pluggable) · `plans` table |
 | **13 — Multi-modal voice** | 📋 planned | Local Whisper.cpp + Piper TTS as Tools · audio in/out in Streamlit · no cloud STT/TTS |
 | **14 — Cross-conversation planning** | 📋 planned | Plans become first-class memory · resume-tokens · multi-user participants · Skill schema migration |

@@ -326,7 +326,7 @@ Today the graph routes each user message to ONE of four workers. *"What's the re
     - `audit_write(event_type, payload)` → `None`
 
     Tools are bound to the LLM via structured tool-use (`bind_tools`) — no string parsing of model output anywhere in the worker layer.
-- **`Skills`.** A Skill = `{name, description, system_prompt, tools_used, input_fields}` — a reusable capability bundle. System prompts live in `app/llm/prompts/skills/`. The Skill registry is loaded at planner-time so adding a new capability (e.g. *"summarise a customer complaint"*) is one new file in `app/skills/` plus a prompt in `prompts/skills/`, not a graph refactor. Initial set: `answer-policy-question` (RAG worker) · `compute-kpi` (Data worker) · `executive-section-summary` (Report worker) · `clarify-year` · `out-of-year-fallback`. The Planner sees `name + description + input_fields` only (**never** the system prompt) so a malicious user can't jailbreak the Planner into hijacking a worker.
+- **`Skills`.** A Skill = `{name, description, system_prompt, tools_used, input_fields}` — a reusable capability bundle. System prompts live in `app/llm/prompts/skills/`. The Skill registry is loaded at planner-time so adding a new capability (e.g. *"summarise a customer complaint"*) is one new file in `app/skills/` plus a prompt in `prompts/skills/`, not a graph refactor. Initial set: `answer-policy-question` (RAG worker) · `compute-kpi` (Data worker) · `executive-section-summary` (Report worker) · `clarify-year` · `out-of-year-fallback` · `decline` (no-LLM canned refusal for out-of-scope questions). The Planner sees `name + description + input_fields` only (**never** the system prompt) so a malicious user can't jailbreak the Planner into hijacking a worker.
 - **`Assembler`.** Final node. Concatenates Step outputs under H3 headers, merges citations into a single block, normalises footnote numbering. Same `ReportDocument`-style structured-output pattern as Phase 9.
 
 **State-of-the-art touches.**
@@ -355,7 +355,7 @@ Today the graph routes each user message to ONE of four workers. *"What's the re
 
 A thin slice attached to the new architecture so reviewers can score the multi-intent answers.
 
-- **UI.** Thumbs row under every assistant message in Streamlit, with an optional comment textarea.
+- **UI.** Thumbs row under each assistant turn that carries a `plan_id`, with an optional comment textarea.
 - **API.** `POST /feedback {trace_id, plan_id, user_id, score: +1|-1, comment?}` — schema-validated, latest-wins on `(trace_id, user_id)` with an `updated_at` column for traceability.
 - **Storage.** New `event_type='feedback.received'` row in the existing `audit_events` table — **no new table.** Keeps the storage surface unified per the Phase 7 audit pattern; CSV export gains `feedback_score` + `feedback_comment` columns via a JSON-extract over `payload_json`.
 - **Telemetry.** OTel event `feedback.received` keyed by `trace_id` so Aspire stitches the verdict onto the original chat-turn trace.

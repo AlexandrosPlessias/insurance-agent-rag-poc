@@ -310,7 +310,7 @@ Use these reports to:
 |---|---|---|
 | `rag` | Year resolved (from the question or recent history) **and** question is about policy content | No — runs validator + 1-retry |
 | `report` | Words like "summary", "report", "overview", "breakdown" | Yes |
-| `out_of_scope` | Greetings, math, chit-chat, non-insurance | Yes — `decline.canned` |
+| `out_of_scope` | Greetings, math, chit-chat, non-insurance | Yes — `decline.canned` *(Phase 11 equivalent: `decline` Skill — same canned message, no LLM call)* |
 | `needs_clarification` | Question is RAG-ish but no year is mentioned and history can't resolve one | Yes — `clarifier.ask` emits one targeted question |
 | `out_of_year` | A year was named but it isn't in `kb_covered_years` | Yes — `fallback.out_of_year` offers nearest covered years |
 
@@ -472,3 +472,5 @@ Logs go to **stderr** (visible in the terminal) **and** to Aspire's Structured l
 | Every question turns into a clarifier "which year?" prompt | Phase 7 escalates RAG-ish questions to the clarifier when no year is mentioned. Either mention a year in the question, or answer the clarifier so the next turn inherits the year from history |
 | Year-fallback fires when you asked about a covered year | Check `supervisor.target_year` in the trace. Regex may have latched onto an unrelated `20xx` token in the question. If that's the case, rephrase or set the year explicitly |
 | Audit DB grows large in long sessions | `python scripts/audit_export.py --out backup.csv` then delete `poc/data/audit.sqlite` — it's re-created lazily on the next request |
+| Streamlit crashes in a loop with `TypeError: setup_otel() …` | Stale Python module cache from a live code edit without restarting. Kill ports 8000 and 8501 (`fuser -k 8000/tcp && fuser -k 8501/tcp`) then restart with `run_all.sh` |
+| `address already in use` on port 8000 or 8501 | A previous session's process is still running. Find and kill it: `fuser -k 8000/tcp && fuser -k 8501/tcp` |

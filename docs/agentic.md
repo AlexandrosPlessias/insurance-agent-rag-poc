@@ -198,6 +198,7 @@ class Skill(BaseModel):
 | `executive_section_summary` | report | `kpi_query`, `vector_search`, `knowledge_base_lookup` | One section of the Phase 9 executive pipeline |
 | `clarify_year` | any | (none) | Emits a year-clarification question; resumes on next turn |
 | `out_of_year_fallback` | any | (none) | Names nearest covered years; refuses to invent 2023 data |
+| `decline` | any | (none) | Politely refuses questions unrelated to insurance or ACME — no LLM call, no tools, canned message |
 
 **Registration.** Adding a new Skill is a **one-file PR**:
 
