@@ -1,0 +1,60 @@
+# =========================================================
+# Insurance Agent RAG PoC — Python dependencies
+# Target: Python 3.10+ on WSL2 Ubuntu (works on 3.10 / 3.11 / 3.12)
+# =========================================================
+
+# --- LLM / Agent orchestration ---
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-community>=0.3.0
+langchain-ollama>=0.2.0
+langchain-chroma>=0.1.4
+langchain-text-splitters>=0.3.0
+langgraph>=0.2.0
+
+# --- Local inference & vector store ---
+ollama>=0.4.0
+chromadb>=0.5.0
+
+# --- Document parsing ---
+pymupdf>=1.24.0
+pymupdf4llm>=0.0.17        # PDF -> Markdown for LLM ingestion (Phase 6)
+jsonschema>=4.23.0         # Validate document metadata sidecars (Phase 6)
+
+# --- Backend ---
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.8.0
+pydantic-settings>=2.5.0
+python-dotenv>=1.0.0
+httpx>=0.27.0
+
+# --- Frontend ---
+streamlit>=1.38.0
+
+# --- Reporting (Phase 3 / Phase 9 / Phase 10) ---
+pandas>=2.2.0
+matplotlib>=3.9.0
+# Phase 9 executive annual report writers. python-docx for DOCX,
+# reportlab for PDF (preferred over weasyprint to avoid the GTK
+# system dependency on WSL).
+python-docx>=1.1.0
+reportlab>=4.2.0
+# Phase 10 PoC presentation deck. Used by poc/scripts/build_pptx.py
+# to emit docs/presentation/insurance-rag-poc.pptx.
+python-pptx>=1.0.0
+
+# --- Observability (Phase 5) ---
+opentelemetry-api>=1.27.0
+opentelemetry-sdk>=1.27.0
+opentelemetry-exporter-otlp>=1.27.0
+opentelemetry-instrumentation-fastapi>=0.48b0
+opentelemetry-instrumentation-httpx>=0.48b0
+opentelemetry-instrumentation-logging>=0.48b0
+# Langfuse-style LLM/chain detail (prompts, completions, tokens, retrievals).
+# Auto-emits OTel spans for every LangChain invocation.
+openinference-instrumentation-langchain>=0.1.30
+
+# --- Testing ---
+pytest>=8.3.0
+pytest-asyncio>=0.24.0

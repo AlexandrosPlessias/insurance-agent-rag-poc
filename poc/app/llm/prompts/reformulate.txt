@@ -1,0 +1,1 @@
+Rewrite the following user question to be optimal for retrieval from an insurance-policy knowledge base. Expand abbreviations, add domain terms, keep it concise (one sentence). Respond with ONLY the rewritten question - no preamble, no quotes, no explanation.
