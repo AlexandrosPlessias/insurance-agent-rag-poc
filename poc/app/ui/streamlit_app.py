@@ -5,6 +5,7 @@ Adds:
   - "Aspire Dashboard" link in the sidebar when OTEL_ENABLED=true.
 """
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
@@ -14,11 +15,15 @@ import streamlit as st  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.observability.tracing import setup_otel  # noqa: E402
 from app.ui.api_client import (  # noqa: E402
+    approve_plan,
     get_health,
     get_messages,
+    get_plan_status,
     list_conversations,
+    reject_plan,
     source_url,
     stream_chat,
+    stream_plan_resume,
     submit_feedback,
     upload_document,
 )
@@ -64,6 +69,14 @@ if "history" not in st.session_state:
     st.session_state.history = []
 if "rated_turns" not in st.session_state:
     st.session_state.rated_turns = set()
+# Phase 12: approval gate state
+if "pending_approval" not in st.session_state:
+    # None | {plan_id, step_id, message, expires_at, trigger_case}
+    st.session_state.pending_approval = None
+if "resuming_plan_id" not in st.session_state:
+    st.session_state.resuming_plan_id = None
+if "rejection_pending" not in st.session_state:
+    st.session_state.rejection_pending = False
 
 
 # --- Cached API calls ---
@@ -117,16 +130,24 @@ def _load_history(conv_id: int) -> list[dict]:
     return history
 
 
+def _clear_approval_state() -> None:
+    st.session_state.pending_approval = None
+    st.session_state.resuming_plan_id = None
+    st.session_state.rejection_pending = False
+
+
 def _switch_conversation(conv_id: int) -> None:
     st.session_state.conversation_id = conv_id
     st.session_state.history = _load_history(conv_id)
     st.session_state.rated_turns = set()
+    _clear_approval_state()
 
 
 def _start_new_conversation() -> None:
     st.session_state.conversation_id = None
     st.session_state.history = []
     st.session_state.rated_turns = set()
+    _clear_approval_state()
 
 
 # --- Sidebar (ACME-branded) ---
@@ -267,6 +288,18 @@ with st.sidebar:
     # ⚙️ Diagnostics — Aspire link + build history. Collapsed by
     # default because daily users don't need it.
     with st.expander("⚙️ Diagnostics", expanded=False):
+        # Phase 12: Telegram bot status (config-based — cannot detect if the
+        # process is running; start it separately with run_telegram_bot.py).
+        if settings.telegram_bot_token:
+            st.success("🤖 Telegram bot configured", icon="✅")
+            st.caption(
+                "Start separately: `python scripts/run_telegram_bot.py`"
+            )
+        else:
+            st.warning("🤖 Telegram bot not configured", icon="⚠️")
+            st.caption("Set `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` in `.env`")
+        st.divider()
+
         if settings.otel_enabled:
             st.link_button(
                 "📊 Open Aspire Dashboard",
@@ -446,6 +479,169 @@ def _build_dynamic_topology(
         else:
             topology.append(entry)
     return topology
+
+
+def _render_approval_card(approval: dict) -> None:
+    """Phase 12 — inline approval card.
+
+    When Telegram is configured: shows "notification sent" with a Refresh
+    button and an "Approve here instead" button that opens a modal bypass dialog.
+    When Telegram is not configured: shows inline Approve/Reject directly.
+
+    Checks live plan state on every render so a Telegram approval is picked
+    up automatically when the user clicks Refresh.
+    """
+    plan_id: str = approval["plan_id"]
+
+    try:
+        live_state = get_plan_status(plan_id).get("state", "suspended")
+    except Exception:
+        live_state = "suspended"
+
+    st.markdown(
+        "<hr style='margin: .5rem 0; opacity: .15;'>",
+        unsafe_allow_html=True,
+    )
+
+    if live_state == "approved":
+        with st.container(border=True):
+            st.markdown("**✅ Approved — ready to resume**")
+            st.caption("Approval received (via Telegram or UI).")
+            if st.button("▶ Resume", key=f"approval_resume_{plan_id}"):
+                st.session_state.pending_approval = None
+                st.session_state.resuming_plan_id = plan_id
+                st.session_state.rejection_pending = False
+                st.rerun()
+        return
+
+    if live_state == "rejected":
+        with st.container(border=True):
+            st.markdown("**❌ Plan rejected**")
+            st.caption("The plan was rejected and will not resume.")
+            if st.button("Dismiss", key=f"approval_dismiss_{plan_id}"):
+                st.session_state.pending_approval = None
+                st.session_state.rejection_pending = False
+                st.rerun()
+        return
+
+    # Still suspended.
+    with st.container(border=True):
+        st.markdown("**⏸ Waiting for approval**")
+        st.caption(approval.get("message", ""))
+        if approval.get("expires_at"):
+            st.caption(f"Expires: {approval['expires_at']}")
+
+        if settings.telegram_bot_token:
+            # Telegram is the primary channel — show its status and offer bypass.
+            # The card auto-polls every 5 s so Telegram approvals are detected
+            # without a manual refresh click.
+            st.info("📱 Telegram notification sent — use `/approve` or `/reject` in the bot.")
+            st.caption("⏱ Auto-checking every 5 s…")
+
+            if st.session_state.get(f"_bypass_open_{plan_id}"):
+                # Inline approve/reject form — replaces the old @st.dialog approach
+                # which had unreliable close behaviour in Streamlit ≥ 1.37.
+                st.markdown("---")
+                st.markdown("**Approve or Reject here**")
+                st.caption(approval.get("message", ""))
+                col_ba, col_br = st.columns(2)
+                with col_ba:
+                    if st.button(
+                        "✅ Approve", key=f"bypass_approve_{plan_id}", use_container_width=True
+                    ):
+                        try:
+                            approve_plan(plan_id)
+                        except Exception as exc:
+                            if "409" not in str(exc):
+                                st.error(f"Could not approve: {exc}")
+                                return
+                        st.session_state.pop(f"_bypass_open_{plan_id}", None)
+                        st.session_state.pop(f"_bypass_reject_pending_{plan_id}", None)
+                        st.session_state.pending_approval = None
+                        st.session_state.resuming_plan_id = plan_id
+                        st.session_state.rejection_pending = False
+                        st.rerun()
+                with col_br:
+                    if st.button(
+                        "❌ Reject", key=f"bypass_reject_{plan_id}", use_container_width=True
+                    ):
+                        st.session_state[f"_bypass_reject_pending_{plan_id}"] = True
+                        st.rerun()
+
+                if st.session_state.get(f"_bypass_reject_pending_{plan_id}"):
+                    reason = st.text_input(
+                        "Rejection reason (optional):", key=f"bypass_reason_{plan_id}"
+                    )
+                    if st.button("Confirm rejection", key=f"bypass_confirm_reject_{plan_id}"):
+                        try:
+                            reject_plan(plan_id, reason=reason)
+                            st.session_state.pending_approval = None
+                            st.session_state.rejection_pending = False
+                            st.session_state.pop(f"_bypass_open_{plan_id}", None)
+                            st.session_state.pop(f"_bypass_reject_pending_{plan_id}", None)
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(f"Could not reject: {exc}")
+
+                if st.button("← Back", key=f"bypass_back_{plan_id}"):
+                    st.session_state.pop(f"_bypass_open_{plan_id}", None)
+                    st.session_state.pop(f"_bypass_reject_pending_{plan_id}", None)
+                    st.rerun()
+                # Don't auto-poll while inline form is open — avoids blocking the
+                # thread for 5 s on a render where the user is actively interacting.
+                return
+            else:
+                if st.button(
+                    "Approve here instead →",
+                    key=f"approval_bypass_{plan_id}",
+                    help="Use this if Telegram is down or you want to approve immediately",
+                ):
+                    st.session_state[f"_bypass_open_{plan_id}"] = True
+                    st.rerun()
+        else:
+            # No Telegram — show inline Approve / Reject directly.
+            col_approve, col_reject, _ = st.columns([2, 2, 6])
+            with col_approve:
+                if st.button("✅ Approve", key=f"approval_approve_{plan_id}"):
+                    try:
+                        approve_plan(plan_id)
+                    except Exception as exc:
+                        if "409" not in str(exc):
+                            st.toast(f"Could not approve: {exc}", icon="⚠️")
+                            st.rerun()
+                            return
+                    st.session_state.pending_approval = None
+                    st.session_state.resuming_plan_id = plan_id
+                    st.session_state.rejection_pending = False
+                    st.toast("Approved — resuming…", icon="✅")
+                    st.rerun()
+            with col_reject:
+                if st.button("❌ Reject", key=f"approval_reject_{plan_id}"):
+                    st.session_state.rejection_pending = True
+                    st.rerun()
+
+    if not settings.telegram_bot_token and st.session_state.rejection_pending:
+        reason = st.text_input(
+            "Rejection reason (optional):",
+            key=f"rejection_reason_input_{plan_id}",
+        )
+        if st.button("Confirm rejection", key=f"approval_reject_confirm_{plan_id}"):
+            try:
+                reject_plan(plan_id, reason=reason)
+                st.session_state.pending_approval = None
+                st.session_state.rejection_pending = False
+                st.toast("Plan rejected.", icon="❌")
+            except Exception as exc:
+                st.toast(f"Could not reject: {exc}", icon="⚠️")
+            st.rerun()
+
+    # Auto-poll: while waiting for a Telegram-side decision, re-check the
+    # plan state every 5 s. This is intentionally a blocking sleep — for
+    # a single-user PoC it is acceptable. Replace with streamlit-autorefresh
+    # in a multi-user deployment.
+    if live_state == "suspended" and settings.telegram_bot_token:
+        time.sleep(5)
+        st.rerun()
 
 
 def render_stepper(slot, stages: dict, route: str = "") -> None:
@@ -754,7 +950,12 @@ for _turn_idx, entry in enumerate(st.session_state.history):
                 render_citations(entry.get("citations", []))
             # Phase 11: feedback thumbs for any turn that has a plan_id.
             _entry_plan_id = entry.get("plan_id", "")
-            if _entry_plan_id:
+            _has_pending_approval = (
+                st.session_state.pending_approval is not None
+                and st.session_state.pending_approval.get("plan_id") == _entry_plan_id
+                and _turn_idx == len(st.session_state.history) - 1
+            )
+            if _entry_plan_id and not _has_pending_approval and entry.get("content", "").strip():
                 _fb_key = (
                     f"{st.session_state.conversation_id}_{_turn_idx}"
                 )
@@ -816,8 +1017,82 @@ for _turn_idx, entry in enumerate(st.session_state.history):
                             st.rerun()
                 else:
                     st.caption("✓ Feedback sent")
+            # Phase 12: show approval card in history replay if this turn's
+            # plan_id matches the current pending approval.
+            entry_plan_id = entry.get("plan_id") or ""
+            pending = st.session_state.pending_approval
+            if (
+                pending
+                and entry_plan_id
+                and pending.get("plan_id") == entry_plan_id
+                and _turn_idx == len(st.session_state.history) - 1
+            ):
+                _render_approval_card(pending)
         else:
             st.write(entry["content"])
+
+# Phase 12: if a plan was just approved, resume it before handling new input.
+if st.session_state.resuming_plan_id:
+    _resume_plan_id = st.session_state.resuming_plan_id
+    st.session_state.resuming_plan_id = None
+    with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
+        _resume_status = st.status("Resuming plan…", expanded=False)
+        _resume_slot = st.empty()
+        _resume_chunks: list[str] = []
+        _resume_citations: list[dict] = []
+        _resume_meta = {"report_kind": "", "report_year": None, "report_run_id": ""}
+        _resume_error: str = ""
+
+        for _ev in stream_plan_resume(_resume_plan_id):
+            _et = _ev.get("type")
+            if _et == "stage":
+                _node = _ev.get("node", "")
+                if _ev.get("status") == "started":
+                    _resume_status.update(label=f"Running {_node}…")
+            elif _et == "token":
+                _resume_chunks.append(_ev["value"])
+                _resume_slot.markdown("".join(_resume_chunks))
+            elif _et == "done":
+                _resume_citations.extend(_ev.get("citations") or [])
+                _resume_meta["report_kind"] = _ev.get("report_kind") or ""
+                _resume_meta["report_year"] = _ev.get("report_year")
+                _resume_meta["report_run_id"] = _ev.get("report_run_id") or ""
+            elif _et == "error":
+                _resume_error = _ev.get("value", "")
+
+        _resume_status.update(label="Done", state="complete", expanded=False)
+        resumed_answer = "".join(_resume_chunks)
+        _resume_slot.empty()
+
+        if _resume_error:
+            st.error(f"Resume error: {_resume_error}")
+        elif _resume_meta["report_kind"] == "executive":
+            st.markdown(resumed_answer, unsafe_allow_html=False)
+            render_report_downloads(
+                _resume_meta["report_year"], _resume_meta["report_run_id"]
+            )
+        else:
+            st.markdown(resumed_answer)
+
+        render_citations(_resume_citations)
+        st.session_state.history.append(
+            {
+                "role": "assistant",
+                "content": resumed_answer,
+                "citations": _resume_citations,
+                "route": "agentic",
+                "validated": True,
+                "critique": "",
+                "reformulated_query": "",
+                "original_question": "",
+                "plan_id": _resume_plan_id,
+                "report_kind": _resume_meta["report_kind"],
+                "report_year": _resume_meta["report_year"],
+                "report_run_id": _resume_meta["report_run_id"],
+                "data_operation": None,
+            }
+        )
+        _invalidate_conversation_cache()
 
 question = st.chat_input(
     "Ask ACME's assistant about a policy, claim, or refund..."
@@ -971,6 +1246,19 @@ if question:
                     trace_id_holder["value"] = (
                         event.get("trace_id") or ""
                     )
+                elif etype == "approval_required":
+                    # Set plan_id_holder so the history entry carries the
+                    # plan_id — without this the replay-loop condition
+                    # `and entry_plan_id` is False and the card never
+                    # renders on any subsequent rerun (dialog never opens).
+                    plan_id_holder["value"] = event["plan_id"]
+                    st.session_state.pending_approval = {
+                        "plan_id": event["plan_id"],
+                        "step_id": event["step_id"],
+                        "message": event.get("message", "Approval required."),
+                        "expires_at": event.get("expires_at", ""),
+                        "trigger_case": event.get("trigger_case", ""),
+                    }
                 elif etype == "error":
                     error_holder["value"] = event.get("value", "")
 
@@ -1079,3 +1367,10 @@ if question:
                     )
             else:
                 st.caption("✓ Feedback sent")
+
+        # Phase 12: rerun immediately so the history loop renders the
+        # approval card exactly once. Rendering it here too (before the
+        # rerun) causes a double-card visual artifact due to Streamlit's
+        # incremental stale-content display during the 5-second auto-poll.
+        if st.session_state.pending_approval:
+            st.rerun()

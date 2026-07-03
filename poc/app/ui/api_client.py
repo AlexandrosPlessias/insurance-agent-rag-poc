@@ -157,3 +157,44 @@ def upload_document(
     )
     r.raise_for_status()
     return r.json()
+
+
+# --- Plans / approvals (Phase 12) ---
+
+
+def approve_plan(plan_id: str, approver_id: str = "ui_user") -> dict:
+    r = httpx.post(
+        f"{_base()}/plans/{plan_id}/approve",
+        json={"approver_id": approver_id, "channel": "ui"},
+        timeout=10.0,
+    )
+    r.raise_for_status()
+    return r.json()
+
+
+def reject_plan(plan_id: str, reason: str = "", approver_id: str = "ui_user") -> dict:
+    r = httpx.post(
+        f"{_base()}/plans/{plan_id}/reject",
+        json={"approver_id": approver_id, "channel": "ui", "reason": reason},
+        timeout=10.0,
+    )
+    r.raise_for_status()
+    return r.json()
+
+
+def get_plan_status(plan_id: str) -> dict:
+    r = httpx.get(f"{_base()}/plans/{plan_id}", timeout=5.0)
+    r.raise_for_status()
+    return r.json()
+
+
+def stream_plan_resume(plan_id: str) -> Iterator[dict]:
+    with httpx.stream(
+        "GET",
+        f"{_base()}/plans/{plan_id}/resume/stream",
+        timeout=180.0,
+    ) as r:
+        r.raise_for_status()
+        for line in r.iter_lines():
+            if line:
+                yield json.loads(line)

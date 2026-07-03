@@ -1128,4 +1128,336 @@ Follow this order strictly. Do not jump ahead.
 | 2 | What happens if the user refreshes the page while a plan is suspended? | Read `pending_approval` from DB on conversation load (add to `get_messages` response) |
 | 3 | Should `run_all.sh` auto-start the Telegram bot? | **No** — start it separately; most users won't configure Telegram |
 | 4 | Expiry of the `plans` row itself (not just the token)? | Set `expires_at = issued_at + 24h`; a nightly cleanup job (or on-startup sweep) can mark expired plans |
-| 5 | Concurrent approval attempts (UI + Telegram simultaneously)? | The single-transaction lock on `token.used_at` is sufficient; second attempt gets 409 |
+
+---
+
+# Phase 13 — UI/UX Redesign & Frontend Migration
+
+> **Design-locked plan.** Scope, components, framework decision, and acceptance criteria
+> are all defined here before any code is written.
+> Streamlit's scalability ceiling (whole-script reruns, blocking server threads, fragile
+> dialog semantics) makes a full frontend migration the right call — not incremental patches.
+
+Branch: `poc/phase-13-ux-redesign` → PR → `dev`
+
+---
+
+## 13.1 · Goals
+
+| Priority | Goal |
+|---|---|
+| P0 | Replace Streamlit with a proper SPA (React or Angular) — eliminate all thread-blocking, rerun-model, and version-fragility issues |
+| P0 | Approval flow works end-to-end with zero manual refresh; Telegram approval auto-detected and resume triggered without any user click |
+| P0 | Keep FastAPI backend 100% unchanged — this is a frontend-only swap |
+| P1 | Chat experience closer to ChatGPT / Claude web — no raw topology grid on every turn |
+| P1 | Conversation list shows auto-generated titles + 🔔 badge for suspended plans |
+| P1 | Consistent dark-mode-safe visual language across all cards and components |
+| P2 | ACME brand colour (`#003087`) applied via real CSS — not fragile `st.markdown` injection |
+| P3 | Mobile-safe layout (single column below 800 px) |
+
+---
+
+## 13.2 · Why Streamlit cannot scale
+
+Streamlit was the right tool for PoC iteration speed. It has structural limits that cannot be patched:
+
+| Limitation | Impact |
+|---|---|
+| Whole-script reruns on every interaction | Every button click re-executes 1 300 lines; approval auto-poll blocks a server worker thread for 5 s |
+| No real-time push | SSE requires `st.write_stream` plumbing; WebSocket not supported |
+| Dialog / fragment semantics change between minor versions | `@st.dialog` + `st.rerun(scope="app")` broke in Streamlit 1.37–1.38; caused Phase 12 modal bug |
+| No component composition | `ApprovalCard`, stepper, citations are top-level functions in a single flat 1 300-line script |
+| Branding ceiling | CSS only via `st.markdown(unsafe_allow_html=True)` — fragile, unsupported, overridden by Streamlit updates |
+| No horizontal scaling | All sessions share one Python process; one slow RAG chain delays every concurrent user |
+
+A React / Angular SPA talks directly to the existing FastAPI REST + SSE surface.
+**The backend does not change.**
+
+---
+
+## 13.3 · Framework decision — React vs Angular
+
+| Criterion | React + Vite + TanStack Query | Angular (standalone) |
+|---|---|---|
+| **Learning curve** | Low–Medium; large OSS ecosystem | Medium–High; RxJS + decorators required |
+| **Bundle size** | ~50 KB gzip | ~100–200 KB gzip |
+| **SSE / streaming** | Native `EventSource` + custom hook | `HttpClient` + `Observable` pipe; clean reactive model |
+| **Component model** | Functional components + hooks — close to Python functions | Class/standalone components — more ceremony, better enforced separation |
+| **TypeScript** | Optional, well-supported | First-class, enforced |
+| **State management** | `useState` / Zustand / TanStack Query | Services + RxJS Subjects |
+| **UI library** | shadcn/ui, Radix, Mantine, Ant Design | Angular Material, PrimeNG |
+| **Accenture ecosystem** | Many Accenture accelerators use React | Angular dominant in Accenture enterprise delivery |
+| **Recommendation** | **React + Vite** for this PoC | Preferred if delivery target is an Accenture enterprise Angular project |
+
+**Decision: React + Vite.** The component surface is small enough that a React→Angular rewrite takes ~2 days once the API contracts are stable — both frameworks consume the same FastAPI endpoints.
+
+---
+
+## 13.4 · Architecture
+
+```
+┌────────────────────────────────────────────────────────────┐
+│  poc/frontend/                                             │
+│  (Vite React-TS — npm create vite@latest --template       │
+│   react-ts)                                                │
+│                                                            │
+│  src/                                                      │
+│    components/                                             │
+│      ApprovalCard.tsx      ← inline form, countdown timer │
+│      ChatMessage.tsx       ← assistant / user bubble      │
+│      CitationPanel.tsx     ← grouped by source PDF        │
+│      PipelineStepper.tsx   ← collapsible topology grid    │
+│      ConversationList.tsx  ← sidebar with 🔔 badge        │
+│      EmptyState.tsx        ← quick-start chips            │
+│    hooks/                                                  │
+│      useSSEStream.ts       ← EventSource → React state    │
+│      usePlanPolling.ts     ← setInterval GET /plans/{id}  │
+│      useApproval.ts        ← approve / reject mutations   │
+│    pages/                                                  │
+│      ChatPage.tsx          ← main layout                  │
+│    api/                                                    │
+│      client.ts             ← typed fetch wrappers         │
+│      types.ts              ← mirrors FastAPI Pydantic models│
+│                                                            │
+│  vite.config.ts            ← proxy /api → localhost:8000  │
+└────────────────────────────────────────────────────────────┘
+          │  REST + SSE (unchanged API surface)
+          ▼
+┌────────────────────────────────────────────────────────────┐
+│  FastAPI backend  (zero changes)                           │
+│  POST /chat/stream          GET /plans/{id}                │
+│  POST /plans/{id}/approve   GET /plans/{id}/resume/stream  │
+│  POST /plans/{id}/reject    GET /conversations             │
+│  GET  /reports/{year}.{ext}                                │
+└────────────────────────────────────────────────────────────┘
+```
+
+Key constraints:
+- `vite.config.ts` proxies `/api → http://localhost:8000` — no CORS config needed in dev.
+- `usePlanPolling` uses `setInterval(5000)` — non-blocking, runs in the browser, zero server thread cost.
+- `ApprovalCard` is a self-contained component: handles telegram-notification mode, inline-bypass form, countdown timer, and auto-resume — no global page rerun required.
+- Production build: `vite build` → `poc/frontend/dist/` → FastAPI mounts via `StaticFiles`.
+
+---
+
+## 13.5 · UI Mockups
+
+### Main screen — approval card active
+
+```
+╔══════════════════════════════════════════════════════════════════════════════════════════╗
+║  🛡️  ACME Insurances                                                        [Settings]  ║
+╠══════════════╦═══════════════════════════════════════════════════════════════════════════╣
+║  💬 Chats    ║                                                                           ║
+║  ──────────  ║   🛡️  ACME Assistant                                             👤 You ║
+║  [+ New]     ║   ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄  ║
+║              ║   Based on 2024 policy data, total claims paid: €2,400,000.             ║
+║  🔔 Q4 KPI   ║   This exceeds the €100k threshold — manager sign-off required.         ║
+║  Annual rep… ║                                                                           ║
+║  Policy cov… ║   ┌───────────────────────────────────────────────────────────────────┐  ║
+║  Claims 2024 ║   │  ⏸  Approval required                        ⏰ 12 min 43 s left  │  ║
+║              ║   │                                                                   │  ║
+║  ──────────  ║   │  KPI figures above €100,000 require manager approval.            │  ║
+║  👤 default  ║   │                                                                   │  ║
+║              ║   │  📱 Telegram notification sent                                    │  ║
+║  🟢 Ready    ║   │     Use /approve <token> or /reject <token> in the bot            │  ║
+║              ║   │     ⏱ Checking every 5 s…                                         │  ║
+║              ║   │                                                                   │  ║
+║              ║   │       [    ✅  Approve here    ]   [    ❌  Reject here    ]       │  ║
+║              ║   └───────────────────────────────────────────────────────────────────┘  ║
+║              ║                                                                           ║
+║              ║   ▸ Pipeline  Planner ✓ · Orchestrator ✓ · Worker×2 ✓ · Assembler ⟳    ║
+║              ║                                                                           ║
+╠══════════════╩═══════════════════════════════════════════════════════════════════════════╣
+║  [  Ask about a policy, claim, or refund…                              Send ↵  ]         ║
+╚══════════════════════════════════════════════════════════════════════════════════════════╝
+```
+
+### Empty state — new conversation
+
+```
+╔══════════════════════════════════════════════════════════════════════════════════════╗
+║                                                                                      ║
+║                          🛡️  ACME Insurances Assistant                              ║
+║                       What can I help you with today?                                ║
+║                                                                                      ║
+║     ┌──────────────────────┐  ┌──────────────────────┐  ┌──────────────────────┐   ║
+║     │  📄  Ask about a     │  │  📊  Run the 2024    │  │  📝  Request the     │   ║
+║     │      policy          │  │      KPI report       │  │      executive       │   ║
+║     │                      │  │                       │  │      summary         │   ║
+║     └──────────────────────┘  └──────────────────────┘  └──────────────────────┘   ║
+║                                                                                      ║
+║  ┌───────────────────────────────────────────────────────────────────────────────┐  ║
+║  │  Ask about a policy, claim, or refund…                        [ Send ↵ ]      │  ║
+║  └───────────────────────────────────────────────────────────────────────────────┘  ║
+╚══════════════════════════════════════════════════════════════════════════════════════╝
+```
+
+### Approval card — inline bypass form open
+
+```
+  ┌──────────────────────────────────────────────────────────────────────────────┐
+  │  ⏸  Approval required                                    ⏰ 11 min 02 s left │
+  │                                                                               │
+  │  Manager approval required before delivery.                                  │
+  │                                                                               │
+  │  📱 Telegram notification sent — use /approve or /reject in the bot           │
+  │     ⏱ Checking every 5 s…                                                     │
+  │  ─────────────────────────────────────────────────────────────────────────── │
+  │  Approve or Reject here                                                       │
+  │                                                                               │
+  │  ┌─────────────────────────────┐   ┌─────────────────────────────┐           │
+  │  │         ✅  Approve          │   │         ❌  Reject           │           │
+  │  └─────────────────────────────┘   └─────────────────────────────┘           │
+  │                                                                               │
+  │  ← Back                                                                       │
+  └──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Component tree (annotated)
+
+```
+╔══════════════════════════════════════════════════════════════════╗
+║  AppShell                                                        ║
+║  ┌──────────────┬─────────────────────────────────────────────┐  ║
+║  │Conversation  │  ChatPage                                   │  ║
+║  │List          │  ┌─────────────────────────────────────────┐│  ║
+║  │              │  │ ChatMessage (role=assistant)             ││  ║
+║  │  🔔 = has    │  │   content + CitationPanel (collapsed)    ││  ║
+║  │  suspended   │  └─────────────────────────────────────────┘│  ║
+║  │  plan        │  ┌─────────────────────────────────────────┐│  ║
+║  │              │  │ ApprovalCard                             ││  ║
+║  │              │  │   mode = telegram | inline               ││  ║
+║  │              │  │   countdown (usePlanPolling hook)        ││  ║
+║  │              │  │   ✅ Approve  ❌ Reject  ← Back           ││  ║
+║  │              │  └─────────────────────────────────────────┘│  ║
+║  │              │  ┌─────────────────────────────────────────┐│  ║
+║  │              │  │ PipelineStepper (collapsed by default)   ││  ║
+║  │              │  └─────────────────────────────────────────┘│  ║
+║  └──────────────┴─────────────────────────────────────────────┘  ║
+║  ┌────────────────────────────────────────────────────────────┐   ║
+║  │  ChatInput                                                 │   ║
+║  └────────────────────────────────────────────────────────────┘   ║
+╚══════════════════════════════════════════════════════════════════╝
+```
+
+---
+
+## 13.6 · Streamlit vs React — what changes
+
+| Area | Streamlit (current) | React SPA |
+|---|---|---|
+| Routing | Single page, one script | React Router — `/chat`, `/chat/:convId` |
+| State | `st.session_state` server dict, reset on refresh | `useState` / `localStorage` — survives refresh |
+| SSE streaming | `st.write_stream()` | `EventSource` in `useSSEStream` hook |
+| Approval polling | `time.sleep(5); st.rerun()` blocks server thread | `setInterval(5000)` in browser — zero server cost |
+| Approval card close | `st.rerun(scope="app")` — breaks across Streamlit versions | `setState` — deterministic, version-stable |
+| Branding | `st.markdown(unsafe_allow_html=True)` CSS injection | Tailwind / CSS Modules — unrestricted |
+| Deployment | `streamlit run` Python process | `vite build` → static files via FastAPI `StaticFiles` or CDN |
+| Tests | Manual only | Vitest + React Testing Library (unit); Playwright (E2E) |
+
+---
+
+## 13.7 · UX requirements by area
+
+### A — Approval card (P0)
+
+React `ApprovalCard` component requirements:
+1. Receives `planId`, `message`, `expiresAt`, `telegramConfigured` as props.
+2. `usePlanPolling(planId, 5000)` polls `GET /plans/{planId}` every 5 s using `setInterval` — no thread block.
+3. Live countdown derived from `expiresAt` using `useEffect` + 1-s `setInterval`.
+4. When state transitions to `approved` while mounted: skip the Resume button — immediately call `onApproved()` callback which triggers the resume stream.
+5. Inline bypass form (Approve / Reject / Back) toggled by local `useState` — no page navigation, no rerun.
+
+### B — Pipeline stepper (P1)
+
+- Collapsed by default inside a `<details>` element (or Radix `Collapsible`).
+- Auto-expands only when `route === "agentic"`.
+- Worker pills show skill label + elapsed ms (derived from `started_at`/`done_at` on stage events).
+- Off-path branches simply absent from the rendered list — no strikethrough confusion.
+
+### C — Conversation sidebar (P1)
+
+- Title: first 60 chars of the first user message + "…"; stored in DB on first assistant reply.
+- 🔔 badge: shown when `GET /conversations` returns any conversation with a `suspended` plan.
+- Delete: `DELETE /conversations/{id}` endpoint + ❌ icon button per row (requires a new FastAPI route).
+
+### D — Chat aesthetics (P2)
+
+- ACME primary colour `#003087` in `tailwind.config.ts` as `brand` token — used on all primary buttons and active pills.
+- Assistant avatar: 32-px SVG shield inline in `ChatMessage.tsx`.
+- Citations: `CitationPanel` collapsed by default (`<details open={false}>`); chunk popovers via Radix `Popover`.
+
+### E — Error and empty states (P1)
+
+- Backend unreachable: full-screen `ErrorBoundary` with a "Retry" button.
+- Empty conversation: `EmptyState` chip panel with three quick-start prompts.
+- Resume error: inline error banner in the chat with "Try again" that re-triggers `stream_plan_resume`.
+
+---
+
+## 13.8 · Migration path — parallel run until feature parity
+
+The Streamlit UI stays live throughout. React is added alongside it. Cutover happens only once all acceptance criteria pass.
+
+1. `npm create vite@latest poc/frontend -- --template react-ts`
+2. Wire `vite.config.ts` proxy → `http://localhost:8000`
+3. Implement `api/client.ts` (typed wrappers mirroring `poc/app/ui/api_client.py`)
+4. Build `useSSEStream` hook — smoke-test against `/chat/stream`
+5. Build `ChatMessage` + `ChatPage` — basic streaming chat works
+6. Build `ApprovalCard` — replaces `_render_approval_card` + `@st.dialog` entirely
+7. Build `PipelineStepper` (collapsed by default)
+8. Build `ConversationList` with 🔔 badge
+9. Build `EmptyState` chips
+10. Mount static build: `app.mount("/", StaticFiles(directory="frontend/dist"), name="frontend")` in FastAPI
+11. Run Streamlit and React in parallel for one sprint — parity-test every feature
+12. Cutover: remove `poc/app/ui/` once all acceptance criteria below pass
+
+---
+
+## 13.9 · Acceptance criteria
+
+- [ ] Full chat (question → streaming answer → citations) works via React SPA
+- [ ] Approval card renders on `approval_required` SSE event with live countdown timer
+- [ ] Telegram approval auto-detected within 5 s; resume triggered without any user click
+- [ ] Inline bypass form (Approve / Reject / Back) opens and closes without page reload
+- [ ] Pipeline stepper collapsed by default; expands on click; auto-expands for agentic routes
+- [ ] Conversations sidebar shows auto-generated titles + 🔔 badge for suspended plans
+- [ ] Page refresh restores pending approval card (via `GET /plans?user_id=…&state=suspended`)
+- [ ] ACME brand colour applied to all primary buttons and active state pills
+- [ ] Citations collapsed by default; chunk popovers open inline
+- [ ] Empty-state quick-start chips visible on new conversation
+- [ ] Mobile layout works at 375 px width (single column)
+- [ ] Zero `console.error` in the browser during normal flows
+- [ ] `vite build` produces a static bundle mountable by FastAPI `StaticFiles`
+- [ ] Server thread is never blocked — no `time.sleep` anywhere in the approval path
+
+---
+
+## 13.10 · Open questions (decide before implementation)
+
+| # | Question | Recommendation |
+|---|---|---|
+| 1 | React or Angular? | React + Vite for this PoC; Angular if delivery target is an Accenture enterprise project |
+| 2 | UI component library? | shadcn/ui — zero licensing friction, fully restyled for ACME brand via Tailwind tokens |
+| 3 | Auth / identity? | Keep `user_id` string header for Phase 13 (same as Streamlit). MSAL / OAuth is Phase 14+ |
+| 4 | Keep Streamlit for internal use? | Yes — parallel until React passes all acceptance criteria, then remove |
+| 5 | DOCX / PDF downloads? | `window.open(url)` → FastAPI `/reports/{year}.{ext}` — no backend change |
+| 6 | Concurrent approval attempts? | Token `used_at` single-transaction lock handles it; second attempt gets 409 |
+
+---
+
+## 13.11 · Implementation order
+
+1. Scaffold `poc/frontend/` (Vite + React-TS + Tailwind + shadcn/ui)
+2. `api/client.ts` typed wrappers + `useSSEStream` hook (smoke-test against live API)
+3. `ChatMessage` + `ChatPage` — basic streaming chat end-to-end
+4. `ApprovalCard` with `usePlanPolling`, countdown, inline bypass form, auto-resume
+5. `PipelineStepper` — collapsible, per-step skill labels
+6. `ConversationList` — auto-titles, 🔔 badge, delete button
+7. `EmptyState` — quick-start chips
+8. CSS brand tokens (`#003087`), avatar SVG, `CitationPanel` collapsed by default
+9. Error boundary + resume-error inline banner
+10. FastAPI `StaticFiles` mount + `vite build` integration
+11. Parallel parity sprint (Streamlit still live)
+12. Cutover — remove `poc/app/ui/`

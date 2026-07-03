@@ -4,8 +4,8 @@
     ],
     "editor.formatOnSave": true,
     "editor.rulers": [
-        88,
-        120
+        80,
+        100
     ],
     "[python]": {
         "editor.defaultFormatter": "ms-python.black-formatter",
@@ -15,11 +15,17 @@
     },
     "black-formatter.args": [
         "--line-length",
-        "88"
+        "100"
     ],
     "isort.args": [
         "--profile",
-        "black"
+        "black",
+        "--line-length",
+        "100"
+    ],
+    "flake8.args": [
+        "--max-line-length=100",
+        "--extend-ignore=E203,W503"
     ],
     "editor.renderWhitespace": "boundary",
     "editor.tabSize": 4,

@@ -89,6 +89,15 @@ class Settings(BaseSettings):
         / "insurance_kpis.schema.json"
     )
 
+    # --- Phase 12: HITL approval gates ---
+    # HMAC secret for signing approval tokens. Change before any production use.
+    approval_hmac_secret: str = "dev-insecure-secret-change-me"
+    # KPI threshold above which a computed figure triggers the approval gate.
+    approvals_kpi_threshold: float = 1_000_000.0
+    # Telegram bot (optional — leave blank to use UI-only channel).
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
+
     # --- Observability (Phase 5, Aspire Dashboard via OTLP gRPC) ---
     # Default ON. setup_otel() probes the endpoint at startup and
     # self-disables (logs a warning) if Aspire isn't reachable.
