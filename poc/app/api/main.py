@@ -8,6 +8,7 @@ from app.api.routes import (
     feedback,
     health,
     ingest,
+    plans,
     reports,
     sources,
 )
@@ -37,6 +38,7 @@ app.include_router(ingest.router)
 app.include_router(sources.router)
 app.include_router(reports.router)
 app.include_router(feedback.router)
+app.include_router(plans.router)
 
 log.info(
     "FastAPI ready - model=%s embed=%s chroma=%s sqlite=%s otel=%s",
@@ -46,3 +48,6 @@ log.info(
     settings.sqlite_path,
     settings.otel_enabled,
 )
+
+_tg_status = "configured" if settings.telegram_bot_token else "NOT configured — run scripts/run_telegram_bot.py"
+log.info("Phase 12 approval channel: Telegram %s", _tg_status)
