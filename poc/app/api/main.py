@@ -1,6 +1,9 @@
 """FastAPI application factory and uvicorn entrypoint."""
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import (
     chat,
@@ -51,3 +54,10 @@ log.info(
 
 _tg_status = "configured" if settings.telegram_bot_token else "NOT configured — run scripts/run_telegram_bot.py"
 log.info("Phase 12 approval channel: Telegram %s", _tg_status)
+
+# Serve React SPA from frontend/dist if it has been built (vite build).
+# The wildcard mount must come last — after all API routers.
+_frontend_dist = Path(__file__).parent.parent.parent / "frontend" / "dist"
+if _frontend_dist.exists():
+    app.mount("/", StaticFiles(directory=_frontend_dist, html=True), name="frontend")
+    log.info("Serving React SPA from %s", _frontend_dist)

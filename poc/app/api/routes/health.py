@@ -15,4 +15,10 @@ def health() -> HealthResponse:
         ollama_ok = r.status_code == 200
     except httpx.HTTPError:
         ollama_ok = False
-    return HealthResponse(status="ok", ollama_reachable=ollama_ok)
+    return HealthResponse(
+        status="ok",
+        ollama_reachable=ollama_ok,
+        telegram_configured=bool(settings.telegram_bot_token and settings.telegram_chat_id),
+        otel_enabled=settings.otel_enabled,
+        otel_ui_url=settings.otel_ui_url,
+    )

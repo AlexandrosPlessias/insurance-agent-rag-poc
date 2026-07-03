@@ -1,0 +1,79 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+@import "tailwindcss";
+
+:root {
+  --brand:        #f43f5e;
+  --brand-dark:   #e11d48;
+  --brand-mid:    #fb7185;
+  --brand-light:  #fff1f2;
+  --brand-accent: #f43f5e;
+
+  --sidebar-bg:   #18181b;
+  --sidebar-text: #a1a1aa;
+  --sidebar-hover:#27272a;
+  --sidebar-active:#3f3f46;
+
+  --bg-page:   #fafafa;
+  --bg-card:   #ffffff;
+  --bg-input:  #ffffff;
+
+  --text-primary:   #09090b;
+  --text-secondary: #52525b;
+  --text-muted:     #a1a1aa;
+
+  --border: #e4e4e7;
+  --shadow-sm: 0 1px 3px rgba(9,9,11,.06), 0 1px 2px rgba(9,9,11,.04);
+  --shadow-md: 0 4px 12px rgba(9,9,11,.09), 0 2px 4px rgba(9,9,11,.05);
+  --shadow-lg: 0 8px 24px rgba(9,9,11,.13), 0 4px 8px rgba(9,9,11,.06);
+
+  font-family: "Inter", system-ui, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #root { height: 100%; }
+
+body {
+  background: var(--bg-page);
+  color: var(--text-primary);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #d4d4d8; border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: #a1a1aa; }
+
+/* Prose markdown inside bubbles */
+.prose h1,.prose h2,.prose h3 { font-weight: 600; margin: .75em 0 .4em; color: var(--text-primary); }
+.prose h1 { font-size: 1.15em; }
+.prose h2 { font-size: 1.05em; }
+.prose h3 { font-size: .95em; }
+.prose p  { margin: .5em 0; line-height: 1.65; }
+.prose ul,.prose ol { padding-left: 1.25em; margin: .5em 0; }
+.prose li { margin: .25em 0; line-height: 1.6; }
+.prose code {
+  background: #f4f4f5;
+  border: 1px solid #e4e4e7;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: .85em;
+  font-family: ui-monospace, monospace;
+}
+.prose pre { background: #f4f4f5; border-radius: 8px; padding: .75em 1em; overflow-x: auto; margin: .5em 0; }
+.prose pre code { background: none; border: none; padding: 0; }
+.prose strong { font-weight: 600; }
+.prose table { width: 100%; border-collapse: collapse; margin: .75em 0; font-size: .88em; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
+.prose thead { background: linear-gradient(90deg,#fafafa,#f4f4f5); }
+.prose th { padding: .55em .9em; text-align: left; font-weight: 700; color: var(--brand-dark); border-bottom: 2px solid #e4e4e7; white-space: nowrap; }
+.prose td { padding: .45em .9em; border-bottom: 1px solid var(--border); }
+.prose tbody tr:last-child td { border-bottom: none; }
+.prose tbody tr:hover { background: #fff1f2; }
+.prose blockquote { border-left: 3px solid var(--brand); padding-left: .75em; color: var(--text-secondary); margin: .5em 0; }
+
+/* Cursor blink */
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+.cursor-blink { animation: blink 1s step-end infinite; }
