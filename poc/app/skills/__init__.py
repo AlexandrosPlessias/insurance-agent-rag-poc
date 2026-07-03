@@ -27,6 +27,7 @@ class Skill:
     system_prompt: str = ""                      # NOT exposed to Planner
     input_fields: dict[str, str] = field(default_factory=dict)
     tools_used: list[str] = field(default_factory=list)
+    requires_approval: bool = False              # Phase 12: pre-execution gate
 
 
 _REGISTRY: dict[str, Skill] = {}

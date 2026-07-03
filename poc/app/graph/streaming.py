@@ -1,20 +1,25 @@
-"""Phase 11 streaming orchestrator.
+"""Phase 11/12 streaming orchestrator.
 
-Walks the same Planner → Orchestrator → Workers → Assembler pipeline as the
-compiled graph, but emits NDJSON `stage` events around each node and streams
-RAG answer tokens inside the worker step.
+Walks the Planner → Orchestrator → Workers → Assembler pipeline and emits
+NDJSON events. Phase 12 adds pre-execution approval gates that suspend the
+plan and emit an `approval_required` event when a Skill has requires_approval=True.
 
 Event types emitted:
-  {"type": "stage", "node": "planner", "status": "started"|"done", "info": "…"}
-  {"type": "stage", "node": "worker.step-1", "status": "started"|"done", …}
-  {"type": "stage", "node": "assembler", "status": "started"|"done"}
-  {"type": "token", "value": "…"}
-  {"type": "meta", "reformulated_query": "…"}
-  {"type": "done", "citations": […], "validated": bool, "route": "…", …}
-  {"type": "error", "value": "…"}
+  {"type": "stage",            "node": "planner",   "status": "started"|"done"}
+  {"type": "stage",            "node": "worker.…",  "status": "started"|"done"}
+  {"type": "stage",            "node": "assembler", "status": "started"|"done"}
+  {"type": "token",            "value": "…"}
+  {"type": "meta",             "reformulated_query": "…"}
+  {"type": "approval_required","plan_id": "…", "step_id": "…",
+                                "message": "…", "expires_at": "…",
+                                "trigger_case": "…"}
+  {"type": "done",             "citations": […], "validated": bool, "route": "…", …}
+  {"type": "error",            "value": "…"}
 """
 from __future__ import annotations
 
+import re
+import time
 from typing import Iterator
 
 import dataclasses
@@ -30,13 +35,17 @@ from app.agents.rag_agent import (
     reformulate_question,
 )
 from app.agents.validator_agent import validator_node
+from app.approvals.channels import get_channel
+from app.approvals.store import ApprovalStore
 from app.audit import events as audit_events
 from app.audit.middleware import record as audit_record
+from app.config import settings
 from app.graph.orchestrator import _step_state, worker_node
 from app.graph.state import GraphState
 from app.llm.ollama_client import get_llm
 from app.observability.logging import get_logger
 from app.rag.retriever import retrieve
+from app.skills import get_skill_registry
 
 log = get_logger(__name__)
 
@@ -88,7 +97,6 @@ def _stream_rag_step(
 
     yield _stage(f"worker.{step['step_id']}.answer", "started")
     prompt = build_rag_prompt(chunks, history=history)
-    from langchain_core.messages import HumanMessage, SystemMessage
     messages = [SystemMessage(content=prompt), HumanMessage(content=question)]
     parts: list[str] = []
     for piece in get_llm().stream(messages):
@@ -145,6 +153,101 @@ def _stream_rag_step(
     }
 
 
+def _has_large_figure(text: str, threshold: float) -> bool:
+    """Return True if any standalone number in text exceeds threshold."""
+    for match in re.finditer(r"\b\d[\d,]*(?:\.\d+)?\b", text):
+        try:
+            if float(match.group().replace(",", "")) > threshold:
+                return True
+        except ValueError:
+            pass
+    return False
+
+
+def _suspend_for_approval(
+    *,
+    step: dict,
+    state: GraphState,
+    plan_id: str,
+    user_id: str,
+    conversation_id: int | None,
+    trigger_case: str = "",
+    message: str = "",
+) -> Iterator[dict]:
+    """Persist the plan, issue a token, notify the channel, yield approval_required."""
+    step_id: str = step["step_id"]
+    skill_name: str = step.get("skill_name", "")
+    if not trigger_case:
+        trigger_case = "report" if skill_name == "executive-section-summary" else "pre-execution"
+    if not message:
+        message = _approval_message(skill_name, trigger_case)
+
+    resume_payload = {
+        "question": state.get("question"),
+        "history": state.get("history") or [],
+        "user_activity": state.get("user_activity") or [],
+        "plan": state.get("plan") or {},
+        "step_results": state.get("step_results") or {},
+        "pending_step_id": step_id,
+        "user_id": user_id,
+        "conversation_id": conversation_id,
+        "target_year": state.get("target_year"),
+    }
+
+    store = ApprovalStore(settings.audit_sqlite_path)
+    store.create_plan(
+        plan_id=plan_id,
+        user_id=user_id,
+        conversation_id=conversation_id,
+        pending_step_id=step_id,
+        trigger_case=trigger_case,
+        resume_payload=resume_payload,
+    )
+    raw_token = store.issue_token(plan_id=plan_id, step_id=step_id)
+
+    plan_row = store.get_plan(plan_id)
+    expires_at = (plan_row or {}).get("expires_at", "")
+
+    # Yield the UI event FIRST so Streamlit can render the approval card,
+    # then wait 2 s before sending the Telegram notification.  The browser
+    # needs that window to receive the SSE chunk, trigger a rerun, and paint
+    # the card — otherwise the phone buzzes before the UI is ready.
+    log.info("Plan suspended plan_id=%s step_id=%s", plan_id, step_id)
+    yield {
+        "type": "approval_required",
+        "plan_id": plan_id,
+        "step_id": step_id,
+        "message": message,
+        "expires_at": expires_at,
+        "trigger_case": trigger_case,
+    }
+
+    time.sleep(2)  # give browser time to render the card before notifying
+
+    get_channel().send(
+        raw_token=raw_token,
+        plan_id=plan_id,
+        message=message,
+        expires_at=expires_at,
+        trigger_case=trigger_case,
+    )
+
+
+def _approval_message(skill_name: str, trigger_case: str = "") -> str:
+    if trigger_case == "kpi":
+        return (
+            f"This KPI answer contains figures above "
+            f"€{settings.approvals_kpi_threshold:,.0f}. "
+            "Manager approval required before delivery."
+        )
+    if skill_name == "executive-section-summary":
+        return (
+            "An executive annual report is about to be generated. "
+            "Approve to continue delivery."
+        )
+    return "A step requires approval before it can run."
+
+
 def stream_graph(
     question: str,
     history: list[dict] | None = None,
@@ -174,6 +277,7 @@ def stream_graph(
         yield _stage("planner", "started")
         state.update(planner_node(state))
         plan_dict = state.get("plan") or {}
+        plan_id: str = plan_dict.get("plan_id") or ""
         n_steps = len(plan_dict.get("steps", []))
         yield _stage("planner", "done", info=f"steps={n_steps}")
 
@@ -202,6 +306,19 @@ def stream_graph(
             for step in ready:
                 step_id = step["step_id"]
                 skill_name = step.get("skill_name", "")
+
+                # Pre-execution approval gate (Phase 12)
+                skill = get_skill_registry().get(skill_name)
+                if skill and skill.requires_approval:
+                    yield from _suspend_for_approval(
+                        step=step,
+                        state=state,
+                        plan_id=plan_id,
+                        user_id=user_id or "",
+                        conversation_id=conversation_id,
+                    )
+                    return  # generator ends — plan is suspended
+
                 yield _stage(f"worker.{step_id}", "started", info=f"skill={skill_name}")
 
                 if skill_name == "answer-policy-question":
@@ -218,8 +335,29 @@ def stream_graph(
                     if "step_results" not in state:
                         state["step_results"] = {}  # type: ignore[index]
                     state["step_results"].update(step_results_update)  # type: ignore[index]
-                    # Emit the primary output as tokens.
                     step_result = step_results_update.get(step_id, {})
+
+                    # Post-execution KPI gate (Case 3): check BEFORE emitting
+                    # tokens so large figures never reach the user without sign-off.
+                    # The result is already in state["step_results"], so resume
+                    # skips re-execution and goes straight to the assembler.
+                    if skill_name == "compute-kpi" and _has_large_figure(
+                        step_result.get("output") or "", settings.approvals_kpi_threshold
+                    ):
+                        yield _stage(f"worker.{step_id}", "done")
+                        completed.add(step_id)
+                        iterations += 1
+                        yield from _suspend_for_approval(
+                            step=step,
+                            state=state,
+                            plan_id=plan_id,
+                            user_id=user_id or "",
+                            conversation_id=conversation_id,
+                            trigger_case="kpi",
+                        )
+                        return
+
+                    # Normal delivery: emit the primary output as tokens.
                     if step_result.get("output"):
                         yield {"type": "token", "value": step_result["output"]}
 
@@ -261,4 +399,135 @@ def stream_graph(
 
     except Exception as exc:  # noqa: BLE001
         log.exception("stream_graph error")
+        yield {"type": "error", "value": str(exc)}
+
+
+def stream_plan_resume(plan_id: str) -> Iterator[dict]:
+    """Resume a suspended plan after approval.
+
+    Reconstructs state from the persisted resume_payload, executes the
+    pending step and any remaining steps, then runs the Assembler.
+    The plan state is updated to 'done' on success.
+    """
+    store = ApprovalStore(settings.audit_sqlite_path)
+    plan_db = store.get_plan(plan_id)
+
+    if plan_db is None:
+        yield {"type": "error", "value": f"Plan {plan_id!r} not found"}
+        return
+    if plan_db["state"] != "approved":
+        yield {
+            "type": "error",
+            "value": f"Plan {plan_id!r} cannot resume — state={plan_db['state']!r}",
+        }
+        return
+
+    payload = plan_db["resume_payload"]
+
+    state: GraphState = {  # type: ignore[assignment]
+        "question": payload.get("question", ""),
+        "retry_count": 0,
+        "step_results": payload.get("step_results") or {},
+        "history": payload.get("history") or [],
+        "user_activity": payload.get("user_activity") or [],
+        "plan": payload.get("plan") or {},
+    }
+    if payload.get("user_id"):
+        state["user_id"] = payload["user_id"]  # type: ignore[index]
+    if payload.get("conversation_id") is not None:
+        state["conversation_id"] = payload["conversation_id"]  # type: ignore[index]
+    if payload.get("target_year") is not None:
+        state["target_year"] = int(payload["target_year"])  # type: ignore[index]
+
+    plan_dict: dict = state.get("plan") or {}  # type: ignore[assignment]
+    steps_raw: list[dict] = plan_dict.get("steps", [])
+    completed: set[str] = set((state.get("step_results") or {}).keys())
+    iterations = 0
+    tokens_emitted = False  # tracks whether any worker streamed tokens
+
+    try:
+        yield _stage("orchestrator", "started", info="resume")
+
+        while True:
+            all_ids = {s["step_id"] for s in steps_raw}
+            if completed >= all_ids or iterations >= _MAX_STEPS:
+                break
+
+            ready = [
+                s for s in steps_raw
+                if s["step_id"] not in completed
+                and all(dep in completed for dep in s.get("depends_on", []))
+            ]
+            if not ready:
+                break
+
+            for step in ready:
+                step_id = step["step_id"]
+                skill_name = step.get("skill_name", "")
+
+                yield _stage(f"worker.{step_id}", "started", info=f"skill={skill_name}")
+
+                if skill_name == "answer-policy-question":
+                    tokens_emitted = True
+                    yield from _stream_rag_step(step, state)
+                else:
+                    step_state_for_worker: GraphState = {  # type: ignore[assignment]
+                        **state,
+                        "current_step": step,
+                    }
+                    result = worker_node(step_state_for_worker)
+                    step_results_update: dict = result.get("step_results", {})
+                    if "step_results" not in state:
+                        state["step_results"] = {}  # type: ignore[index]
+                    state["step_results"].update(step_results_update)  # type: ignore[index]
+                    step_result = step_results_update.get(step_id, {})
+                    if step_result.get("output"):
+                        tokens_emitted = True
+                        yield {"type": "token", "value": step_result["output"]}
+
+                yield _stage(f"worker.{step_id}", "done")
+                completed.add(step_id)
+                iterations += 1
+
+        yield _stage("orchestrator", "done", info=f"completed={len(completed)}")
+
+        yield _stage("assembler", "started")
+        assembler_result = assembler_node(state)
+        state.update(assembler_result)
+        yield _stage("assembler", "done")
+
+        # Post-execution gate resumes (e.g. KPI Case 3) skip the worker loop
+        # entirely because the step result is pre-computed.  The assembler has
+        # the final answer but nothing was streamed — emit it now.
+        if not tokens_emitted:
+            final_answer = state.get("final_answer") or ""
+            if final_answer:
+                yield {"type": "token", "value": final_answer}
+
+        citations_raw = state.get("final_citations") or []
+        citations_out: list[dict] = []
+        for c in citations_raw:
+            if isinstance(c, dict):
+                citations_out.append(c)
+            elif dataclasses.is_dataclass(c):
+                citations_out.append(citation_payload(c))
+
+        store.update_plan_state(plan_id, "done")
+
+        yield {
+            "type": "done",
+            "citations": citations_out,
+            "validated": bool(state.get("validated", True)),
+            "retry_count": state.get("retry_count", 0),
+            "critique": "",
+            "route": state.get("route", "agentic"),
+            "target_year": state.get("target_year"),
+            "plan_id": plan_id,
+            "report_kind": state.get("report_kind"),
+            "report_year": state.get("report_year"),
+            "report_run_id": state.get("report_run_id"),
+        }
+
+    except Exception as exc:  # noqa: BLE001
+        log.exception("stream_plan_resume error plan_id=%s", plan_id)
         yield {"type": "error", "value": str(exc)}

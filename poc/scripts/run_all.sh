@@ -16,6 +16,7 @@ ASPIRE_NAME="aspire-dashboard"
 
 API_PID=""
 UI_PID=""
+BOT_PID=""
 STARTED_ASPIRE=false
 
 color()  { printf '\033[1;36m%s\033[0m\n' "$*"; }
@@ -24,8 +25,10 @@ prefix() { sed -u "s/^/$1 /"; }
 cleanup() {
   printf '\n'
   color "Shutting down stack ..."
+  [ -n "$BOT_PID" ] && kill  "$BOT_PID" 2>/dev/null || true
   [ -n "$UI_PID"  ] && kill  "$UI_PID"  2>/dev/null || true
   [ -n "$API_PID" ] && kill  "$API_PID" 2>/dev/null || true
+  [ -n "$BOT_PID" ] && wait  "$BOT_PID" 2>/dev/null || true
   [ -n "$UI_PID"  ] && wait  "$UI_PID"  2>/dev/null || true
   [ -n "$API_PID" ] && wait  "$API_PID" 2>/dev/null || true
   if [ "$STARTED_ASPIRE" = "true" ]; then
@@ -113,13 +116,29 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 
-# ---------- [3/3] Streamlit ----------
-color "[3/3] Starting Streamlit on http://localhost:8501 ..."
+# ---------- [3/4] Streamlit ----------
+color "[3/4] Starting Streamlit on http://localhost:8501 ..."
 streamlit run app/ui/streamlit_app.py \
   --server.headless true \
   --server.runOnSave false \
   2>&1 | prefix "[ui] " &
 UI_PID=$!
+
+# ---------- [4/4] Telegram bot (only when token is configured) ----------
+# Load TELEGRAM_BOT_TOKEN from .env if not already in the environment.
+if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] && [ -f ".env" ]; then
+  TELEGRAM_BOT_TOKEN="$(grep -E '^TELEGRAM_BOT_TOKEN=' .env | cut -d= -f2- | tr -d '[:space:]')"
+fi
+
+if [ -n "${TELEGRAM_BOT_TOKEN:-}" ]; then
+  color "[4/4] Starting Telegram approval bot ..."
+  python scripts/run_telegram_bot.py \
+    2>&1 | prefix "[bot]" &
+  BOT_PID=$!
+  color "      Bot ready (listening for /approve and /reject)"
+else
+  color "[4/4] Skipping Telegram bot (TELEGRAM_BOT_TOKEN not set)"
+fi
 
 printf '\n'
 color "============================================================"
@@ -128,6 +147,8 @@ color "  UI:        http://localhost:8501"
 color "  API:       http://localhost:${API_PORT}"
 [ "$STARTED_ASPIRE" = "true" ] && \
   color "  Aspire:    http://localhost:18888"
+[ -n "${BOT_PID:-}" ] && \
+  color "  Bot:       Telegram approval bot active"
 color "Press Ctrl+C to stop everything."
 color "============================================================"
 printf '\n'

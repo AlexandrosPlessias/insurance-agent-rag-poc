@@ -17,4 +17,5 @@ skill = Skill(
         "year": "int – the policy year for the annual report",
     },
     tools_used=["kpi_query", "vector_search", "knowledge_base_lookup"],
+    requires_approval=True,
 )

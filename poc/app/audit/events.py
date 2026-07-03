@@ -36,6 +36,13 @@ PLANNER_PLAN = "planner.plan"
 ORCHESTRATOR_STEP = "orchestrator.step"
 FEEDBACK_RECEIVED = "feedback.received"
 
+# Phase 12: HITL approval gates
+APPROVAL_SUSPENDED = "approval.suspended"
+APPROVAL_GRANTED = "approval.granted"
+APPROVAL_REJECTED = "approval.rejected"
+APPROVAL_EXPIRED = "approval.expired"
+APPROVAL_RESUMED = "approval.resumed"
+
 
 EventType = Literal[
     "supervisor.route",
@@ -51,4 +58,9 @@ EventType = Literal[
     "planner.plan",
     "orchestrator.step",
     "feedback.received",
+    "approval.suspended",
+    "approval.granted",
+    "approval.rejected",
+    "approval.expired",
+    "approval.resumed",
 ]
