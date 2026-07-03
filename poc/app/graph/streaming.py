@@ -18,6 +18,7 @@ Event types emitted:
 """
 from __future__ import annotations
 
+import re
 import time
 from typing import Iterator
 
@@ -152,6 +153,17 @@ def _stream_rag_step(
     }
 
 
+def _has_large_figure(text: str, threshold: float) -> bool:
+    """Return True if any standalone number in text exceeds threshold."""
+    for match in re.finditer(r"\b\d[\d,]*(?:\.\d+)?\b", text):
+        try:
+            if float(match.group().replace(",", "")) > threshold:
+                return True
+        except ValueError:
+            pass
+    return False
+
+
 def _suspend_for_approval(
     *,
     step: dict,
@@ -159,11 +171,16 @@ def _suspend_for_approval(
     plan_id: str,
     user_id: str,
     conversation_id: int | None,
+    trigger_case: str = "",
+    message: str = "",
 ) -> Iterator[dict]:
     """Persist the plan, issue a token, notify the channel, yield approval_required."""
     step_id: str = step["step_id"]
     skill_name: str = step.get("skill_name", "")
-    trigger_case = "report" if skill_name == "executive-section-summary" else "pre-execution"
+    if not trigger_case:
+        trigger_case = "report" if skill_name == "executive-section-summary" else "pre-execution"
+    if not message:
+        message = _approval_message(skill_name, trigger_case)
 
     resume_payload = {
         "question": state.get("question"),
@@ -191,8 +208,6 @@ def _suspend_for_approval(
     plan_row = store.get_plan(plan_id)
     expires_at = (plan_row or {}).get("expires_at", "")
 
-    message = _approval_message(skill_name)
-
     # Yield the UI event FIRST so Streamlit can render the approval card,
     # then wait 2 s before sending the Telegram notification.  The browser
     # needs that window to receive the SSE chunk, trigger a rerun, and paint
@@ -218,7 +233,13 @@ def _suspend_for_approval(
     )
 
 
-def _approval_message(skill_name: str) -> str:
+def _approval_message(skill_name: str, trigger_case: str = "") -> str:
+    if trigger_case == "kpi":
+        return (
+            f"This KPI answer contains figures above "
+            f"€{settings.approvals_kpi_threshold:,.0f}. "
+            "Manager approval required before delivery."
+        )
     if skill_name == "executive-section-summary":
         return (
             "An executive annual report is about to be generated. "
@@ -314,8 +335,29 @@ def stream_graph(
                     if "step_results" not in state:
                         state["step_results"] = {}  # type: ignore[index]
                     state["step_results"].update(step_results_update)  # type: ignore[index]
-                    # Emit the primary output as tokens.
                     step_result = step_results_update.get(step_id, {})
+
+                    # Post-execution KPI gate (Case 3): check BEFORE emitting
+                    # tokens so large figures never reach the user without sign-off.
+                    # The result is already in state["step_results"], so resume
+                    # skips re-execution and goes straight to the assembler.
+                    if skill_name == "compute-kpi" and _has_large_figure(
+                        step_result.get("output") or "", settings.approvals_kpi_threshold
+                    ):
+                        yield _stage(f"worker.{step_id}", "done")
+                        completed.add(step_id)
+                        iterations += 1
+                        yield from _suspend_for_approval(
+                            step=step,
+                            state=state,
+                            plan_id=plan_id,
+                            user_id=user_id or "",
+                            conversation_id=conversation_id,
+                            trigger_case="kpi",
+                        )
+                        return
+
+                    # Normal delivery: emit the primary output as tokens.
                     if step_result.get("output"):
                         yield {"type": "token", "value": step_result["output"]}
 
@@ -381,7 +423,6 @@ def stream_plan_resume(plan_id: str) -> Iterator[dict]:
         return
 
     payload = plan_db["resume_payload"]
-    pending_step_id: str = plan_db.get("pending_step_id") or ""
 
     state: GraphState = {  # type: ignore[assignment]
         "question": payload.get("question", ""),
@@ -402,6 +443,7 @@ def stream_plan_resume(plan_id: str) -> Iterator[dict]:
     steps_raw: list[dict] = plan_dict.get("steps", [])
     completed: set[str] = set((state.get("step_results") or {}).keys())
     iterations = 0
+    tokens_emitted = False  # tracks whether any worker streamed tokens
 
     try:
         yield _stage("orchestrator", "started", info="resume")
@@ -423,14 +465,10 @@ def stream_plan_resume(plan_id: str) -> Iterator[dict]:
                 step_id = step["step_id"]
                 skill_name = step.get("skill_name", "")
 
-                # If this is not the pending step, skip the approval gate —
-                # it was already approved for the whole plan.
-                if step_id == pending_step_id or True:
-                    pass  # gate already cleared for this plan
-
                 yield _stage(f"worker.{step_id}", "started", info=f"skill={skill_name}")
 
                 if skill_name == "answer-policy-question":
+                    tokens_emitted = True
                     yield from _stream_rag_step(step, state)
                 else:
                     step_state_for_worker: GraphState = {  # type: ignore[assignment]
@@ -444,6 +482,7 @@ def stream_plan_resume(plan_id: str) -> Iterator[dict]:
                     state["step_results"].update(step_results_update)  # type: ignore[index]
                     step_result = step_results_update.get(step_id, {})
                     if step_result.get("output"):
+                        tokens_emitted = True
                         yield {"type": "token", "value": step_result["output"]}
 
                 yield _stage(f"worker.{step_id}", "done")
@@ -456,6 +495,14 @@ def stream_plan_resume(plan_id: str) -> Iterator[dict]:
         assembler_result = assembler_node(state)
         state.update(assembler_result)
         yield _stage("assembler", "done")
+
+        # Post-execution gate resumes (e.g. KPI Case 3) skip the worker loop
+        # entirely because the step result is pre-computed.  The assembler has
+        # the final answer but nothing was streamed — emit it now.
+        if not tokens_emitted:
+            final_answer = state.get("final_answer") or ""
+            if final_answer:
+                yield {"type": "token", "value": final_answer}
 
         citations_raw = state.get("final_citations") or []
         citations_out: list[dict] = []

@@ -1,10 +1,10 @@
-# Phase 12 — Human-in-the-Loop & Telegram channel
+# Phase 12a — Human-in-the-Loop & Telegram channel
 
 > **Implementation plan.** Design is locked before a single line of production code is written.
 > Every contract, state machine, file path, and edge case is specified here.
 > Deviating from this plan requires updating the plan first.
 
-Branch: `poc/phase-12-hitl-telegram` → PR → `dev`
+Branch: `poc/phase-12a-hitl` → PR → `dev`
 
 ---
 
@@ -217,7 +217,7 @@ Two gate types:
 
 ---
 
-### Case 2 — Unverified RAG answer (post-execution gate)
+### ~~Case 2 — Unverified RAG answer (post-execution gate)~~ — **DESCOPED**
 
 **Trigger:** After the RAG worker finishes, `validated=False` (Validator returned `grounded=False` after the one retry).
 
@@ -235,7 +235,7 @@ The `step_result` (the unverified answer + citations) is saved inside `resume_pa
 
 ---
 
-### Case 3 — Large financial KPI figure (post-execution gate)
+### Case 3 — Large financial KPI figure (post-execution gate) ✅ **IMPLEMENTED**
 
 **Trigger:** After a `compute-kpi` step, any numeric figure in the result exceeds `settings.approvals_kpi_threshold` (default: `100_000`, configurable in `.env` as `APPROVALS_KPI_THRESHOLD`).
 
@@ -258,7 +258,7 @@ APPROVALS_KPI_THRESHOLD=100000   # suspend KPI answers with figures above this v
 
 ---
 
-### Case 4 — Bulk document ingestion (pre-execution gate)
+### ~~Case 4 — Bulk document ingestion (pre-execution gate)~~ — **DESCOPED**
 
 **Trigger:** Planner routes to a future `bulk-ingest` Skill (not yet implemented — Phase 12 creates the Skill stub).
 
@@ -266,18 +266,18 @@ APPROVALS_KPI_THRESHOLD=100000   # suspend KPI answers with figures above this v
 
 **Implementation:** Set `requires_approval=True` on the `bulk-ingest` Skill. The Orchestrator suspends before the Ingestion worker runs. The reviewer sees the document metadata + first 3 chunk previews in the approval card.
 
-**Note:** The full `bulk-ingest` Skill implementation is Phase 12 scope only as a **stub** — the Skill exists, the approval gate works, the actual ingestion pipeline wiring is Phase 13 work. This keeps Phase 12 focused.
+**Note:** The full `bulk-ingest` Skill implementation is Phase 12a scope only as a **stub** — the Skill exists, the approval gate works, the actual ingestion pipeline wiring is Phase 12b work. This keeps Phase 12a focused.
 
 ---
 
 ### Summary table
 
-| Case | Gate type | Checked by | Condition | Resume skips re-execution? |
-|---|---|---|---|---|
-| 1 — Executive report | Pre-execution | Skill flag | `requires_approval=True` | N/A (step not yet run) |
-| 2 — Unverified answer | Post-execution | Orchestrator | `validated=False` after retry | **Yes** — saved result delivered |
-| 3 — Large KPI figure | Post-execution | Orchestrator | any figure > threshold | **Yes** — saved result delivered |
-| 4 — Bulk ingestion | Pre-execution | Skill flag | `requires_approval=True` on `bulk-ingest` | N/A (step not yet run) |
+| Case | Gate type | Checked by | Condition | Resume skips re-execution? | Status |
+|---|---|---|---|---|---|
+| 1 — Executive report | Pre-execution | Skill flag | `requires_approval=True` | N/A (step not yet run) | ✅ Implemented |
+| ~~2 — Unverified answer~~ | Post-execution | Orchestrator | `validated=False` after retry | **Yes** | ~~Descoped~~ |
+| 3 — Large KPI figure | Post-execution | Orchestrator | any figure > threshold | **Yes** — saved result delivered | ✅ Implemented |
+| ~~4 — Bulk ingestion~~ | Pre-execution | Skill flag | `requires_approval=True` on `bulk-ingest` | N/A | ~~Descoped~~ |
 
 ---
 
@@ -1131,14 +1131,14 @@ Follow this order strictly. Do not jump ahead.
 
 ---
 
-# Phase 13 — UI/UX Redesign & Frontend Migration
+# Phase 12b — UI/UX Redesign & Frontend Migration
 
 > **Design-locked plan.** Scope, components, framework decision, and acceptance criteria
 > are all defined here before any code is written.
 > Streamlit's scalability ceiling (whole-script reruns, blocking server threads, fragile
 > dialog semantics) makes a full frontend migration the right call — not incremental patches.
 
-Branch: `poc/phase-13-ux-redesign` → PR → `dev`
+Branch: `poc/phase-12b-ux-redesign` → PR → `dev`
 
 ---
 
@@ -1440,7 +1440,7 @@ The Streamlit UI stays live throughout. React is added alongside it. Cutover hap
 |---|---|---|
 | 1 | React or Angular? | React + Vite for this PoC; Angular if delivery target is an Accenture enterprise project |
 | 2 | UI component library? | shadcn/ui — zero licensing friction, fully restyled for ACME brand via Tailwind tokens |
-| 3 | Auth / identity? | Keep `user_id` string header for Phase 13 (same as Streamlit). MSAL / OAuth is Phase 14+ |
+| 3 | Auth / identity? | Keep `user_id` string header for Phase 12b (same as Streamlit). MSAL / OAuth is Phase 13+ |
 | 4 | Keep Streamlit for internal use? | Yes — parallel until React passes all acceptance criteria, then remove |
 | 5 | DOCX / PDF downloads? | `window.open(url)` → FastAPI `/reports/{year}.{ext}` — no backend change |
 | 6 | Concurrent approval attempts? | Token `used_at` single-transaction lock handles it; second attempt gets 409 |
