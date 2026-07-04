@@ -19,9 +19,16 @@ const SKILL_LABELS: Record<string, string> = {
 };
 
 const SUBSTAGE_TOOL: Record<string, string> = {
+  // answer-policy-question sub-stages
   reformulate: "LLM",
   retrieve: "Chroma",
   answer: "LLM",
+  // executive-section-summary tools_used
+  kpi_query: "KPI DB",
+  vector_search: "Chroma",
+  knowledge_base_lookup: "KB",
+  // compute-kpi tools_used
+  clarifier_check: "LLM",
 };
 
 function StatusDot({ status }: { status: StageStatus }) {
@@ -45,7 +52,7 @@ function StatusDot({ status }: { status: StageStatus }) {
   );
 }
 
-function NodeChip({ label, sublabel, status }: { label: string; sublabel?: string; status: StageStatus }) {
+function NodeChip({ label, status }: { label: string; status: StageStatus }) {
   const textColor = {
     done: "#15803d", running: "#e11d48", off_path: "#a1a1aa", pending: "#71717a",
   }[status] ?? "#71717a";
@@ -59,11 +66,6 @@ function NodeChip({ label, sublabel, status }: { label: string; sublabel?: strin
       <span style={{ fontSize: 11, fontWeight: 500, color: textColor, textAlign: "center", lineHeight: 1.2 }}>
         {label}
       </span>
-      {sublabel && (
-        <span style={{ fontSize: 9, color: "#a1a1aa", textAlign: "center", lineHeight: 1 }}>
-          {sublabel}
-        </span>
-      )}
     </div>
   );
 }
@@ -90,13 +92,8 @@ export function PipelineStepper({ stages, skillLabels, route, isStreaming }: Pro
 
   const workerLabel = (key: string): string => {
     const skillId = skillLabels[key];
-    if (skillId) return SKILL_LABELS[skillId] ?? skillId;
+    if (skillId) return `${SKILL_LABELS[skillId] ?? skillId} (skill)`;
     return key.replace(/^worker\./, "Worker ");
-  };
-
-  const workerSublabel = (key: string): string | undefined => {
-    const skillId = skillLabels[key];
-    return skillId ? skillId.replace(/-/g, " ") : undefined;
   };
 
   const nodeLabel = (key: string) => {
@@ -104,18 +101,10 @@ export function PipelineStepper({ stages, skillLabels, route, isStreaming }: Pro
     return key.charAt(0).toUpperCase() + key.slice(1);
   };
 
-  const nodeSubLabel = (key: string): string | undefined => {
-    if (key.startsWith("worker.")) return workerSublabel(key);
-    return undefined;
-  };
-
-  // Sub-stage keys: anything not in allNodes that has a recognized suffix
+  // Sub-stage keys: any stage key that is not a top-level pipeline node
   const allNodeSet = new Set(allNodes);
   const subStageKeys = Object.keys(stages).filter(
-    (k) => !allNodeSet.has(k) && stages[k] && (
-      k.includes(".reformulate") || k.includes(".retrieve") || k.includes(".answer") ||
-      k.includes(".plan") || k.includes(".execute")
-    )
+    (k) => !allNodeSet.has(k) && stages[k]
   );
 
   const hasActivity = Object.keys(stages).length > 0;
@@ -168,7 +157,6 @@ export function PipelineStepper({ stages, skillLabels, route, isStreaming }: Pro
               <div key={key} style={{ display: "flex", alignItems: "center" }}>
                 <NodeChip
                   label={nodeLabel(key)}
-                  sublabel={nodeSubLabel(key)}
                   status={getStatus(key)}
                 />
                 {i < allNodes.length - 1 && <Connector />}

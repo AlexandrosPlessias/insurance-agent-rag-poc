@@ -109,7 +109,12 @@ function chatReducer(state: ChatState, action: Action): ChatState {
       const history = [...state.history];
       const last = history[history.length - 1];
       if (!last || last.role !== "assistant") return state;
-      history[history.length - 1] = { ...last, isStreaming: false };
+      // Coerce any still-running stages to done so the UI never shows
+      // a red spinner on a gate turn where the backend suspended early.
+      const closedStages = Object.fromEntries(
+        Object.entries(last.stages).map(([k, v]) => [k, v === "running" ? "done" : v])
+      ) as Record<string, StageStatus>;
+      history[history.length - 1] = { ...last, isStreaming: false, stages: closedStages };
       return { ...state, history };
     }
 

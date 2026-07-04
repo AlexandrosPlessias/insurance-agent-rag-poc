@@ -310,6 +310,9 @@ def stream_graph(
                 # Pre-execution approval gate (Phase 12)
                 skill = get_skill_registry().get(skill_name)
                 if skill and skill.requires_approval:
+                    # Close the orchestrator before suspending so the UI does
+                    # not leave it stuck at "running" while waiting for approval.
+                    yield _stage("orchestrator", "done", info=f"completed={len(completed)}")
                     yield from _suspend_for_approval(
                         step=step,
                         state=state,
@@ -326,6 +329,12 @@ def stream_graph(
                     yield from _stream_rag_step(step, state)
                 else:
                     # Sync dispatch for non-RAG steps.
+                    # Emit one sub-stage per tool declared by the skill so the
+                    # UI can show pipeline progress even for synchronous workers.
+                    skill_tools: list[str] = skill.tools_used if skill else []
+                    for tool in skill_tools:
+                        yield _stage(f"worker.{step_id}.{tool}", "started")
+
                     step_state_for_worker: GraphState = {  # type: ignore[assignment]
                         **state,
                         "current_step": step,
@@ -337,6 +346,9 @@ def stream_graph(
                     state["step_results"].update(step_results_update)  # type: ignore[index]
                     step_result = step_results_update.get(step_id, {})
 
+                    for tool in skill_tools:
+                        yield _stage(f"worker.{step_id}.{tool}", "done")
+
                     # Post-execution KPI gate (Case 3): check BEFORE emitting
                     # tokens so large figures never reach the user without sign-off.
                     # The result is already in state["step_results"], so resume
@@ -347,6 +359,7 @@ def stream_graph(
                         yield _stage(f"worker.{step_id}", "done")
                         completed.add(step_id)
                         iterations += 1
+                        yield _stage("orchestrator", "done", info=f"completed={len(completed)}")
                         yield from _suspend_for_approval(
                             step=step,
                             state=state,
@@ -471,6 +484,11 @@ def stream_plan_resume(plan_id: str) -> Iterator[dict]:
                     tokens_emitted = True
                     yield from _stream_rag_step(step, state)
                 else:
+                    resume_skill = get_skill_registry().get(skill_name)
+                    resume_skill_tools: list[str] = resume_skill.tools_used if resume_skill else []
+                    for tool in resume_skill_tools:
+                        yield _stage(f"worker.{step_id}.{tool}", "started")
+
                     step_state_for_worker: GraphState = {  # type: ignore[assignment]
                         **state,
                         "current_step": step,
@@ -481,6 +499,10 @@ def stream_plan_resume(plan_id: str) -> Iterator[dict]:
                         state["step_results"] = {}  # type: ignore[index]
                     state["step_results"].update(step_results_update)  # type: ignore[index]
                     step_result = step_results_update.get(step_id, {})
+
+                    for tool in resume_skill_tools:
+                        yield _stage(f"worker.{step_id}.{tool}", "done")
+
                     if step_result.get("output"):
                         tokens_emitted = True
                         yield {"type": "token", "value": step_result["output"]}
