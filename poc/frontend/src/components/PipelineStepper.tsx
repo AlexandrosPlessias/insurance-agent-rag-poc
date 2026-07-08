@@ -101,11 +101,16 @@ export function PipelineStepper({ stages, skillLabels, route, isStreaming }: Pro
     return key.charAt(0).toUpperCase() + key.slice(1);
   };
 
-  // Sub-stage keys: any stage key that is not a top-level pipeline node
   const allNodeSet = new Set(allNodes);
-  const subStageKeys = Object.keys(stages).filter(
-    (k) => !allNodeSet.has(k) && stages[k]
-  );
+
+  // Only show sub-stages that are direct children of a known worker node
+  // (e.g. worker.step-1.kpi_query is valid; bare "answer" or rag.reformulate are not).
+  const subStageKeys = Object.keys(stages).filter((k) => {
+    if (!stages[k]) return false;
+    const dot = k.lastIndexOf(".");
+    if (dot < 0) return false;
+    return allNodeSet.has(k.slice(0, dot));
+  });
 
   const hasActivity = Object.keys(stages).length > 0;
   if (!hasActivity) return null;
@@ -164,27 +169,31 @@ export function PipelineStepper({ stages, skillLabels, route, isStreaming }: Pro
             ))}
           </div>
 
-          {/* Sub-stage pills */}
-          {subStageKeys.length > 0 && (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 8 }}>
-              {subStageKeys.map((k) => {
-                const s = stages[k];
-                const stepName = k.split(".").pop() ?? k;
-                const toolHint = SUBSTAGE_TOOL[stepName];
-                return (
-                  <span key={k} style={{
-                    fontSize: 10, fontWeight: 500,
-                    padding: "2px 8px", borderRadius: 20,
-                    background: s === "done" ? "#f0fdf4" : s === "running" ? "#fff1f2" : "#f4f4f5",
-                    color: s === "done" ? "#15803d" : s === "running" ? "#e11d48" : "#71717a",
-                    border: `1px solid ${s === "done" ? "#bbf7d0" : s === "running" ? "#fecdd3" : "#e4e4e7"}`,
-                  }}>
-                    {stepName}{toolHint ? <span style={{ opacity: .55 }}> · {toolHint}</span> : null}
-                  </span>
-                );
-              })}
-            </div>
-          )}
+          {/* Sub-stage pills — one row per worker */}
+          {workerKeys.map((wk) => {
+            const wkSubs = subStageKeys.filter((k) => k.startsWith(`${wk}.`));
+            if (!wkSubs.length) return null;
+            return (
+              <div key={wk} style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 6 }}>
+                {wkSubs.map((k) => {
+                  const s = stages[k];
+                  const stepName = k.split(".").pop() ?? k;
+                  const toolHint = SUBSTAGE_TOOL[stepName];
+                  return (
+                    <span key={k} style={{
+                      fontSize: 10, fontWeight: 500,
+                      padding: "2px 8px", borderRadius: 20,
+                      background: s === "done" ? "#f0fdf4" : s === "running" ? "#fff1f2" : "#f4f4f5",
+                      color: s === "done" ? "#15803d" : s === "running" ? "#e11d48" : "#71717a",
+                      border: `1px solid ${s === "done" ? "#bbf7d0" : s === "running" ? "#fecdd3" : "#e4e4e7"}`,
+                    }}>
+                      {stepName}{toolHint ? <span style={{ opacity: .55 }}> · {toolHint}</span> : null}
+                    </span>
+                  );
+                })}
+              </div>
+            );
+          })}
         </Collapsible.Content>
       </Collapsible.Root>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
