@@ -69,6 +69,12 @@ class MemoryStore:
             ).fetchone()
         return dict(row) if row else None
 
+    def delete_conversation(self, conversation_id: int) -> None:
+        with self._connect() as conn:
+            conn.execute("PRAGMA foreign_keys = ON")
+            conn.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,))
+        log.info("Deleted conversation %d", conversation_id)
+
     def set_title_if_empty(
         self, conversation_id: int, title: str
     ) -> None:
