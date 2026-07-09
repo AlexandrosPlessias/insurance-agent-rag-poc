@@ -39,6 +39,14 @@ def create_conversation(
     return Conversation(**row)
 
 
+@router.delete("/{conversation_id}", status_code=204)
+def delete_conversation(
+    conversation_id: int,
+    store: MemoryStore = Depends(get_memory_store),
+) -> None:
+    store.delete_conversation(conversation_id)
+
+
 @router.get("/{conversation_id}/messages", response_model=list[Message])
 def get_messages(
     conversation_id: int,

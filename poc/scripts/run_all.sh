@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# One-shot launcher: Aspire (Docker) -> FastAPI -> Streamlit UI.
-# Ctrl+C in this terminal cleanly stops all three.
+# One-shot launcher: [1/4] Aspire -> [2/4] FastAPI -> [3/4] Streamlit (parity) + [3b/4] React -> [4/4] Telegram bot.
+# Ctrl+C in this terminal cleanly stops everything.
 #
 # Env knobs:
 #   SKIP_OBSERVABILITY=true   -> don't start Aspire (use this if you've
 #                                set OTEL_ENABLED=false in your .env)
 #   API_PORT=8000             -> override FastAPI port
 #   API_HOST=0.0.0.0          -> override FastAPI bind address
+#   SKIP_REACT=true           -> skip the React dev server (parity sprint only)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -16,6 +17,7 @@ ASPIRE_NAME="aspire-dashboard"
 
 API_PID=""
 UI_PID=""
+REACT_PID=""
 BOT_PID=""
 STARTED_ASPIRE=false
 
@@ -25,12 +27,14 @@ prefix() { sed -u "s/^/$1 /"; }
 cleanup() {
   printf '\n'
   color "Shutting down stack ..."
-  [ -n "$BOT_PID" ] && kill  "$BOT_PID" 2>/dev/null || true
-  [ -n "$UI_PID"  ] && kill  "$UI_PID"  2>/dev/null || true
-  [ -n "$API_PID" ] && kill  "$API_PID" 2>/dev/null || true
-  [ -n "$BOT_PID" ] && wait  "$BOT_PID" 2>/dev/null || true
-  [ -n "$UI_PID"  ] && wait  "$UI_PID"  2>/dev/null || true
-  [ -n "$API_PID" ] && wait  "$API_PID" 2>/dev/null || true
+  [ -n "$BOT_PID"   ] && kill  "$BOT_PID"   2>/dev/null || true
+  [ -n "$REACT_PID" ] && kill  "$REACT_PID" 2>/dev/null || true
+  [ -n "$UI_PID"    ] && kill  "$UI_PID"    2>/dev/null || true
+  [ -n "$API_PID"   ] && kill  "$API_PID"   2>/dev/null || true
+  [ -n "$BOT_PID"   ] && wait  "$BOT_PID"   2>/dev/null || true
+  [ -n "$REACT_PID" ] && wait  "$REACT_PID" 2>/dev/null || true
+  [ -n "$UI_PID"    ] && wait  "$UI_PID"    2>/dev/null || true
+  [ -n "$API_PID"   ] && wait  "$API_PID"   2>/dev/null || true
   if [ "$STARTED_ASPIRE" = "true" ]; then
     color "Stopping Aspire Dashboard ..."
     docker stop "$ASPIRE_NAME" >/dev/null 2>&1 || true
@@ -40,20 +44,20 @@ cleanup() {
 }
 trap cleanup INT TERM
 
-# ---------- [1/3] Aspire Dashboard ----------
+# ---------- [1/4] Aspire Dashboard ----------
 # Always rebuild the container so each run starts with empty in-memory
 # telemetry. Set KEEP_OBSERVABILITY_DATA=true to reuse an existing
 # container instead.
 if [ "${SKIP_OBSERVABILITY:-false}" = "true" ]; then
-  color "[1/3] Skipping observability (SKIP_OBSERVABILITY=true)"
+  color "[1/4] Skipping observability (SKIP_OBSERVABILITY=true)"
 elif ! command -v docker >/dev/null 2>&1; then
-  color "[1/3] Docker not found - skipping Aspire (set OTEL_ENABLED=false in .env to silence warnings)"
+  color "[1/4] Docker not found - skipping Aspire (set OTEL_ENABLED=false in .env to silence warnings)"
 elif [ "${KEEP_OBSERVABILITY_DATA:-false}" = "true" ] \
      && docker ps --format '{{.Names}}' | grep -q "^${ASPIRE_NAME}$"; then
-  color "[1/3] Reusing existing Aspire Dashboard (KEEP_OBSERVABILITY_DATA=true)"
+  color "[1/4] Reusing existing Aspire Dashboard (KEEP_OBSERVABILITY_DATA=true)"
   STARTED_ASPIRE=true
 else
-  color "[1/3] Restarting Aspire Dashboard with empty telemetry ..."
+  color "[1/4] Restarting Aspire Dashboard with empty telemetry ..."
   # Tolerate Aspire-start failure (daemon stopped, network error,
   # port busy). Without this guard, set -e + a non-zero exit from
   # run_observability.sh would kill the API + UI launch too.
@@ -69,7 +73,7 @@ else
   fi
 fi
 
-# ---------- [2/3] FastAPI ----------
+# ---------- [2/4] FastAPI ----------
 if [ ! -d ".venv" ]; then
   echo "ERROR: .venv missing. Run: bash scripts/setup_wsl.sh" >&2
   exit 1
@@ -100,7 +104,7 @@ PY
   fi
 fi
 
-color "[2/3] Starting FastAPI on http://${API_HOST}:${API_PORT} ..."
+color "[2/4] Starting FastAPI on http://${API_HOST}:${API_PORT} ..."
 uvicorn app.api.main:app --reload \
   --host "$API_HOST" \
   --port "$API_PORT" \
@@ -116,13 +120,26 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 
-# ---------- [3/4] Streamlit ----------
+# ---------- [3/4] Streamlit (parity sprint — remove at cutover) ----------
 color "[3/4] Starting Streamlit on http://localhost:8501 ..."
 streamlit run app/ui/streamlit_app.py \
   --server.headless true \
   --server.runOnSave false \
   2>&1 | prefix "[ui] " &
 UI_PID=$!
+
+# ---------- [3b/4] React dev server ----------
+if [ "${SKIP_REACT:-false}" = "true" ]; then
+  color "[3b/4] Skipping React dev server (SKIP_REACT=true)"
+elif [ ! -d "frontend/node_modules" ]; then
+  color "[3b/4] React deps not installed — run: cd poc/frontend && npm install"
+else
+  color "[3b/4] Starting React dev server on http://localhost:5173 ..."
+  cd frontend
+  npm run dev 2>&1 | prefix "[react]" &
+  REACT_PID=$!
+  cd ..
+fi
 
 # ---------- [4/4] Telegram bot (only when token is configured) ----------
 # Load TELEGRAM_BOT_TOKEN from .env if not already in the environment.
@@ -143,12 +160,14 @@ fi
 printf '\n'
 color "============================================================"
 color "Stack running:"
-color "  UI:        http://localhost:8501"
-color "  API:       http://localhost:${API_PORT}"
+[ -n "${REACT_PID:-}" ] && \
+  color "  UI (React):      http://localhost:5173"
+color "  UI (Streamlit):  http://localhost:8501  (parity sprint)"
+color "  API:             http://localhost:${API_PORT}"
 [ "$STARTED_ASPIRE" = "true" ] && \
-  color "  Aspire:    http://localhost:18888"
+  color "  Aspire:          http://localhost:18888"
 [ -n "${BOT_PID:-}" ] && \
-  color "  Bot:       Telegram approval bot active"
+  color "  Bot:             Telegram approval bot active"
 color "Press Ctrl+C to stop everything."
 color "============================================================"
 printf '\n'

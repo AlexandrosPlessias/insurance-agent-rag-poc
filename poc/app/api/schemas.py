@@ -32,6 +32,9 @@ class ChatResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     ollama_reachable: bool
+    telegram_configured: bool
+    otel_enabled: bool
+    otel_ui_url: str
 
 
 # --- Conversations (Phase 4) ---
