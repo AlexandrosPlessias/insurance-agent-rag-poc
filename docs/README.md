@@ -20,12 +20,15 @@ Root-level guides — these are the day-to-day documents most readers need.
 
 ## Architecture
 
+All architecture docs live in [`docs/architecture/`](architecture/).
+
 | Doc | What it covers |
 |---|---|
-| [`GRAPH.md`](architecture/GRAPH.md) | LangGraph compiled state machine — every node, edge, and conditional |
-| [`agentic.md`](agentic.md) | **Phase 11** — Planner · Orchestrator · Workers · Tools · Skills architecture, audit events, extension playbook |
-| [`ingestion.md`](ingestion.md) | Phase 6 ingestion & chunking pipeline — design decisions and tuning knobs |
-| [`agentic.md § 10`](agentic.md#10--legacy-phase-110-contracts) | Phase 1–10 per-node MUST/MUST-NOT contracts (appended to `agentic.md`) |
+| [`architecture/GRAPH.md`](architecture/GRAPH.md) | LangGraph compiled state machine — every node, edge, and conditional |
+| [`architecture/agentic-pipeline.md`](architecture/agentic-pipeline.md) | **Phase 11** — Planner · Orchestrator · Workers · Tools · Skills architecture, audit events, extension playbook |
+| [`architecture/design-rationale.md`](architecture/design-rationale.md) | Why the topology is six separate nodes, not branching logic — design intent and MUST/MUST-NOT contracts |
+| [`architecture/ingestion.md`](architecture/ingestion.md) | Phase 6 ingestion & chunking pipeline — design decisions and tuning knobs |
+| [`architecture/high_level_architecture.png`](architecture/high_level_architecture.png) | System overview diagram |
 
 ---
 
@@ -43,3 +46,9 @@ Root-level guides — these are the day-to-day documents most readers need.
 |---|---|
 | [`presentation/deck.md`](presentation/deck.md) | 16-slide stakeholder deck — Markdown source of truth for the PPTX |
 | [`presentation/README.md`](presentation/README.md) | Screenshot-capture runbook for updating deck slides |
+
+---
+
+## Wiki
+
+The [`docs/wiki/`](wiki/) folder is the GitHub Wiki source of truth — sync'd to the repo wiki on every merge to `dev`. Start at [`wiki/Home.md`](wiki/Home.md).

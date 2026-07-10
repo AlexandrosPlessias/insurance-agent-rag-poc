@@ -4,13 +4,13 @@ Every chat message travels through a pipeline of specialised AI nodes before ret
 an answer. This document shows that pipeline as a diagram, explains what each node does
 in plain language, and serves as the technical reference for developers extending the graph.
 
-**Source of truth:** [poc/app/graph/builder.py](../../poc/app/graph/builder.py) ·
-Nodes in [poc/app/graph/](../../poc/app/graph/) and [poc/app/agents/](../../poc/app/agents/) ·
-Edge logic in [poc/app/graph/edges.py](../../poc/app/graph/edges.py).
+**Source of truth:** [src/agentic_backend/graph/builder.py](../../src/agentic_backend/graph/builder.py) ·
+Nodes in [src/agentic_backend/graph/](../../src/agentic_backend/graph/) and [src/agentic_backend/agents/](../../src/agentic_backend/agents/) ·
+Edge logic in [src/agentic_backend/graph/edges.py](../../src/agentic_backend/graph/edges.py).
 
 > ✅ **Phase 11 is the active topology** — the Planner · Orchestrator · Workers · Skills
 > pipeline runs on every turn. The Phase 1–10 supervisor pipeline is kept below as a
-> reference baseline. Full Phase 11 architecture write-up: [docs/agentic.md](agentic.md).
+> reference baseline. Full Phase 11 architecture write-up: [docs/architecture/agentic-pipeline.md](agentic-pipeline.md).
 
 ---
 
@@ -21,7 +21,7 @@ Edge logic in [poc/app/graph/edges.py](../../poc/app/graph/edges.py).
 3. **The Orchestrator** reads the plan and launches each Step. Independent Steps run at the same time.
 4. **Workers** execute each Step by loading the right Skill (a specialist sub-agent) and calling its Tools (search the knowledge base, query KPI data, log to audit trail…).
 5. **The Assembler** merges all Step results into one clean answer with citations. For a single-Step turn it passes the answer through unchanged.
-6. The answer streams back to the Streamlit chat UI.
+6. The answer streams back to the React SPA.
 
 ---
 
@@ -76,23 +76,23 @@ flowchart TD
 
 | Node | File | LLM calls | Output |
 |---|---|---|---|
-| `planner.plan` | [agents/planner_agent.py](../../poc/app/agents/planner_agent.py) | 1 × 3B model + programmatic self-critique | `Plan{plan_id, steps[], rationale}` where each `Step{step_id, skill_name, args, depends_on}` |
-| `orchestrator.execute` | [graph/orchestrator.py](../../poc/app/graph/orchestrator.py) | 0 — pure routing + `Send()` dispatch | Writes `step_results: dict[step_id, StepResult]` via Annotated reducer |
-| `worker` | [graph/orchestrator.py](../../poc/app/graph/orchestrator.py) | Delegated to Skill | `StepResult{step_id, skill_name, answer, citations, status, latency_ms}` |
-| `assembler.merge` | [agents/assembler_agent.py](../../poc/app/agents/assembler_agent.py) | 0 for single Step; 0 for multi (string merge) | `{final_answer, final_citations, route}` |
+| `planner.plan` | [agents/planner_agent.py](../../src/agentic_backend/agents/planner_agent.py) | 1 × 3B model + programmatic self-critique | `Plan{plan_id, steps[], rationale}` where each `Step{step_id, skill_name, args, depends_on}` |
+| `orchestrator.execute` | [graph/orchestrator.py](../../src/agentic_backend/graph/orchestrator.py) | 0 — pure routing + `Send()` dispatch | Writes `step_results: dict[step_id, StepResult]` via Annotated reducer |
+| `worker` | [graph/orchestrator.py](../../src/agentic_backend/graph/orchestrator.py) | Delegated to Skill | `StepResult{step_id, skill_name, answer, citations, status, latency_ms}` |
+| `assembler.merge` | [agents/assembler_agent.py](../../src/agentic_backend/agents/assembler_agent.py) | 0 for single Step; 0 for multi (string merge) | `{final_answer, final_citations, route}` |
 
 ### Skills and tools
 
 The Planner picks from an auto-discovered **Skill registry** in
-[`poc/app/skills/`](../../poc/app/skills/). Each Skill lists its `name`, a plain-English
+[`src/agentic_backend/skills/`](../../src/agentic_backend/skills/). Each Skill lists its `name`, a plain-English
 `description`, and the `tools_used` it may call. The Planner sees only the name +
 description — never the system prompt.
 
 **Current Skills:** `answer-policy-question` · `clarify-year` · `compute-kpi` ·
 `executive-section-summary` · `out-of-year-fallback`.
-Skill prompts: [`poc/app/llm/prompts/skills/`](../../poc/app/llm/prompts/skills/).
+Skill prompts: [`src/agentic_backend/llm/prompts/skills/`](../../src/agentic_backend/llm/prompts/skills/).
 
-**Available Tools** (auto-discovered from [`poc/app/tools/`](../../poc/app/tools/)):
+**Available Tools** (auto-discovered from [`src/agentic_backend/tools/`](../../src/agentic_backend/tools/)):
 `vector_search` · `kpi_query` · `knowledge_base_lookup` · `clarifier_check` · `audit_write`.
 
 ### What happens when something goes wrong
@@ -161,21 +161,21 @@ flowchart TD
 
 | Node | File | LLM calls | What it returns |
 |---|---|---|---|
-| `supervisor.classify` | [graph/supervisor.py](../../poc/app/graph/supervisor.py) | 0–1 (skipped on year-gap short-circuit) | `{route, today, target_year?, covered_years, fallback_offered?, clarifier_reason?}` |
-| `decline.canned` | [graph/supervisor.py](../../poc/app/graph/supervisor.py) | 0 | `{final_answer, final_citations=[], validated=True}` |
-| `clarifier.ask` | [graph/clarifier.py](../../poc/app/graph/clarifier.py) | 1 | `{final_answer (one clarifying question), final_citations=[]}` |
-| `fallback.out_of_year` | [graph/supervisor.py](../../poc/app/graph/supervisor.py) | 0 | `{final_answer (names nearest covered years), final_citations=[]}` |
-| `rag.node` | [agents/rag_agent.py](../../poc/app/agents/rag_agent.py) | 2 (reformulate + answer) | `{reformulated_query, chunks, draft_answer}` |
-| `validator.judge` | [agents/validator_agent.py](../../poc/app/agents/validator_agent.py) | 1 | `{validation: {grounded, citations_ok, critique}, final_answer?, retry_count?}` |
-| `report.node` | [agents/report_agent.py](../../poc/app/agents/report_agent.py) | 1–3 depending on report type | Without `target_year`: Markdown + chart. With `target_year`: executive Markdown + DOCX/PDF downloadable via `GET /reports/{year}.{ext}` |
-| `data.node` | [agents/data_agent.py](../../poc/app/agents/data_agent.py) | 1 (planner only — executor is pure pandas) | Natural language narrative + Markdown table; typed refusal on invalid queries |
+| `supervisor.classify` | [graph/supervisor.py](../../src/agentic_backend/graph/supervisor.py) | 0–1 (skipped on year-gap short-circuit) | `{route, today, target_year?, covered_years, fallback_offered?, clarifier_reason?}` |
+| `decline.canned` | [graph/supervisor.py](../../src/agentic_backend/graph/supervisor.py) | 0 | `{final_answer, final_citations=[], validated=True}` |
+| `clarifier.ask` | [graph/clarifier.py](../../src/agentic_backend/graph/clarifier.py) | 1 | `{final_answer (one clarifying question), final_citations=[]}` |
+| `fallback.out_of_year` | [graph/supervisor.py](../../src/agentic_backend/graph/supervisor.py) | 0 | `{final_answer (names nearest covered years), final_citations=[]}` |
+| `rag.node` | [agents/rag_agent.py](../../src/agentic_backend/agents/rag_agent.py) | 2 (reformulate + answer) | `{reformulated_query, chunks, draft_answer}` |
+| `validator.judge` | [agents/validator_agent.py](../../src/agentic_backend/agents/validator_agent.py) | 1 | `{validation: {grounded, citations_ok, critique}, final_answer?, retry_count?}` |
+| `report.node` | [agents/report_agent.py](../../src/agentic_backend/agents/report_agent.py) | 1–3 depending on report type | Without `target_year`: Markdown + chart. With `target_year`: executive Markdown + DOCX/PDF downloadable via `GET /reports/{year}.{ext}` |
+| `data.node` | [agents/data_agent.py](../../src/agentic_backend/agents/data_agent.py) | 1 (planner only — executor is pure pandas) | Natural language narrative + Markdown table; typed refusal on invalid queries |
 
 ### Phase 1–10 conditional edges
 
 | From | Edge function | Routes to |
 |---|---|---|
-| `supervisor` | [`route_from_supervisor`](../../poc/app/graph/edges.py) | `rag` · `report` · `data` · `decline` · `clarifier` · `fallback` |
-| `validator` | [`route_from_validator`](../../poc/app/graph/edges.py) | `retry` → `rag` · `end` (pass or retry budget exhausted) |
+| `supervisor` | [`route_from_supervisor`](../../src/agentic_backend/graph/edges.py) | `rag` · `report` · `data` · `decline` · `clarifier` · `fallback` |
+| `validator` | [`route_from_validator`](../../src/agentic_backend/graph/edges.py) | `retry` → `rag` · `end` (pass or retry budget exhausted) |
 
 `route_from_validator` returns `end` when validation **passes** OR when `retry_count >= 1`
 (answer is shown with an `⚠ Unverified` badge in the UI).
@@ -185,7 +185,7 @@ flowchart TD
 ## Shared `GraphState`
 
 All nodes read from and write to one shared state dictionary, defined in
-[poc/app/graph/state.py](../../poc/app/graph/state.py):
+[src/agentic_backend/graph/state.py](../../src/agentic_backend/graph/state.py):
 
 | Group | Keys |
 |---|---|
@@ -197,16 +197,16 @@ All nodes read from and write to one shared state dictionary, defined in
 | Output | `final_answer`, `final_citations`, `validated` |
 
 `history` and `user_activity` are pre-loaded by
-[api/routes/chat.py](../../poc/app/api/routes/chat.py) before the graph runs (Phase 4 memory).
+[api/routes/chat.py](../../src/agentic_backend/api/routes/chat.py) before the graph runs (Phase 4 memory).
 
 ---
 
 ## Streaming
 
 The streaming endpoint (`POST /chat/stream`) uses a manual walker in
-[poc/app/graph/streaming.py](../../poc/app/graph/streaming.py) instead of the compiled graph.
+[src/agentic_backend/graph/streaming.py](../../src/agentic_backend/graph/streaming.py) instead of the compiled graph.
 It calls the same node functions but yields NDJSON stage events between nodes so the
-Streamlit stepper pill updates in real time. The compiled graph is used by `POST /chat`.
+React `PipelineStepper` component updates in real time. The compiled graph is used by `POST /chat`.
 
 ---
 
