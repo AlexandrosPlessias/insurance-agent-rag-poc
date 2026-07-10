@@ -10,12 +10,12 @@ Day-to-day operation of the PoC. First-time install is in [SETUP.md](SETUP.md).
 bash poc/scripts/run_all.sh
 ```
 
-This launches **Aspire Dashboard** (Docker) → **FastAPI** → **Streamlit** in one terminal with prefixed output (`[api]` / `[ui]`). `Ctrl+C` stops everything cleanly.
+This launches **Aspire Dashboard** (Docker) → **FastAPI** → **React dev server** in one terminal with prefixed output (`[api]` / `[ui]`). `Ctrl+C` stops everything cleanly.
 
 | Service | URL | Notes |
 |---|---|---|
-| Streamlit UI | http://localhost:8501 | Main entry point — chat with policies |
-| FastAPI | http://localhost:8000 | REST + streaming; OpenAPI at `/docs` |
+| React SPA | http://localhost:5173 | Main entry point — chat with policies |
+| FastAPI | http://localhost:8000 | REST + streaming; OpenAPI at `/docs`; serves built SPA when `poc/frontend/dist/` exists |
 | Aspire Dashboard | http://localhost:18888 | OTel traces / logs / metrics |
 
 Env knobs:
@@ -24,7 +24,19 @@ Env knobs:
 |---|---|
 | `SKIP_OBSERVABILITY=true` | Don't start Aspire (use this if `OTEL_ENABLED=false` in your `.env`) |
 | `KEEP_OBSERVABILITY_DATA=true` | Reuse an already-running Aspire container instead of restarting it (default behaviour wipes telemetry on each run) |
+| `SKIP_AUTO_INGEST=true` | Skip the knowledge-base probe on startup (saves 10–30 s once the KB is already ingested) |
 | `API_PORT=8000` / `API_HOST=0.0.0.0` | Override the FastAPI defaults |
+
+> **Fast daily restart** — once the knowledge base is ingested and you don't need
+> Aspire for the session, cut cold-start time from ~40 s to ~5 s:
+>
+> ```bash
+> SKIP_AUTO_INGEST=true SKIP_OBSERVABILITY=true bash poc/scripts/run_all.sh
+> ```
+>
+> `SKIP_AUTO_INGEST=true` skips the ChromaDB cold-import probe (safe whenever
+> `src/data/chroma_db/` is already populated). `SKIP_OBSERVABILITY=true` skips the
+> Docker Aspire container startup (safe whenever you are not inspecting traces).
 
 ---
 
@@ -37,7 +49,7 @@ If you'd rather split the processes:
 | 1 | `ollama serve` *(usually auto-started)* | Local LLM daemon |
 | 2 | `bash poc/scripts/run_observability.sh` | Aspire Dashboard (Docker) |
 | 3 | `bash poc/scripts/run_api.sh` | FastAPI backend |
-| 4 | `bash poc/scripts/run_ui.sh` | Streamlit UI |
+| 4 | `cd src/frontend && npm run dev` | React dev server (http://localhost:5173) |
 
 All scripts `cd` to the `poc/` root themselves, so they work from anywhere in the repo.
 
@@ -52,7 +64,7 @@ All scripts `cd` to the `poc/` root themselves, so they work from anywhere in th
 ### Folder layout
 
 ```
-poc/data/knowledge_base/
+src/data/knowledge_base/
 ├── raw/              # source PDFs (tracked in git)
 ├── processed/        # one <stem>.md per document (gitignored)
 └── metadata/
@@ -69,7 +81,7 @@ bash poc/scripts/run_all.sh
 #  set SKIP_AUTO_INGEST=true to skip, RESET_KNOWLEDGE=true to force re-ingest)
 
 # Manual:
-cd poc && source .venv/bin/activate
+cd src && source .venv/bin/activate
 cp ~/my-policy.pdf data/knowledge_base/raw/
 python scripts/ingest_pdfs.py
 # (parallel by default; INGEST_WORKERS=4 tunes worker count)
@@ -82,7 +94,7 @@ from pathlib import Path
 from app.ingestion.pipeline import ingest_document
 
 result = ingest_document(
-    Path("poc/data/knowledge_base/raw/my-policy.pdf"),
+    Path("src/data/knowledge_base/raw/my-policy.pdf"),
     extra_metadata={"title": "My Auto Policy 2024", "year": 2024},
 )
 ```
@@ -108,7 +120,7 @@ collection.query(
 
 Full metadata table and JSON Schema in [docs/ingestion.md §7 + §9](docs/ingestion.md).
 
-> 📁 **Tracked vs ignored under `poc/data/knowledge_base/`:**
+> 📁 **Tracked vs ignored under `src/data/knowledge_base/`:**
 > - `raw/*.pdf` → **tracked** in git (the four `Enhanced_Customer_Guidelines_*.pdf` samples ship with the repo). New PDFs you drop in get committed unless you add a per-file pattern to `.gitignore`.
 > - `processed/*.md` → gitignored (regenerated from the PDFs).
 > - `metadata/*.json` → gitignored. Only `metadata/schema.json` is tracked.
@@ -193,7 +205,7 @@ event_type = "feedback.received"
 Useful when tuning chunk size or debugging retrieval.
 
 ```bash
-cd poc && source .venv/bin/activate
+cd src && source .venv/bin/activate
 ```
 
 ### Live inspection (printed to terminal)
@@ -235,7 +247,7 @@ If `total docs` is 0 after running `ingest_pdfs.py`, something went wrong — re
 
 ### Per-PDF inspection report (Markdown files)
 
-Run-once: writes one Markdown report per source PDF to `poc/data/knowledge_base/reports/`. Each file contains the document-level metadata, chunk statistics (count, avg/min/median/max chars, page + section distribution), and the **full text + metadata** of every chunk. Reports are gitignored so they don't pollute commits.
+Run-once: writes one Markdown report per source PDF to `src/data/knowledge_base/reports/`. Each file contains the document-level metadata, chunk statistics (count, avg/min/median/max chars, page + section distribution), and the **full text + metadata** of every chunk. Reports are gitignored so they don't pollute commits.
 
 ```bash
 # Generate reports for every PDF in the collection
@@ -318,7 +330,7 @@ The terminal Phase 7 branches end the turn with a single assistant message; the 
 
 ### Audit trail
 
-Every routing / retrieval / validation / clarifier / fallback decision writes a typed row into `poc/data/audit.sqlite` (separate file from `memory.sqlite`). Each row carries the active OTel `trace_id`, so an Aspire span is one click away from its audit record.
+Every routing / retrieval / validation / clarifier / fallback decision writes a typed row into `src/data/audit.sqlite` (separate file from `memory.sqlite`). Each row carries the active OTel `trace_id`, so an Aspire span is one click away from its audit record.
 
 | `event_type` | Payload highlights |
 |---|---|
@@ -337,7 +349,7 @@ Every routing / retrieval / validation / clarifier / fallback decision writes a 
 ### Exporting for compliance review
 
 ```bash
-cd poc && source .venv/bin/activate
+cd src && source .venv/bin/activate
 
 # Whole log → data/audit_export.csv
 python scripts/audit_export.py
@@ -356,7 +368,7 @@ The CSV keeps `payload_json` as a single column so Excel / PowerBI can ingest it
 After users rate answers with the 👍 / 👎 buttons in the chat UI, each vote is stored as a `feedback.received` row in `audit.sqlite`. Use `view_feedback.py` to print a summary table:
 
 ```bash
-cd poc && source .venv/bin/activate
+cd src && source .venv/bin/activate
 
 # All feedback (up to 200 rows)
 python scripts/view_feedback.py
@@ -396,7 +408,7 @@ Each row shows:
 The `sqlite3` CLI is installed by `setup_wsl.sh` ([1/6] step). If you're on a machine where it isn't available (`Command 'sqlite3' not found`), install it with `sudo apt install sqlite3`, **or** use the Python one-liner below.
 
 ```bash
-sqlite3 poc/data/audit.sqlite \
+sqlite3 src/data/audit.sqlite \
   "SELECT ts, event_type, json_extract(payload_json, '$.route') AS route \
    FROM audit_events WHERE user_id = 'alex' ORDER BY id DESC LIMIT 20;"
 ```
@@ -404,7 +416,7 @@ sqlite3 poc/data/audit.sqlite \
 Pure-Python alternative — uses the stdlib module that's always available, no apt install needed:
 
 ```bash
-cd poc && source .venv/bin/activate
+cd src && source .venv/bin/activate
 python -c "
 from app.audit import AuditStore
 from app.config import settings
@@ -430,17 +442,17 @@ with sqlite3.connect(settings.audit_sqlite_path) as c:
 ## 7. Resetting local state
 
 ```bash
-cd poc && source .venv/bin/activate
+cd src && source .venv/bin/activate
 python scripts/reset_stores.py                  # wipes ChromaDB + memory + audit
 python scripts/reset_stores.py --keep-audit     # keep audit.sqlite intact
 python scripts/ingest_pdfs.py                   # re-index from raw/ (with summariser pass)
 ```
 
-PDFs in `poc/data/knowledge_base/raw/` are kept (tracked in git). To start completely fresh including the venv:
+PDFs in `src/data/knowledge_base/raw/` are kept (tracked in git). To start completely fresh including the venv:
 
 ```bash
-rm -rf poc/.venv poc/data/chroma_db poc/data/memory.sqlite poc/data/audit.sqlite
-rm -rf poc/data/knowledge_base/processed poc/data/knowledge_base/metadata/*.json
+rm -rf poc/.venv src/data/chroma_db src/data/memory.sqlite src/data/audit.sqlite
+rm -rf src/data/knowledge_base/processed src/data/knowledge_base/metadata/*.json
 bash poc/scripts/setup_wsl.sh        # rebuild venv + redo pip install
 ```
 
@@ -464,13 +476,12 @@ Logs go to **stderr** (visible in the terminal) **and** to Aspire's Structured l
 | `Connection refused on :11434` | Ollama daemon not running — `ollama serve` in a separate terminal, or just rerun `run_all.sh` |
 | `OTel enabled but backend at http://localhost:4317 is unreachable` | Aspire not started yet. Run `bash poc/scripts/run_observability.sh` or restart with `run_all.sh`. App still works without OTel (warning is one line and harmless) |
 | `address already in use` binding `:4317` | Something else owns the port. Diagnose with `sudo ss -tlnp \| grep ':4317'`. If a stray `tempo`/`loki` from an old experiment shows up: `sudo systemctl stop tempo loki; sudo systemctl disable tempo loki` |
-| Streamlit can't reach API | Check `run_api.sh` is running and `UI_API_URL` in `.env` matches the API port |
+| React SPA can't reach API | Check `run_api.sh` is running; in dev the Vite proxy (`/api → http://localhost:8000`) handles routing automatically |
 | Slow first inference | Cold-start cost — Ollama loads the model into RAM on first request; subsequent calls are fast |
 | First LLM call takes 30+ s | Cold start is normal on a laptop. Re-asking the same question is fast — model stays warm |
-| `ModuleNotFoundError: No module named 'opentelemetry'` | Reinstall: `cd poc && source .venv/bin/activate && pip install -r requirements.txt` |
+| `ModuleNotFoundError: No module named 'opentelemetry'` | Reinstall: `cd src && source .venv/bin/activate && pip install -r requirements.txt` |
 | Validator keeps marking answers as unverified | Your indexed PDFs may not contain the answer, or the model is hallucinating. Inspect the validator span's `critique` attribute in Aspire to see what went wrong |
 | Every question turns into a clarifier "which year?" prompt | Phase 7 escalates RAG-ish questions to the clarifier when no year is mentioned. Either mention a year in the question, or answer the clarifier so the next turn inherits the year from history |
 | Year-fallback fires when you asked about a covered year | Check `supervisor.target_year` in the trace. Regex may have latched onto an unrelated `20xx` token in the question. If that's the case, rephrase or set the year explicitly |
-| Audit DB grows large in long sessions | `python scripts/audit_export.py --out backup.csv` then delete `poc/data/audit.sqlite` — it's re-created lazily on the next request |
-| Streamlit crashes in a loop with `TypeError: setup_otel() …` | Stale Python module cache from a live code edit without restarting. Kill ports 8000 and 8501 (`fuser -k 8000/tcp && fuser -k 8501/tcp`) then restart with `run_all.sh` |
-| `address already in use` on port 8000 or 8501 | A previous session's process is still running. Find and kill it: `fuser -k 8000/tcp && fuser -k 8501/tcp` |
+| Audit DB grows large in long sessions | `python scripts/audit_export.py --out backup.csv` then delete `src/data/audit.sqlite` — it's re-created lazily on the next request |
+| `address already in use` on port 8000 or 5173 | A previous session's process is still running. Find and kill it: `fuser -k 8000/tcp && fuser -k 5173/tcp` |
