@@ -61,7 +61,7 @@ Planner · Orchestrator · Workers · Skills · Tools — every turn is a small 
 
 ### 4. ⚙️ LLM Deployment, Fine-Tuning & Cost Optimization
 *   **Local inference** — Ollama serves `qwen2.5:7b` quantised. No per-token cost.
-*   **Externalised prompts** — every agent prompt lives in [poc/app/llm/prompts/](poc/app/llm/prompts/); Skill prompts are grouped under [prompts/skills/](poc/app/llm/prompts/skills/), all tunable without code changes.
+*   **Externalised prompts** — every agent prompt lives in [src/agentic_backend/llm/prompts/](src/agentic_backend/llm/prompts/); Skill prompts are grouped under [prompts/skills/](src/agentic_backend/llm/prompts/skills/), all tunable without code changes.
 
 ---
 
@@ -76,12 +76,11 @@ insurance-agent-rag-poc/
 ├── .gitignore
 ├── docs/                           # PoC scope + strategic roadmap
 │
-└── poc/                            # ← all application code lives here
+└── src/                            # ← all application code lives here
     ├── requirements.txt
     ├── .env.example
     ├── app/                        # main application package
     │   ├── api/                    # FastAPI backend (routes, schemas, deps)
-    │   ├── ui/                     # Streamlit frontend
     │   ├── graph/                  # LangGraph state machine (planner → orchestrator → worker → assembler)
     │   ├── agents/                 # Planner, Assembler + 4 worker agents (RAG, Memory, Report, Validator)
     │   ├── skills/                 # Skill registry + 5 Skill specs (Phase 11)
@@ -97,11 +96,15 @@ insurance-agent-rag-poc/
     │   ├── utils/                  # citation helpers, shared utilities
     │   └── config.py               # pydantic-settings configuration
     │
+    ├── frontend/                   # React + Vite + TypeScript SPA (Phase 12b)
+    │   ├── src/                    # components, hooks, pages, API client
+    │   └── dist/                   # production build (gitignored; served by FastAPI StaticFiles)
+    │
     ├── scripts/                    # WSL2 CLI helpers
     │   ├── setup_wsl.sh            # one-shot bootstrap
-    │   ├── run_all.sh              # Aspire + API + UI in one terminal
+    │   ├── run_all.sh              # Aspire + API + React dev server in one terminal
     │   ├── run_observability.sh    # Aspire Dashboard via Docker
-    │   ├── run_api.sh / run_ui.sh  # individual launchers
+    │   ├── run_api.sh              # individual API launcher
     │   ├── ingest_pdfs.py          # PDF → ChromaDB pipeline
     │   ├── reset_stores.py         # wipe ChromaDB + SQLite
     │   └── smoke_test.py           # end-to-end verification
@@ -118,17 +121,17 @@ Phases 1–11 are implemented. Phases 12–15 are designed but not yet built.
 
 | Phase | Focus | Key Modules |
 |---|---|---|
-| **1** ✅ | Basic RAG + streaming + citations | [poc/app/rag/](poc/app/rag/), [poc/app/agents/rag_agent.py](poc/app/agents/rag_agent.py) |
-| **2** ✅ | LangGraph supervisor + validator with retry loop | [poc/app/graph/](poc/app/graph/), [poc/app/agents/validator_agent.py](poc/app/agents/validator_agent.py) |
-| **3** ✅ | Reporting autonomy (Markdown + embedded charts) | [poc/app/reporting/](poc/app/reporting/), [poc/app/agents/report_agent.py](poc/app/agents/report_agent.py) |
-| **4** ✅ | SQLite long-term memory + per-user conversations | [poc/app/memory/](poc/app/memory/), [poc/app/agents/memory_agent.py](poc/app/agents/memory_agent.py) |
-| **5** ✅ | OpenTelemetry traces + logs + metrics (Aspire Dashboard) | [poc/app/observability/](poc/app/observability/), [poc/scripts/run_observability.sh](poc/scripts/run_observability.sh) |
-| **6** ✅ | Per-document ingestion pipeline: PDF → Markdown → metadata sidecar → ChromaDB. Same flow used by the batch script and the `POST /ingest` endpoint for UI uploads | [poc/app/ingestion/](poc/app/ingestion/), [poc/data/knowledge_base/](poc/data/knowledge_base/) |
-| **7** ✅ | Year-aware retrieval (KB covers 2020/2021/2022/2024 — 2023 gap), today-aware reasoning, out-of-year fallback, clarifier node, audit-trail SQLite DB | [poc/app/graph/clarifier.py](poc/app/graph/clarifier.py), [poc/app/audit/](poc/app/audit/), retriever `where_filter`. Details: [Phase 7](#phase-7--year-aware-rag-clarifier-audit-trail-) |
-| **8** ✅ | Talk-to-Data agent over `insurance_kpis_2020_2024.csv` (year / period / channel / product line × 14 KPIs) — natural-language quantitative analysis with drill-down follow-ups and verifiable typed Operation JSON | [poc/app/agents/data_agent.py](poc/app/agents/data_agent.py), [poc/app/data/](poc/app/data/). Details: [Phase 8](#phase-8--talk-to-data-agent-) |
-| **9** ✅ | Executive annual report for a selected year — section-by-section pipeline (collector → narrator → assemble) over the Phase 8 KPI data + Phase 1 RAG chunks. Deterministic risk-flag thresholds (no LLM-decided severity), reproducibility hash, three writers (Markdown · DOCX · PDF) | [poc/app/reporting/executive/](poc/app/reporting/executive/) · [poc/app/reporting/writers/](poc/app/reporting/writers/) · [poc/app/api/routes/reports.py](poc/app/api/routes/reports.py). Details: [Phase 9](#phase-9--executive-annual-report-) |
-| **10** ✅ | PoC stakeholder deck — Markdown source of truth ([docs/presentation/deck.md](docs/presentation/deck.md)) + python-pptx builder that embeds live-app screenshots from `docs/screens/`. Renders TODO placeholders for shots not yet captured so the deck always builds. 14 slides covering problem framing, capability tour, observability, retrospective | [poc/scripts/build_pptx.py](poc/scripts/build_pptx.py) · [docs/presentation/](docs/presentation/). Details: [Phase 10](#phase-10--poc-presentation-deck-) |
-| **11** ✅ | Agentic multi-intent stack + thumbs feedback — Planner · Orchestrator · Workers · Skills · Tools DAG replacing the Phase 1–10 supervisor→single-worker routing; `POST /feedback`; `plan_id` threaded end-to-end | [poc/app/agents/planner_agent.py](poc/app/agents/planner_agent.py) · [poc/app/graph/orchestrator.py](poc/app/graph/orchestrator.py) · [poc/app/skills/](poc/app/skills/) · [poc/app/tools/](poc/app/tools/) · [poc/app/api/routes/feedback.py](poc/app/api/routes/feedback.py). Details: [Phase 11](#phase-11--agentic-multi-intent-architecture--feedback-) |
+| **1** ✅ | Basic RAG + streaming + citations | [src/agentic_backend/rag/](src/agentic_backend/rag/), [src/agentic_backend/agents/rag_agent.py](src/agentic_backend/agents/rag_agent.py) |
+| **2** ✅ | LangGraph supervisor + validator with retry loop | [src/agentic_backend/graph/](src/agentic_backend/graph/), [src/agentic_backend/agents/validator_agent.py](src/agentic_backend/agents/validator_agent.py) |
+| **3** ✅ | Reporting autonomy (Markdown + embedded charts) | [src/agentic_backend/reporting/](src/agentic_backend/reporting/), [src/agentic_backend/agents/report_agent.py](src/agentic_backend/agents/report_agent.py) |
+| **4** ✅ | SQLite long-term memory + per-user conversations | [src/agentic_backend/memory/](src/agentic_backend/memory/), [src/agentic_backend/agents/memory_agent.py](src/agentic_backend/agents/memory_agent.py) |
+| **5** ✅ | OpenTelemetry traces + logs + metrics (Aspire Dashboard) | [src/agentic_backend/observability/](src/agentic_backend/observability/), [src/scripts/run_observability.sh](src/scripts/run_observability.sh) |
+| **6** ✅ | Per-document ingestion pipeline: PDF → Markdown → metadata sidecar → ChromaDB. Same flow used by the batch script and the `POST /ingest` endpoint for UI uploads | [src/agentic_backend/ingestion/](src/agentic_backend/ingestion/), [src/data/knowledge_base/](src/data/knowledge_base/) |
+| **7** ✅ | Year-aware retrieval (KB covers 2020/2021/2022/2024 — 2023 gap), today-aware reasoning, out-of-year fallback, clarifier node, audit-trail SQLite DB | [src/agentic_backend/graph/clarifier.py](src/agentic_backend/graph/clarifier.py), [src/agentic_backend/audit/](src/agentic_backend/audit/), retriever `where_filter`. Details: [Phase 7](#phase-7--year-aware-rag-clarifier-audit-trail-) |
+| **8** ✅ | Talk-to-Data agent over `insurance_kpis_2020_2024.csv` (year / period / channel / product line × 14 KPIs) — natural-language quantitative analysis with drill-down follow-ups and verifiable typed Operation JSON | [src/agentic_backend/agents/data_agent.py](src/agentic_backend/agents/data_agent.py), [src/agentic_backend/data/](src/agentic_backend/data/). Details: [Phase 8](#phase-8--talk-to-data-agent-) |
+| **9** ✅ | Executive annual report for a selected year — section-by-section pipeline (collector → narrator → assemble) over the Phase 8 KPI data + Phase 1 RAG chunks. Deterministic risk-flag thresholds (no LLM-decided severity), reproducibility hash, three writers (Markdown · DOCX · PDF) | [src/agentic_backend/reporting/executive/](src/agentic_backend/reporting/executive/) · [src/agentic_backend/reporting/writers/](src/agentic_backend/reporting/writers/) · [src/agentic_backend/api/routes/reports.py](src/agentic_backend/api/routes/reports.py). Details: [Phase 9](#phase-9--executive-annual-report-) |
+| **10** ✅ | PoC stakeholder deck — Markdown source of truth ([docs/presentation/deck.md](docs/presentation/deck.md)) + python-pptx builder that embeds live-app screenshots from `docs/screens/`. Renders TODO placeholders for shots not yet captured so the deck always builds. 14 slides covering problem framing, capability tour, observability, retrospective | [src/scripts/build_pptx.py](src/scripts/build_pptx.py) · [docs/presentation/](docs/presentation/). Details: [Phase 10](#phase-10--poc-presentation-deck-) |
+| **11** ✅ | Agentic multi-intent stack + thumbs feedback — Planner · Orchestrator · Workers · Skills · Tools DAG replacing the Phase 1–10 supervisor→single-worker routing; `POST /feedback`; `plan_id` threaded end-to-end | [src/agentic_backend/agents/planner_agent.py](src/agentic_backend/agents/planner_agent.py) · [src/agentic_backend/graph/orchestrator.py](src/agentic_backend/graph/orchestrator.py) · [src/agentic_backend/skills/](src/agentic_backend/skills/) · [src/agentic_backend/tools/](src/agentic_backend/tools/) · [src/agentic_backend/api/routes/feedback.py](src/agentic_backend/api/routes/feedback.py). Details: [Phase 11](#phase-11--agentic-multi-intent-architecture--feedback-) |
 
 ### Nice-to-have (not on the roadmap)
 
@@ -141,19 +144,19 @@ Lower-priority items that improve quality but aren't gating the PoC:
 PyMuPDF loader (page-level documents) → RecursiveCharacterTextSplitter with page metadata preserved → Chroma persisted to disk → token-streamed answers via `/chat/stream` (NDJSON). Each citation in the UI carries a **Download PDF** link and a **View chunk** popover showing the retrieved text.
 
 ### Phase 2 — Supervisor + Validator
-Compiled `StateGraph` ([poc/app/graph/builder.py](poc/app/graph/builder.py)): supervisor classifies the question (`rag` / `out_of_scope`); RAG generates an answer; validator (LLM-as-judge) returns JSON `{grounded, citations_ok, critique}`. On failure, the critique is fed back into the RAG prompt for **one** retry. After retry, the answer is shown with an `⚠ Unverified` badge if validation still fails. The Streamlit UI renders a 3-step progress stepper as `stage` events arrive.
+Compiled `StateGraph` ([src/agentic_backend/graph/builder.py](src/agentic_backend/graph/builder.py)): supervisor classifies the question (`rag` / `out_of_scope`); RAG generates an answer; validator (LLM-as-judge) returns JSON `{grounded, citations_ok, critique}`. On failure, the critique is fed back into the RAG prompt for **one** retry. After retry, the answer is shown with an `⚠ Unverified` badge if validation still fails. The React UI renders a live pipeline stepper as `stage` events arrive.
 
 ### Phase 3 — Report Agent
 Adds a third route `report`. The report agent retrieves with `k=10`, asks the LLM to extract structured fields (policy, coverage, premium, claims, exclusions) as JSON, renders a Markdown report including a matplotlib bar chart (lump-sum vs installment total) embedded inline as a base64 PNG. Reports bypass the validator. The UI stepper adapts: `Supervisor → Report` for reports, `Supervisor → RAG → Validator` for rag, `Supervisor` only for declines.
 
 ### Phase 4 — Long-Term Memory
-SQLite (`conversations`, `messages`) at `poc/data/memory.sqlite` via [poc/app/memory/store.py](poc/app/memory/store.py). Every `/chat` and `/chat/stream` turn is persisted, keyed by `user_id` and `conversation_id`. RAG prepends the last 3 turns to its prompt so follow-ups stay coherent. The report agent reads the user's last 10 cross-conversation messages and renders a **User Activity** section at the top of the report. The Streamlit sidebar lists conversations with auto-generated titles; clicking a past conversation replays it from SQLite.
+SQLite (`conversations`, `messages`) at `src/data/memory.sqlite` via [src/agentic_backend/memory/store.py](src/agentic_backend/memory/store.py). Every `/chat` and `/chat/stream` turn is persisted, keyed by `user_id` and `conversation_id`. RAG prepends the last 3 turns to its prompt so follow-ups stay coherent. The report agent reads the user's last 10 cross-conversation messages and renders a **User Activity** section at the top of the report. The React sidebar lists conversations with auto-generated titles; clicking a past conversation replays it from SQLite.
 
 ### Phase 5 — Observability (Aspire Dashboard)
-OTel SDK wired into both the API and the UI ([poc/app/observability/tracing.py](poc/app/observability/tracing.py)). **Enabled by default** — `setup_otel()` TCP-probes `OTEL_ENDPOINT` at startup and self-disables (one-line warning) when Aspire isn't running.
+OTel SDK wired into both the API and the UI ([src/agentic_backend/observability/tracing.py](src/agentic_backend/observability/tracing.py)). **Enabled by default** — `setup_otel()` TCP-probes `OTEL_ENDPOINT` at startup and self-disables (one-line warning) when Aspire isn't running.
 
 ### Phase 6 — Per-document ingestion pipeline
-PDF → Markdown (via `pymupdf4llm`, layout-preserving) → metadata sidecar (validated against [poc/data/knowledge_base/metadata/schema.json](poc/data/knowledge_base/metadata/schema.json)) → ChromaDB with rich chunk metadata. Single entry point `ingest_document(pdf_path, extra_metadata)` powers three callers: the batch script `python scripts/ingest_pdfs.py`, the smoke test, and the **`POST /ingest`** endpoint that accepts file uploads from the (upcoming) UI form. Each ingested chunk carries `title`, `year`, `keywords`, `language`, `document_category`, `source`, `page`, etc. — filterable in Aspire and queryable in the retriever.
+PDF → Markdown (via `pymupdf4llm`, layout-preserving) → metadata sidecar (validated against [src/data/knowledge_base/metadata/schema.json](src/data/knowledge_base/metadata/schema.json)) → ChromaDB with rich chunk metadata. Single entry point `ingest_document(pdf_path, extra_metadata)` powers three callers: the batch script `python scripts/ingest_pdfs.py`, the smoke test, and the **`POST /ingest`** endpoint that accepts file uploads from the (upcoming) UI form. Each ingested chunk carries `title`, `year`, `keywords`, `language`, `document_category`, `source`, `page`, etc. — filterable in Aspire and queryable in the retriever.
 
 **Chunking strategy.** One Markdown file per PDF (with `<!-- page N -->` boundary markers). `RecursiveCharacterTextSplitter` runs on the **whole** body so clauses that straddle pages stay together; per-chunk metadata records the chunk's starting page (and a `pages` list when it spans more than one).
 
@@ -164,7 +167,7 @@ PDF → Markdown (via `pymupdf4llm`, layout-preserving) → metadata sidecar (va
 | `chunk_size` | **1200** chars | A typical "Section X — …" block from an insurance policy (a clause + its surrounding context) fits comfortably. Small enough that retrieval stays precise — chunks don't drown the embedding in unrelated text. |
 | `chunk_overlap` | **200** chars (≈17 %) | Standard 15–20 % overlap. A sentence ending near a chunk boundary is re-presented in the next chunk's prefix, so retrieval still wins on it. |
 
-Tuning knobs (single env var change in `poc/.env`):
+Tuning knobs (single env var change in `src/.env`):
 
 | Profile | size / overlap | When |
 |---|---|---|
@@ -178,13 +181,13 @@ Symptoms → action:
 - After changing, always **reset + re-ingest**: `python scripts/reset_stores.py && python scripts/ingest_pdfs.py`.
 
 What's instrumented:
-- **Auto-instrumentation** of FastAPI and httpx — a request from Streamlit → API → graph nodes shows up as a single connected trace.
+- **Auto-instrumentation** of FastAPI and httpx — a request from the React SPA → API → graph nodes shows up as a single connected trace.
 - **OpenInference LangChain instrumentor** — every LLM / embedding / retriever call gets a span with prompt + completion previews, model name, token usage. Langfuse-style detail in Aspire's Traces tab.
 - **Manual spans** on each graph node — `supervisor.classify`, `rag.node`, `rag.reformulate`, `rag.llm.invoke`, `rag.retrieve`, `validator.judge`, `report.node`, `report.extract`, `decline.canned` — with attributes (`user.id`, `conversation.id`, `supervisor.route`, `rag.retry_count`, `validator.grounded`, etc.).
 - **OTLP logs** — Python `logging` records flow to Aspire alongside the existing stderr handler, with `trace_id`/`span_id` enrichment.
 - **OTLP metrics** — `rag_poc.node.invocations`, `rag_poc.node.duration` (histogram per node), `rag_poc.validator.outcomes{result=pass\|fail}`, `rag_poc.rag.chunks_retrieved`.
 
-Backend: **Aspire Dashboard** as a single Docker container from `mcr.microsoft.com/dotnet/aspire-dashboard:9.0`. OTLP gRPC on `localhost:4317`, web UI on `http://localhost:18888`. Start it with `bash poc/scripts/run_observability.sh` (or just `run_all.sh`). `run_all.sh` recycles the container on every invocation so each run starts with empty telemetry.
+Backend: **Aspire Dashboard** as a single Docker container from `mcr.microsoft.com/dotnet/aspire-dashboard:9.0`. OTLP gRPC on `localhost:4317`, web UI on `http://localhost:18888`. Start it with `bash src/scripts/run_observability.sh` (or just `run_all.sh`). `run_all.sh` recycles the container on every invocation so each run starts with empty telemetry.
 
 ### Phase 7 — Year-aware RAG, Clarifier, Audit trail ✅
 
@@ -215,7 +218,7 @@ Folds three closely-related concerns into the existing graph: temporal awareness
     - `clarifier.ask` → `{"reason": "year_missing", "question": "Which policy year — 2022 or 2024?"}`
     - `validator.judge` → `{"grounded": true, "citations_ok": true, "retry_count": 0}`
 - **Trace correlation.** Every audit row carries the current OTel `trace_id`, so an Aspire span is one click away from its audit record and vice versa.
-- **Files (new / changed).** `poc/app/graph/clarifier.py` (new) · `poc/app/graph/state.py` (+`today`, `target_year`, `clarifier_reason`) · `poc/app/graph/supervisor.py` (new routes) · `poc/app/llm/prompts/supervisor.txt` (inject `today` + covered-years list) · `poc/app/rag/retriever.py` (accept `where_filter`) · `poc/app/audit/` (new package: `store.py`, `events.py`, `middleware.py`) · `poc/scripts/audit_export.py` (new — CSV dump for compliance review).
+- **Files (new / changed).** `src/agentic_backend/graph/clarifier.py` (new) · `src/agentic_backend/graph/state.py` (+`today`, `target_year`, `clarifier_reason`) · `src/agentic_backend/graph/supervisor.py` (new routes) · `src/agentic_backend/llm/prompts/supervisor.txt` (inject `today` + covered-years list) · `src/agentic_backend/rag/retriever.py` (accept `where_filter`) · `src/agentic_backend/audit/` (new package: `store.py`, `events.py`, `middleware.py`) · `src/scripts/audit_export.py` (new — CSV dump for compliance review).
 - **Out of scope.** UI for the audit log (CSV export is enough for the PoC) · cross-year reformulation (Phase 8/9 concern) · backfilling audit rows for already-stored conversations.
 
 ### Phase 8 — Talk-to-Data agent ✅
@@ -223,7 +226,7 @@ Folds three closely-related concerns into the existing graph: temporal awareness
 Adds a fourth worker agent that answers quantitative questions over a structured KPI dataset, with drill-down follow-ups and verifiable answers.
 
 **Functional bullets**
-- **Dataset.** `poc/data/knowledge_base/structured/insurance_kpis.csv` (or `.xlsx`). One row per `(year, period, channel, product_line)`. Same year coverage as the PDFs: **2020 / 2021 / 2022 / 2024**.
+- **Dataset.** `src/data/knowledge_base/structured/insurance_kpis.csv` (or `.xlsx`). One row per `(year, period, channel, product_line)`. Same year coverage as the PDFs: **2020 / 2021 / 2022 / 2024**.
 - **Dimensions.** `year` ∈ {2020,2021,2022,2024} · `period` ∈ {`FY`,`Q1`–`Q4`,`M01`–`M12`} · `channel` ∈ {direct, broker, bancassurance, digital} · `product_line` ∈ {auto, home, life, health, commercial}.
 - **Core metrics.** `policies_in_force` (stock) · `new_policies` (flow) · `renewal_rate` (%) · `gross_written_premium` · `claims_reported` · `claims_paid` · `avg_claim_settlement_days` · `nps` · `complaints` · `fraud_cases` · `compliance_incidents` · `operating_expenses` · `digital_adoption_pct`. A `insurance_kpis.schema.json` sidecar declares units and stock-vs-flow — the executor uses it to refuse nonsensical aggregations (e.g. summing `renewal_rate` across periods).
 - **New supervisor route `data`.** Triggers: question mentions a metric name (`renewal rate`, `GWP`, `NPS`, …) or a quantitative verb (`compare`, `trend`, `breakdown`, `top`, `vs`) or names a dimension value · numeric comparators (`> 10%`, `between 2020 and 2024`).
@@ -249,7 +252,7 @@ Adds a fourth worker agent that answers quantitative questions over a structured
     | Free-form pandas code injection | LLM emits only the structured Operation; executor is hand-written |
     | Misleading single-cell answer | Numeric answer always shipped with row table + Operation; UI does not allow showing just the number |
     | Drill-down loses context across turns | `last_data_operation` is patched, not replaced; UI shows inherited vs new fields |
-- **Files (new / changed).** `poc/app/agents/data_agent.py` (new — planner + executor + renderer) · `poc/app/data/loader.py` (new — CSV/XLSX → typed DataFrame) · `poc/app/data/operations.py` (new — `Operation` pydantic schema) · `poc/app/data/executor.py` (new — pandas executor with guards) · `poc/app/llm/prompts/data_planner.txt` (new) · `poc/app/graph/builder.py` (wire `data` route as a terminal node, like report) · `poc/app/graph/state.py` (+`last_data_operation`, `data_table_markdown`) · `poc/app/ui/streamlit_app.py` (render narrative + table + Operation expander) · `poc/data/knowledge_base/structured/insurance_kpis.{csv,schema.json}` (new — seed data).
+- **Files (new / changed).** `src/agentic_backend/agents/data_agent.py` (new — planner + executor + renderer) · `src/agentic_backend/data/loader.py` (new — CSV/XLSX → typed DataFrame) · `src/agentic_backend/data/operations.py` (new — `Operation` pydantic schema) · `src/agentic_backend/data/executor.py` (new — pandas executor with guards) · `src/agentic_backend/llm/prompts/data_planner.txt` (new) · `src/agentic_backend/graph/builder.py` (wire `data` route as a terminal node, like report) · `src/agentic_backend/graph/state.py` (+`last_data_operation`, `data_table_markdown`) · `src/frontend/src/` (React SPA renders narrative + table + Operation expander) · `src/data/knowledge_base/structured/insurance_kpis.{csv,schema.json}` (new — seed data).
 - **Audit coupling (with Phase 7).** Every data turn writes a `data.execute` event carrying the final `Operation`, the row count returned, and a hash of the underlying CSV at execution time — so the same answer is reproducible weeks later.
 - **Out of scope.** Joining the KPI dataset against the policy PDFs (cross-source RAG + data is a Phase 9 concern) · forecasting (TimeGEN-1 is in the strategic roadmap, not this phase) · user-uploaded CSVs.
 
@@ -281,7 +284,7 @@ Generates a management-ready annual report for a selected year, on-screen and as
     | `fraud_cases` (yoy %) | < +10 % | +10 – +25 % | > +25 % |
     | `compliance_incidents` (absolute) | 0 | 1 – 2 | ≥ 3 |
 - **Reproducibility.** `report_run_id = sha256(year + kpi_csv_hash + git_sha)[:12]` embedded in the footer. Same triple → same identifier, so "this is the same report that was approved last quarter" is trivially verifiable.
-- **Files (new / changed).** `poc/app/reporting/executive/builder.py` (new — orchestrates plan → collect → narrate → assemble) · `poc/app/reporting/executive/sections.py` (per-section dataclasses) · `poc/app/reporting/executive/thresholds.py` (deterministic risk flags) · `poc/app/reporting/writers/{markdown,docx,pdf}_writer.py` (new) · `poc/app/agents/report_agent.py` (extended — dispatch to executive builder when `target_year` is present) · `poc/app/api/routes/reports.py` (new — `GET /reports/{year}.{docx,pdf}`) · `poc/app/llm/prompts/executive/` (new — one prompt template per section).
+- **Files (new / changed).** `src/agentic_backend/reporting/executive/builder.py` (new — orchestrates plan → collect → narrate → assemble) · `src/agentic_backend/reporting/executive/sections.py` (per-section dataclasses) · `src/agentic_backend/reporting/executive/thresholds.py` (deterministic risk flags) · `src/agentic_backend/reporting/writers/{markdown,docx,pdf}_writer.py` (new) · `src/agentic_backend/agents/report_agent.py` (extended — dispatch to executive builder when `target_year` is present) · `src/agentic_backend/api/routes/reports.py` (new — `GET /reports/{year}.{docx,pdf}`) · `src/agentic_backend/llm/prompts/executive/` (new — one prompt template per section).
 - **One-shot experiment (called out under Phase 10 retrospective).** Keep the section pipeline as the production path; build a one-call experimental mode behind a feature flag and compare quality on the same year. The user wants this explicitly piloted.
 - **Out of scope.** Multi-year reports (one report = one year for v1) · review-and-revise loop · live data refresh (the report is a point-in-time artefact).
 
@@ -290,7 +293,7 @@ Generates a management-ready annual report for a selected year, on-screen and as
 Final stakeholder deliverable. A short, opinionated deck (PDF + PPTX) that explains the PoC to a non-technical reader, captures what made the work interesting, and is honest about what should be done differently next time. Hand-curated content — not auto-generated like the Phase 9 report.
 
 **Functional bullets**
-- **Two formats, one source.** Source of truth = `docs/presentation/deck.md` (Markdown). PPTX built via `poc/scripts/build_pptx.py` (`python-pptx`); PDF via `soffice --headless --convert-to pdf` from the PPTX. Both artefacts land in `docs/presentation/insurance-rag-poc.{pptx,pdf}`.
+- **Two formats, one source.** Source of truth = `docs/presentation/deck.md` (Markdown). PPTX built via `src/scripts/build_pptx.py` (`python-pptx`); PDF via `soffice --headless --convert-to pdf` from the PPTX. Both artefacts land in `docs/presentation/insurance-rag-poc.{pptx,pdf}`.
 - **Slide A — Problem explanation (non-technical).** For a manager or client with no engineering background.
     > *Insurance branch employees spend an outsized share of their day looking up policy clauses across years of PDFs to answer questions they receive at the counter — "is this refundable?", "is this covered?", "what does the 2020 policy say about this?". The lookups are slow, inconsistent across employees, and impossible to audit after the fact. This PoC shows an assistant that answers those questions in seconds, points to the exact paragraph in the exact PDF it used, and keeps a record of every decision so compliance can review it later. It runs entirely on a workstation — no document or customer detail leaves the building.*
     - Visual: one annotated screenshot of a chat turn with a citation popover open.
@@ -302,7 +305,7 @@ Final stakeholder deliverable. A short, opinionated deck (PDF + PPTX) that expla
     - **A real business-output report from a 7B parameter model.** The Markdown + base64 chart format is a deliberate squeeze of a small local model into a serious deliverable shape.
 - **Slide C — What you'd do differently.** Frank assessment. Two–three lines per bullet.
     - **Prioritise Talk-to-Data earlier, but guard it with UI affordances.** Quantitative answers are the highest-value thing the assistant could do for an insurance ops team, and also the easiest to get wrong. A confidently wrong percentage is worse than no agent at all. Cure: surface the underlying rows and the planner `Operation` alongside every numeric answer (this is the Phase 8 design) and add UI helpers — quick-pick dimension chips, a metric glossary — so the user is steered into well-formed questions rather than free-typing pitfalls.
-    - **Use AG-UI as the front-end protocol.** Streamlit was the right call for a PoC; rebuilding on AG-UI would give us streaming tool calls, native human-in-the-loop, and a real component model instead of `st.rerun()`.
+    - **Migrate to a proper SPA earlier.** Streamlit was the right call for rapid PoC iteration; Phase 12b replaced it with a React + Vite + TypeScript SPA — eliminating whole-script reruns, thread-blocking approval polling, and fragile dialog semantics. Rebuilding on AG-UI instead would additionally bring a standardised streaming tool-call protocol for multi-agent UIs.
     - **Azurize the model layer.** Drop Ollama 7B for production: **GPT-5.1** as the RAG generator (substantial grounded-answer quality lift over local 7B) · **mini / nano model** for the query reformulator (sub-second latency, cheap, small task) · **GPT-5.4 / reasoning-medium** for the executive report (multi-section pipeline benefits disproportionately from a reasoning model).
     - **End-to-end report generation in a single LLM call** as a side-by-side experiment against the per-section pipeline. The challenge is getting a stable executive-grade structure out of one shot; the prize is dramatically lower latency and cost. Worth one focused spike before committing to the orchestrated pipeline as the long-term path.
 - **Out of scope.** Animated transitions / video walk-through · speaker-notes export (notes live as block-comments in the source Markdown but no separate render) · CI rebuild on every commit (single make target is enough).
@@ -384,7 +387,7 @@ Phase 13 adds **audio in and audio out** as first-class modalities. Customers in
 
 - **Speech-to-text Tool.** New `speech_to_text(audio_blob, language)` Tool wrapping a local Whisper.cpp build (small or medium model — quantised, CPU-friendly). Streamed transcription so the Planner can begin building the Plan before the user finishes speaking.
 - **Text-to-speech Tool.** New `text_to_speech(text, voice_id)` Tool wrapping a local TTS engine (Piper or Coqui-TTS — Piper preferred for latency and small model size). Voice cloning explicitly out of scope.
-- **UI.** Streamlit voice-input widget (`st.audio_input`) + an audio-output player below every assistant message. Both gated by a `settings.voice.enabled` flag — voice is **opt-in** to avoid surprising users with microphone prompts.
+- **UI.** React voice-input component + an audio-output player below every assistant message. Both gated by a `settings.voice.enabled` flag — voice is **opt-in** to avoid surprising users with microphone prompts.
 - **Audit + privacy.** Audio blobs are **never** persisted by default — only their sha256 + transcript are recorded in `audit_events`. Behind a `settings.audit.retain_audio = true` flag, blobs land in a separate `audit_audio/` directory with a 30-day TTL. The privacy posture (nothing leaves the workstation) is unchanged.
 - **OTel.** New spans `tool.speech_to_text` + `tool.text_to_speech` with `model_id`, `audio_length_ms`, `latency_ms` attributes. WER (word-error rate) recorded as a metric where the user corrects the transcript.
 - **Out of scope.** Image / vision inputs (deferred — no phase yet) · voice cloning · real-time bidirectional voice (the loop is request/response, not streaming dialog) · multilingual TTS beyond the languages Piper ships with.

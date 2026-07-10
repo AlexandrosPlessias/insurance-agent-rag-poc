@@ -18,7 +18,71 @@ First-time installation of the PoC inside WSL2. After this, see [USAGE.md](USAGE
 
 ---
 
-## 2. One-shot bootstrap
+## 2. WSL filesystem: work on ext4, not OneDrive
+
+> **Skip this section if you cloned directly into your WSL home (`~/…`).** Run
+> `df -T . | awk 'NR==2{print $2}'` from the repo root — if the output is `ext4` you
+> are already on the fast path.
+
+### Why it matters
+
+Two separate problems arise when the repo lives under `/mnt/c/` (OneDrive or any Windows
+path):
+
+- **9p VirtioFS overhead.** Every file read and write crosses the 9p bridge between the
+  Linux kernel and the Windows host. For file-intensive workloads — `npm install`,
+  `vite` hot-reload, Python cold imports — this is 10–50× slower than a native ext4
+  syscall. A `pip install -r requirements.txt` that takes 30 s on ext4 can take 10+ min
+  on OneDrive.
+
+- **Windows Node leaking into PATH.** WSL interop puts Windows `.exe` binaries on the
+  Linux PATH. When a script runs `npm` or `npx` without loading nvm first, it picks up
+  the Windows `node.exe`, which cannot execute the Linux ELF binaries inside
+  `frontend/node_modules`. This causes `npm run dev` to fail silently and
+  `npx playwright install chromium` to refuse to install.
+
+### Verify you are on ext4
+
+```bash
+df -T . | awk 'NR==2{print $2}'
+# Expected: ext4
+# Bad:      9p  (Windows mount)  or  drvfs
+```
+
+### If you cloned under OneDrive — re-clone into WSL home
+
+```bash
+# From a WSL terminal (not Windows Explorer / Windows terminal):
+cd ~
+git clone <your-remote-url> insurance-agent-rag-poc
+cd insurance-agent-rag-poc
+```
+
+Then copy your `.env` and data files if you had them:
+
+```bash
+cp /mnt/c/path/to/old/src/.env src/.env
+# ChromaDB and SQLite are gitignored — copy them too if you want to keep history:
+cp -r /mnt/c/path/to/old/src/data/chroma_db src/data/chroma_db
+cp    /mnt/c/path/to/old/src/data/audit.sqlite src/data/audit.sqlite
+```
+
+### Python venv
+
+The bootstrap script creates the venv at `~/irp-venv` (ext4) and `run_all.sh` finds it
+automatically — no manual action is needed. Do not create the venv inside `poc/.venv`
+while the repo is on a Windows mount; it will be unbearably slow and may fail mid-install.
+
+### Node (npm / npx)
+
+`scripts/nvm_env.sh` loads the Linux Node installed by nvm before any script runs,
+bypassing the Windows `node.exe` on the PATH. This is automatic — you do not need to
+source nvm manually. If you run `npm` or `npx` directly in a shell where nvm is not
+loaded, prefix the command with `source ~/.nvm/nvm.sh` first.
+
+---
+
+## 3. One-shot bootstrap
 
 From the **repo root** inside WSL2 Ubuntu:
 
@@ -47,12 +111,12 @@ The script does six things:
 
 ---
 
-## 3. Configuration
+## 4. Configuration
 
 Copy the example env into your local `.env`:
 
 ```bash
-cd poc
+cd src
 cp .env.example .env
 ```
 
@@ -64,27 +128,26 @@ Defaults work out of the box. Adjust only what you need:
 | `LLM_MODEL` | `qwen2.5:7b` | Worker reasoning model |
 | `PLANNER_MODEL` | `qwen2.5:3b` | Planner fast-lane model (Phase 11) |
 | `EMBED_MODEL` | `nomic-embed-text` | Embedding model |
-| `CHROMA_PERSIST_DIR` | `poc/data/chroma_db` | Vector store on disk |
-| `SQLITE_PATH` | `poc/data/memory.sqlite` | Episodic memory (Phase 4) |
-| `AUDIT_SQLITE_PATH` | `poc/data/audit.sqlite` | Phase 7 audit trail (separate file from memory) |
+| `CHROMA_PERSIST_DIR` | `src/data/chroma_db` | Vector store on disk |
+| `SQLITE_PATH` | `src/data/memory.sqlite` | Episodic memory (Phase 4) |
+| `AUDIT_SQLITE_PATH` | `src/data/audit.sqlite` | Phase 7 audit trail (separate file from memory) |
 | `API_PORT` | `8000` | FastAPI port |
-| `UI_API_URL` | `http://localhost:8000` | Streamlit → API endpoint |
 | `CHUNK_SIZE` / `CHUNK_OVERLAP` / `RETRIEVAL_K` | `1000` / `150` / `5` | RAG tuning |
 | `LOG_LEVEL` | `INFO` | `DEBUG` for verbose stderr |
 | `OTEL_ENABLED` | `true` | Self-disables if Aspire isn't running, so safe to leave on |
 | `OTEL_ENDPOINT` | `http://localhost:4317` | Aspire OTLP gRPC receiver |
 | `OTEL_UI_URL` | `http://localhost:18888` | Aspire web UI |
 
-> ⚠ Gitignored (local-only state): `poc/data/chroma_db/`, `poc/data/memory.sqlite`, `poc/data/audit.sqlite`, `poc/data/knowledge_base/processed/`, `poc/data/knowledge_base/metadata/*.json`, `poc/.venv/`. **Tracked**: `poc/data/knowledge_base/raw/` (seed PDFs ship with the repo) and `poc/data/knowledge_base/metadata/schema.json`.
+> ⚠ Gitignored (local-only state): `src/data/chroma_db/`, `src/data/memory.sqlite`, `src/data/audit.sqlite`, `src/data/knowledge_base/processed/`, `src/data/knowledge_base/metadata/*.json`, `poc/.venv/`. **Tracked**: `src/data/knowledge_base/raw/` (seed PDFs ship with the repo) and `src/data/knowledge_base/metadata/schema.json`.
 
 ---
 
-## 4. Verify the install
+## 5. Verify the install
 
 End-to-end smoke test (synthesises a sample insurance PDF, ingests it, runs four sample questions including a report + an out-of-scope decline):
 
 ```bash
-cd poc && source .venv/bin/activate
+cd src && source .venv/bin/activate
 python scripts/smoke_test.py
 ```
 
@@ -103,7 +166,7 @@ If that passes, you're done with setup. Head to [USAGE.md](USAGE.md).
 
 ---
 
-## 5. Troubleshooting setup
+## 6. Troubleshooting setup
 
 | Symptom | Fix |
 |---|---|
@@ -113,4 +176,4 @@ If that passes, you're done with setup. Head to [USAGE.md](USAGE.md).
 | `zstd` missing during Ollama install | Already added to apt install in step [1/6]; rerun if you bootstrapped before this fix |
 | `ollama: command not found` | Re-run `bash poc/scripts/setup_wsl.sh` or install manually: `curl -fsSL https://ollama.com/install.sh \| sh` |
 | Out of memory pulling `qwen2.5:7b` | Use the lighter fallback: `ollama pull llama3.1:8b` and set `LLM_MODEL=llama3.1:8b` in `.env` |
-| `ModuleNotFoundError: No module named 'app'` | You're not in `poc/` — `cd poc` first, or use the provided `bash poc/scripts/run_*.sh` wrappers |
+| `ModuleNotFoundError: No module named 'app'` | You're not in `poc/` — `cd src` first, or use the provided `bash poc/scripts/run_*.sh` wrappers |
