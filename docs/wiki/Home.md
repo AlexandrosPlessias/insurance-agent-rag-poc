@@ -25,10 +25,10 @@ no document or customer detail ever leaves the workstation.
 
 ```
                   ┌────────────────┐
-                  │   Streamlit    │  Chat UI · plan stepper · thumbs feedback ·
-                  │     (UI)       │  download buttons · view-chunk popovers
+                  │  React SPA     │  Chat UI · plan stepper · thumbs feedback ·
+                  │  (Vite + TS)   │  download buttons · view-chunk popovers
                   └───────┬────────┘
-                          │  HTTP
+                          │  HTTP (Vite proxy /api → :8000 in dev)
                           ▼
                   ┌────────────────┐
                   │    FastAPI     │  /chat · /feedback · /ingest
@@ -55,11 +55,11 @@ no document or customer detail ever leaves the workstation.
   Cross-cutting:
     • OpenTelemetry → Aspire Dashboard (Phase 5)
     • SQLite audit trail + episodic memory (Phase 4 / 7)
-    • Skills: app/skills/  ·  Skill prompts: app/llm/prompts/skills/
-    • Tools: app/tools/    ·  Feedback: POST /feedback
+    • Skills: agentic_backend/skills/  ·  Skill prompts: agentic_backend/llm/prompts/skills/
+    • Tools: agentic_backend/tools/   ·  Feedback: POST /feedback
 ```
 
-**Tech stack.** Python 3.12 · LangGraph · FastAPI · Streamlit · Ollama
+**Tech stack.** Python 3.12 · LangGraph · FastAPI · React + Vite + TypeScript · Ollama
 (`qwen2.5:7b` + `qwen2.5:3b` planner + `nomic-embed-text`) · ChromaDB · SQLite · OpenTelemetry +
 .NET Aspire Dashboard · python-pptx · python-docx · reportlab.
 
@@ -75,21 +75,21 @@ Diagrams: [`docs/architecture/high_level_architecture.png`](../architecture/high
    Docker if missing, and pre-pulls the Aspire image):
 
    ```bash
-   bash poc/scripts/setup_wsl.sh
+   bash src/scripts/setup_wsl.sh
    ```
 3. Copy the env template:
 
    ```bash
-   cp poc/.env.example poc/.env
+   cp src/.env.example src/.env
    ```
 4. Activate the venv and run the full stack in one terminal:
 
    ```bash
-   cd poc && source .venv/bin/activate
+   cd src && source .venv/bin/activate
    bash scripts/run_all.sh
    ```
 
-   - UI → http://localhost:8501
+   - React SPA → http://localhost:5173
    - API → http://localhost:8000
    - Aspire dashboard → http://localhost:18888
 
@@ -101,15 +101,15 @@ Full details + troubleshooting: [`SETUP.md`](../../SETUP.md).
 
 | Action | How |
 |---|---|
-| Ask a policy question | Type in the Streamlit chat; the Planner routes to `answer-policy-question` |
+| Ask a policy question | Type in the React SPA chat; the Planner routes to `answer-policy-question` |
 | Ask a multi-intent question | *"Refund window AND 2024 loss ratio?"* — both answers in one turn under separate H3 headers |
 | Ask a quantitative question | *"What was the 2024 loss ratio by product?"* → `compute-kpi` Skill → Data worker |
 | Generate the executive report | *"Generate the 2024 annual report"* → `executive-section-summary` → 3 download buttons (MD / DOCX / PDF) |
 | Rate an answer | Thumbs up / down row under each scored assistant turn (turns that carry a `plan_id`); stored to `audit_events` via `POST /feedback` |
 | Ask an out-of-scope question | *"What is 1+1?"* or any non-insurance topic → Planner routes to the `decline` Skill; canned refusal returned in < 1 s with no LLM call |
-| View feedback scores | `python poc/scripts/view_feedback.py` — formatted table of all 👍/👎 votes; `--user` and `--limit` filters available |
-| Ingest a new PDF | Drag-and-drop in the UI sidebar **or** `python poc/scripts/ingest_pdfs.py` |
-| Export audit trail | `python poc/scripts/audit_export.py` → CSV (PowerBI-ready) |
+| View feedback scores | `python src/scripts/view_feedback.py` — formatted table of all 👍/👎 votes; `--user` and `--limit` filters available |
+| Ingest a new PDF | Drag-and-drop in the UI sidebar **or** `python src/scripts/ingest_pdfs.py` |
+| Export audit trail | `python src/scripts/audit_export.py` → CSV (PowerBI-ready) |
 | Watch traces live | Open Aspire dashboard while you chat |
 
 The **2023 gap is intentional** — the knowledge base covers 2020/2021/2022/2024,
@@ -134,13 +134,13 @@ Full guide: [`USAGE.md`](../../USAGE.md).
 | 8 — Talk-to-Data agent | ✅ | Typed `Operation` JSON + pandas executor over a real KPI CSV |
 | 9 — Executive Annual Report | ✅ | Section pipeline · 3 writers (MD/DOCX/PDF) · deterministic risk bands |
 | 10 — Stakeholder deck | ✅ | `python-pptx` rendered from `deck.md`; LangGraph + Azure northstar slides |
-| **11 — Agentic multi-intent (+ feedback)** | ✅ | **Planner · Orchestrator · Workers · Tools · Skills** stack — uniform pipeline, structured outputs, `plan_id` on every turn, thumbs-feedback, `decline` Skill for out-of-scope refusals. See [`docs/agentic.md`](../agentic.md). |
-| **12 — Human-in-the-Loop & Telegram channel** | 📋 planned | Suspendable Plans · approval gates between Steps · Telegram bot (Slack / Teams pluggable) · `plans` table |
-| **13 — Multi-modal voice** | 📋 planned | Local Whisper.cpp + Piper TTS as Tools · audio in/out in Streamlit · no cloud STT/TTS |
+| **11 — Agentic multi-intent (+ feedback)** | ✅ | **Planner · Orchestrator · Workers · Tools · Skills** stack — uniform pipeline, structured outputs, `plan_id` on every turn, thumbs-feedback, `decline` Skill for out-of-scope refusals. See [`docs/architecture/agentic-pipeline.md`](../architecture/agentic-pipeline.md). |
+| **12 — Human-in-the-Loop & Telegram channel** | ✅ | Suspendable Plans · HMAC-signed approval gates between Steps · Telegram bot (Slack / Teams pluggable) · `plans` table · drill-down chips on data turns · React UX redesign |
+| **13 — Multi-modal voice** | 📋 planned | Local Whisper.cpp + Piper TTS as Tools · audio in/out in the React UI · no cloud STT/TTS |
 | **14 — Cross-conversation planning** | 📋 planned | Plans become first-class memory · resume-tokens · multi-user participants · Skill schema migration |
 | **15 — Recursive Skill composition** | 📋 planned | Skills can emit sub-Plans · `max_recursion_depth` · cycle detection · nested OTel span tree |
 
-Detailed per-phase write-ups live in the main [`README.md`](../../README.md). The Phase 11 agentic architecture is documented in depth at [`docs/agentic.md`](../agentic.md).
+Detailed per-phase write-ups live in the main [`README.md`](../../README.md). The Phase 11 agentic architecture is documented in depth at [`docs/architecture/agentic-pipeline.md`](../architecture/agentic-pipeline.md).
 
 ---
 
@@ -158,10 +158,11 @@ Detailed per-phase write-ups live in the main [`README.md`](../../README.md). Th
 
 | Doc | What it covers |
 |---|---|
-| [`GRAPH.md`](../architecture/GRAPH.md) | LangGraph compiled state machine + per-node + edge reference |
-| [`docs/agentic.md`](../agentic.md) | ✅ **Phase 11** — Planner · Orchestrator · Workers · Tools · Skills capability catalogue + extension playbook |
-| [`docs/ingestion.md`](../ingestion.md) | Phase 6 ingestion + chunking design + tuning |
-| [`docs/agentic.md § 10`](../agentic.md#10--legacy-phase-110-contracts) | Phase 1–10 per-node MUST/MUST-NOT contracts (appended to `agentic.md`) |
+| [`architecture/GRAPH.md`](../architecture/GRAPH.md) | LangGraph compiled state machine + per-node + edge reference |
+| [`architecture/agentic-pipeline.md`](../architecture/agentic-pipeline.md) | ✅ **Phase 11** — Planner · Orchestrator · Workers · Tools · Skills capability catalogue + extension playbook |
+| [`architecture/design-rationale.md`](../architecture/design-rationale.md) | Why six separate nodes — design intent, MUST/MUST-NOT contracts |
+| [`architecture/ingestion.md`](../architecture/ingestion.md) | Phase 6 ingestion + chunking design + tuning |
+| [`architecture/agentic-pipeline.md § 10`](../architecture/agentic-pipeline.md#10--legacy-phase-110-contracts) | Phase 1–10 per-node MUST/MUST-NOT contracts |
 
 #### Strategic vision
 
@@ -192,8 +193,8 @@ Detailed per-phase write-ups live in the main [`README.md`](../../README.md). Th
 ## 🤝 Contributing / extending
 
 - Each phase lives on its own branch — `poc/phase-<N>-<slug>`. Merge into
-  `dev` via squash-merge PR.
-- Smoke test before opening a PR: `python poc/scripts/smoke_test.py`.
+  `dev` via squash-merge PR. Refactor branches use `refactor/<slug>`.
+- Smoke test before opening a PR: `python src/scripts/smoke_test.py`.
 - Commit hygiene: keep the README phase section in sync with every new
   surface (UI / API / SQL / OTel).
 
