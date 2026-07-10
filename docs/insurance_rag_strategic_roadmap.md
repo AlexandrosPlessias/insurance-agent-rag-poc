@@ -1,7 +1,7 @@
 # Enterprise Insurance AI — Strategic Architecture Vision
 
 > **Context.** This document captures the full enterprise-grade architecture vision that
-> informs the design decisions of the local PoC. The PoC (Phases 1–11) runs on a single
+> informs the design decisions of the local PoC. The PoC (Phases 1–12) runs on a single
 > WSL2 workstation with local Ollama models and validates the core patterns at reduced scale.
 > A production deployment would replace the local components with Azure-hosted equivalents
 > as described below.
@@ -285,7 +285,7 @@ enterprise integrations beyond the local workstation target.
 | RBAC at document level (§ 2.2.2) | — | Not in PoC scope |
 | PowerBI analytics layer (§ 2.5.1) | — | Not in PoC scope |
 | Grafana operational dashboards (§ 2.5.2) | — | Not in PoC scope |
-| Human-in-the-loop approval gates + Telegram (§ 4) | Phase 12 | Planned |
+| Human-in-the-loop approval gates + Telegram (§ 4) | Phase 12 | ✅ |
 | Multi-modal voice — Whisper + Piper TTS (§ 4) | Phase 13 | Planned |
 | Cross-conversation planning + resume tokens (§ 4) | Phase 14 | Planned |
 | Recursive Skill composition — sub-Plans (§ 4) | Phase 15 | Planned |

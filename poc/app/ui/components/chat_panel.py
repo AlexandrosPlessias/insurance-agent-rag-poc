@@ -1,1 +1,0 @@
-"""Streamlit chat panel component."""
