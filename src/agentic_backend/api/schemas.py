@@ -36,6 +36,7 @@ class HealthResponse(BaseModel):
     telegram_configured: bool
     otel_enabled: bool
     otel_ui_url: str
+    voice_enabled: bool
 
 
 # --- Conversations ---

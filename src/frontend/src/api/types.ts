@@ -37,6 +37,13 @@ export interface HealthResponse {
   telegram_configured: boolean;
   otel_enabled: boolean;
   otel_ui_url: string;
+  voice_enabled: boolean;
+}
+
+export interface TranscribeResponse {
+  transcript: string;
+  language: string;
+  duration_ms: number;
 }
 
 export interface IngestResponse {

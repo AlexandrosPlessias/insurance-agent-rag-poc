@@ -1,6 +1,5 @@
 """FastAPI application factory and uvicorn entrypoint."""
 import asyncio
-import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -10,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from agentic_backend.api.routes import (
     admin,
+    audio,
     chat,
     conversations,
     feedback,
@@ -60,6 +60,7 @@ app.add_middleware(
 )
 
 app.include_router(health.router)
+app.include_router(audio.router)
 app.include_router(chat.router)
 app.include_router(conversations.router)
 app.include_router(ingest.router)
@@ -79,7 +80,9 @@ log.info(
 )
 
 _tg_status = (
-    "configured — bot embedded in FastAPI" if settings.telegram_bot_token else "NOT configured (set TELEGRAM_BOT_TOKEN to enable)"
+    "configured — bot embedded in FastAPI"
+    if settings.telegram_bot_token
+    else "NOT configured (set TELEGRAM_BOT_TOKEN to enable)"
 )
 log.info("HITL approval channel: Telegram %s", _tg_status)
 

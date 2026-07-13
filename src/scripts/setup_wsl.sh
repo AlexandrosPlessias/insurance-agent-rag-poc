@@ -4,20 +4,26 @@
 #
 # Skip the Aspire Docker image pre-pull with:
 #   SKIP_OBSERVABILITY=true bash poc/scripts/setup_wsl.sh
+# Skip the Piper TTS voice model download with:
+#   SKIP_VOICE=true bash poc/scripts/setup_wsl.sh
 set -euo pipefail
 
-# Always operate from the poc/ root regardless of where the script is invoked.
-cd "$(dirname "$0")/.."
+# Resolve the script's directory as an absolute path BEFORE cd-ing away.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Always operate from src/ regardless of where the script is invoked.
+cd "$SCRIPT_DIR/.."
 
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 VENV_DIR="${VENV_DIR:-.venv}"
 SKIP_OBSERVABILITY="${SKIP_OBSERVABILITY:-false}"
 SKIP_FRONTEND="${SKIP_FRONTEND:-false}"
 SKIP_PLAYWRIGHT="${SKIP_PLAYWRIGHT:-false}"
+SKIP_VOICE="${SKIP_VOICE:-false}"
 ASPIRE_IMAGE="${ASPIRE_IMAGE:-mcr.microsoft.com/dotnet/aspire-dashboard:9.0}"
 
 # shellcheck source=scripts/nvm_env.sh
-source "$(dirname "$0")/nvm_env.sh"
+source "$SCRIPT_DIR/nvm_env.sh"
 
 echo "[1/9] Installing system packages..."
 sudo apt-get update
@@ -135,7 +141,7 @@ else
   fi
 fi
 
-echo "[9/9] Pre-pulling Aspire Dashboard image (Phase 5 observability)..."
+echo "[9/10] Pre-pulling Aspire Dashboard image (Phase 5 observability)..."
 if [ "$SKIP_OBSERVABILITY" = "true" ]; then
   echo "  Skipped (SKIP_OBSERVABILITY=true). Pull later with:"
   echo "    docker pull $ASPIRE_IMAGE"
@@ -154,6 +160,17 @@ else
   else
     echo "  WARN: docker pull failed; run_observability.sh will retry" >&2
   fi
+fi
+
+echo "[10/10] Downloading Piper TTS voice models (Phase 13, optional)..."
+if [ "$SKIP_VOICE" = "true" ]; then
+  echo "  Skipped (SKIP_VOICE=true). Download later with:"
+  echo "    bash scripts/download_voice_models.sh"
+elif [ -f "voice/piper_voices/en_US-lessac-medium.onnx" ]; then
+  echo "  Voice model already present — skipping download."
+else
+  bash "$SCRIPT_DIR/download_voice_models.sh"
+  bash "$SCRIPT_DIR/download_voice_models.sh" el_GR-rapunzelina-low
 fi
 
 echo

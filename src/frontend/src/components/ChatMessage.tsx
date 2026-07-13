@@ -2,6 +2,7 @@ import React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Turn } from "../store/chatStore";
+import { AudioPlayer } from "./AudioPlayer";
 import { CitationPanel } from "./CitationPanel";
 import { FeedbackButtons } from "./FeedbackButtons";
 import { OperationExpander } from "./OperationExpander";
@@ -56,6 +57,8 @@ interface Props {
   userId: string;
   ratedTurns: Set<string>;
   hasPendingApproval: boolean;
+  voiceEnabled?: boolean;
+  voiceLanguage?: string;
   onRated: (key: string) => void;
 }
 
@@ -66,6 +69,8 @@ export function ChatMessage({
   userId,
   ratedTurns,
   hasPendingApproval,
+  voiceEnabled,
+  voiceLanguage,
   onRated,
 }: Props) {
   const turnKey = `${conversationId}_${turnIndex}`;
@@ -198,6 +203,9 @@ export function ChatMessage({
                 onRated={onRated}
                 alreadyRated={ratedTurns.has(turnKey)}
               />
+            )}
+            {voiceEnabled && turn.content.trim() && (
+              <AudioPlayer text={turn.content} language={voiceLanguage} />
             )}
           </div>
         )}

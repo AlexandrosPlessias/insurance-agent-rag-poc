@@ -9,13 +9,14 @@
 #   API_HOST=0.0.0.0          -> override FastAPI bind address
 #   SKIP_REACT=true           -> skip the React dev server
 set -euo pipefail
-cd "$(dirname "$0")/.."
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR/.."
 
 # Load nvm-managed Node so `npm run dev` uses the Linux install, not the Windows
 # Node leaked into PATH by WSL interop (which can't run the Linux-native binaries
 # in frontend/node_modules). See scripts/nvm_env.sh for the why.
 # shellcheck source=scripts/nvm_env.sh
-source "$(dirname "$0")/nvm_env.sh"
+source "$SCRIPT_DIR/nvm_env.sh"
 load_nvm || true
 
 API_HOST="${API_HOST:-0.0.0.0}"
@@ -91,7 +92,26 @@ trap cleanup INT TERM
 if [ "${SKIP_OBSERVABILITY:-false}" = "true" ]; then
   color "[1/3] Skipping observability (SKIP_OBSERVABILITY=true)"
 elif ! command -v docker >/dev/null 2>&1; then
-  color "[1/3] Docker not found - skipping Aspire (set OTEL_ENABLED=false in .env to silence warnings)"
+  color "[1/3] Docker not found — skipping Aspire."
+  color "      macOS:  brew install --cask docker"
+  color "      WSL2:   sudo apt-get install -y docker.io"
+  color "      Set OTEL_ENABLED=false in .env to silence API startup warnings."
+elif ! docker info >/dev/null 2>&1; then
+  # Daemon installed but not running — on macOS we can start it automatically.
+  if [[ "$(uname)" == "Darwin" ]]; then
+    color "[1/3] Docker daemon not running — opening Docker Desktop..."
+    open /Applications/Docker.app
+    color "      Waiting for daemon (up to 60 s)..."
+    for _ in $(seq 1 30); do
+      sleep 2
+      docker info >/dev/null 2>&1 && break || true
+    done
+  fi
+  if ! docker info >/dev/null 2>&1; then
+    color "[1/3] Docker daemon still not reachable — skipping Aspire."
+    color "      WSL2/Linux: sudo systemctl start docker"
+    color "      Set OTEL_ENABLED=false in .env to silence API startup warnings."
+  fi
 elif [ "${KEEP_OBSERVABILITY_DATA:-false}" = "true" ] \
      && docker ps --format '{{.Names}}' | grep -q "^${ASPIRE_NAME}$"; then
   color "[1/3] Reusing existing Aspire Dashboard (KEEP_OBSERVABILITY_DATA=true)"
