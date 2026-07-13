@@ -117,7 +117,7 @@ insurance-agent-rag-poc/
 
 ## 🗺 Implementation Roadmap
 
-Phases 1–11 are implemented. Phases 12–15 are designed but not yet built.
+Phases 1–12 are implemented. Phases 13–15 are designed but not yet built.
 
 | Phase | Focus | Key Modules |
 |---|---|---|
@@ -132,6 +132,7 @@ Phases 1–11 are implemented. Phases 12–15 are designed but not yet built.
 | **9** ✅ | Executive annual report for a selected year — section-by-section pipeline (collector → narrator → assemble) over the Phase 8 KPI data + Phase 1 RAG chunks. Deterministic risk-flag thresholds (no LLM-decided severity), reproducibility hash, three writers (Markdown · DOCX · PDF) | [src/agentic_backend/reporting/executive/](src/agentic_backend/reporting/executive/) · [src/agentic_backend/reporting/writers/](src/agentic_backend/reporting/writers/) · [src/agentic_backend/api/routes/reports.py](src/agentic_backend/api/routes/reports.py). Details: [Phase 9](#phase-9--executive-annual-report-) |
 | **10** ✅ | PoC stakeholder deck — Markdown source of truth ([docs/presentation/deck.md](docs/presentation/deck.md)) + python-pptx builder that embeds live-app screenshots from `docs/screens/`. Renders TODO placeholders for shots not yet captured so the deck always builds. 14 slides covering problem framing, capability tour, observability, retrospective | [src/scripts/build_pptx.py](src/scripts/build_pptx.py) · [docs/presentation/](docs/presentation/). Details: [Phase 10](#phase-10--poc-presentation-deck-) |
 | **11** ✅ | Agentic multi-intent stack + thumbs feedback — Planner · Orchestrator · Workers · Skills · Tools DAG replacing the Phase 1–10 supervisor→single-worker routing; `POST /feedback`; `plan_id` threaded end-to-end | [src/agentic_backend/agents/planner_agent.py](src/agentic_backend/agents/planner_agent.py) · [src/agentic_backend/graph/orchestrator.py](src/agentic_backend/graph/orchestrator.py) · [src/agentic_backend/skills/](src/agentic_backend/skills/) · [src/agentic_backend/tools/](src/agentic_backend/tools/) · [src/agentic_backend/api/routes/feedback.py](src/agentic_backend/api/routes/feedback.py). Details: [Phase 11](#phase-11--agentic-multi-intent-architecture--feedback-) |
+| **12** ✅ | Human-in-the-Loop approval gates + Telegram channel — suspendable Plans, per-Step approval gates, HMAC-signed callback tokens, `ApprovalChannel` interface (Telegram · Slack · Teams pluggable) | [src/agentic_backend/approvals/](src/agentic_backend/approvals/) · [src/agentic_backend/api/routes/plans.py](src/agentic_backend/api/routes/plans.py). Details: [Phase 12](#phase-12--human-in-the-loop--telegram-channel-) |
 
 ### Nice-to-have (not on the roadmap)
 
@@ -371,7 +372,7 @@ A thin slice attached to the new architecture so reviewers can score the multi-i
 - Phase 7/8/9 smoke tests are updated to match the new topology and pass.
 - A 👎 on any answer persists to `audit_events` and appears in the CSV export within the same session.
 
-### Phase 12 — Human-in-the-Loop & Telegram channel 📋
+### Phase 12 — Human-in-the-Loop & Telegram channel ✅
 
 Phase 12 turns the Phase 11 Orchestrator into a **suspendable workflow engine**: certain Steps (or whole Plans) pause for human approval before executing, and the approval round-trip happens over a messaging channel — Telegram first because it's the cheapest local-friendly option (`python-telegram-bot` + a self-hosted bot token), with Slack and Microsoft Teams as drop-in alternatives behind the same `ApprovalChannel` interface.
 
