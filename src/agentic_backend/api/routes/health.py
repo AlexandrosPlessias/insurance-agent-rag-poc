@@ -21,4 +21,5 @@ def health() -> HealthResponse:
         telegram_configured=bool(settings.telegram_bot_token and settings.telegram_chat_id),
         otel_enabled=settings.otel_enabled,
         otel_ui_url=settings.otel_ui_url,
+        voice_enabled=settings.voice_enabled,
     )

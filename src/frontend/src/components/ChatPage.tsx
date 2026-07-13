@@ -1,5 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getMessages, streamChat, streamPlanResume } from "../api/client";
+import type { VoiceLanguage } from "./VoiceInput";
 import type { Turn } from "../store/chatStore";
 import type { DoneEvent, NDJSONEvent, StageEvent } from "../api/types";
 import { useChatStore } from "../store/chatStore";
@@ -12,6 +13,7 @@ interface Props {
   conversationId: number | null;
   userId: string;
   telegramConfigured: boolean;
+  voiceEnabled?: boolean;
   onConversationCreated: (id: number) => void;
 }
 
@@ -19,9 +21,11 @@ export function ChatPage({
   conversationId,
   userId,
   telegramConfigured,
+  voiceEnabled,
   onConversationCreated,
 }: Props) {
   const { state, dispatch } = useChatStore();
+  const [voiceLanguage, setVoiceLanguage] = useState<VoiceLanguage>("en");
   const bottomRef = useRef<HTMLDivElement>(null);
   const requestedAtRef = useRef<number | null>(null);
   const firstTokenAtRef = useRef<number | null>(null);
@@ -248,6 +252,8 @@ export function ChatPage({
                   hasPendingApproval={
                     state.pendingApproval !== null && i === state.history.length - 1
                   }
+                  voiceEnabled={voiceEnabled}
+                  voiceLanguage={voiceLanguage}
                   onRated={(key) => dispatch({ type: "RATE_TURN", key })}
                 />
               );
@@ -293,7 +299,13 @@ export function ChatPage({
         borderTop: "1px solid var(--border)",
       }}>
         <div style={{ maxWidth: 760, margin: "0 auto" }}>
-          <ChatInput onSubmit={handleSubmit} disabled={isStreaming} />
+          <ChatInput
+            onSubmit={handleSubmit}
+            disabled={isStreaming}
+            voiceEnabled={voiceEnabled}
+            voiceLanguage={voiceLanguage}
+            onVoiceLanguageChange={setVoiceLanguage}
+          />
           <p style={{
             textAlign: "center", fontSize: 11,
             color: "var(--text-muted)", marginTop: 8,

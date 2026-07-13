@@ -7,7 +7,7 @@ Day-to-day operation of the PoC. First-time install is in [SETUP.md](SETUP.md).
 ## 1. Quick start (one terminal)
 
 ```bash
-bash poc/scripts/run_all.sh
+bash src/scripts/run_all.sh
 ```
 
 This launches **Aspire Dashboard** (Docker) → **FastAPI** → **React dev server** in one terminal with prefixed output (`[api]` / `[ui]`). `Ctrl+C` stops everything cleanly.
@@ -15,7 +15,7 @@ This launches **Aspire Dashboard** (Docker) → **FastAPI** → **React dev serv
 | Service | URL | Notes |
 |---|---|---|
 | React SPA | http://localhost:5173 | Main entry point — chat with policies |
-| FastAPI | http://localhost:8000 | REST + streaming; OpenAPI at `/docs`; serves built SPA when `poc/frontend/dist/` exists |
+| FastAPI | http://localhost:8000 | REST + streaming; OpenAPI at `/docs`; serves built SPA when `src/frontend/dist/` exists |
 | Aspire Dashboard | http://localhost:18888 | OTel traces / logs / metrics |
 
 Env knobs:
@@ -31,7 +31,7 @@ Env knobs:
 > Aspire for the session, cut cold-start time from ~40 s to ~5 s:
 >
 > ```bash
-> SKIP_AUTO_INGEST=true SKIP_OBSERVABILITY=true bash poc/scripts/run_all.sh
+> SKIP_AUTO_INGEST=true SKIP_OBSERVABILITY=true bash src/scripts/run_all.sh
 > ```
 >
 > `SKIP_AUTO_INGEST=true` skips the ChromaDB cold-import probe (safe whenever
@@ -47,11 +47,11 @@ If you'd rather split the processes:
 | Terminal | Command | Purpose |
 |---|---|---|
 | 1 | `ollama serve` *(usually auto-started)* | Local LLM daemon |
-| 2 | `bash poc/scripts/run_observability.sh` | Aspire Dashboard (Docker) |
-| 3 | `bash poc/scripts/run_api.sh` | FastAPI backend |
+| 2 | `bash src/scripts/run_observability.sh` | Aspire Dashboard (Docker) |
+| 3 | `bash src/scripts/run_api.sh` | FastAPI backend |
 | 4 | `cd src/frontend && npm run dev` | React dev server (http://localhost:5173) |
 
-All scripts `cd` to the `poc/` root themselves, so they work from anywhere in the repo.
+All scripts `cd` to the `src/` root themselves, so they work from anywhere in the repo.
 
 ---
 
@@ -76,7 +76,7 @@ src/data/knowledge_base/
 
 ```bash
 # Auto on first run via run_all.sh:
-bash poc/scripts/run_all.sh
+bash src/scripts/run_all.sh
 # (auto-ingests if ChromaDB is empty AND raw/ has PDFs;
 #  set SKIP_AUTO_INGEST=true to skip, RESET_KNOWLEDGE=true to force re-ingest)
 
@@ -129,7 +129,7 @@ Full metadata table and JSON Schema in [docs/ingestion.md §7 + §9](docs/ingest
 
 ## 4. Observability (Aspire Dashboard)
 
-After running `bash poc/scripts/run_all.sh`, open **http://localhost:18888**.
+After running `bash src/scripts/run_all.sh`, open **http://localhost:18888**.
 
 ### Tabs
 
@@ -196,7 +196,7 @@ event_type = "feedback.received"
 
 ### Clearing telemetry between runs
 
-`bash poc/scripts/run_all.sh` restarts the Aspire container by default — every run starts with empty telemetry. Set `KEEP_OBSERVABILITY_DATA=true` if you want to preserve history during iteration.
+`bash src/scripts/run_all.sh` restarts the Aspire container by default — every run starts with empty telemetry. Set `KEEP_OBSERVABILITY_DATA=true` if you want to preserve history during iteration.
 
 ---
 
@@ -314,7 +314,7 @@ Use these reports to:
 
 ### Knowledge base coverage
 
-`settings.kb_covered_years = [2020, 2021, 2022, 2024]` (see [poc/app/config.py](poc/app/config.py)). **2023 is an intentional gap.** When the supervisor extracts a `target_year` that isn't in this list, the request short-circuits to the **out-of-year fallback** node — no retrieval, no LLM call, just a templated reply naming the nearest covered years.
+`settings.kb_covered_years = [2020, 2021, 2022, 2024]` (see [src/agentic_backend/config.py](src/agentic_backend/config.py)). **2023 is an intentional gap.** When the supervisor extracts a `target_year` that isn't in this list, the request short-circuits to the **out-of-year fallback** node — no retrieval, no LLM call, just a templated reply naming the nearest covered years.
 
 ### The five supervisor routes
 
@@ -451,30 +451,114 @@ python scripts/ingest_pdfs.py                   # re-index from raw/ (with summa
 PDFs in `src/data/knowledge_base/raw/` are kept (tracked in git). To start completely fresh including the venv:
 
 ```bash
-rm -rf poc/.venv src/data/chroma_db src/data/memory.sqlite src/data/audit.sqlite
+rm -rf src/.venv src/data/chroma_db src/data/memory.sqlite src/data/audit.sqlite
 rm -rf src/data/knowledge_base/processed src/data/knowledge_base/metadata/*.json
-bash poc/scripts/setup_wsl.sh        # rebuild venv + redo pip install
+bash src/scripts/setup_wsl.sh        # rebuild venv + redo pip install
 ```
 
 ---
 
-## 8. Adjusting log verbosity
+## 8. Voice smoke-test (Phase 13)
+
+Validates faster-whisper STT and piper-tts TTS locally without starting the full stack.
+Run from the repo root with the venv active.
+
+### Prerequisites
+
+```bash
+cd src && source .venv/bin/activate   # voice deps are in requirements.txt
+# Download voice models if not already present:
+bash src/scripts/download_voice_models.sh                    # English
+bash src/scripts/download_voice_models.sh el_GR-rapunzelina-low  # Greek
+```
+
+### Invocations
+
+```bash
+# Interactive language menu (EN / EL) then TTS-only with playback:
+python src/scripts/smoke_test_voice.py
+
+# Skip the menu — pass language directly:
+python src/scripts/smoke_test_voice.py --lang el
+
+# Full loop: TTS → play WAV → transcribe with STT:
+python src/scripts/smoke_test_voice.py --self-test
+python src/scripts/smoke_test_voice.py --lang el --self-test
+
+# Record 5 s from mic → STT → speak transcript back:
+python src/scripts/smoke_test_voice.py --record 5
+python src/scripts/smoke_test_voice.py --lang el --record 5
+
+# Record from a specific DirectShow device (device list is printed at startup):
+python src/scripts/smoke_test_voice.py --record 5 --device 1
+
+# Transcribe an existing WAV/MP3 file:
+python src/scripts/smoke_test_voice.py path/to/audio.wav
+python src/scripts/smoke_test_voice.py --lang el path/to/audio.wav
+```
+
+### What each mode does
+
+| Mode | STT | TTS | Mic |
+|---|---|---|---|
+| _(default)_ | — | synthesize sample phrase + play | — |
+| `--self-test` | transcribe TTS output | synthesize sample phrase + play | — |
+| `--record N` | transcribe mic recording | speak transcript back | ✓ (N seconds) |
+| `path/to/file` | transcribe file | synthesize sample phrase | — |
+
+### Sample output — Greek mic recording
+
+```
+Language: Ελληνικά (Greek)  |  voice: el_GR-rapunzelina-low  |  STT hint: el
+
+Mic-record mode: 5s → STT + TTS playback of transcript
+
+  Available devices:
+    [0] Microphone Array (Realtek) ◀
+    [1] Stereo Mix (Realtek)
+  Recording 5s via ffmpeg DirectShow: 'Microphone Array (Realtek)'
+  Recorded: 160,044 bytes → /mnt/c/Users/.../AppData/Local/Temp/irp_voice_rec.wav
+  audio level : peak=18432  rms=4821  (-16.6 dBFS)
+
+=== STT — faster-whisper  [/mnt/c/.../irp_voice_rec.wav] ===
+  Loading model 'medium' (int8, CPU)…
+  model loaded in 3.2s
+  language  : el
+  duration  : 4.8s
+  latency   : 5.1s
+  transcript: 'Η ασφαλιστική αξίωση κατατέθηκε.'
+  result: PASS ✓
+
+  Speaking back: 'Η ασφαλιστική αξίωση κατατέθηκε.'
+  Loading voice (el_GR-rapunzelina-low)…
+  voice loaded in 1.4s  (sample_rate: 22050)
+  Playing via Windows SoundPlayer…
+
+==================================================
+Overall: ALL PASS ✓
+```
+
+> **WSL2 note:** mic recording uses `ffmpeg.exe` (DirectShow) and playback uses `powershell.exe` `SoundPlayer` — both are Windows-side tools called from WSL2, so no extra Linux audio packages are needed.
+
+---
+
+## 9. Adjusting log verbosity
 
 ```bash
 # DEBUG | INFO | WARNING | ERROR
-LOG_LEVEL=DEBUG bash poc/scripts/run_all.sh
+LOG_LEVEL=DEBUG bash src/scripts/run_all.sh
 ```
 
 Logs go to **stderr** (visible in the terminal) **and** to Aspire's Structured logs tab when OTel is enabled.
 
 ---
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 | Symptom | Fix |
 |---|---|
 | `Connection refused on :11434` | Ollama daemon not running — `ollama serve` in a separate terminal, or just rerun `run_all.sh` |
-| `OTel enabled but backend at http://localhost:4317 is unreachable` | Aspire not started yet. Run `bash poc/scripts/run_observability.sh` or restart with `run_all.sh`. App still works without OTel (warning is one line and harmless) |
+| `OTel enabled but backend at http://localhost:4317 is unreachable` | Aspire not started yet. Run `bash src/scripts/run_observability.sh` or restart with `run_all.sh`. App still works without OTel (warning is one line and harmless) |
 | `address already in use` binding `:4317` | Something else owns the port. Diagnose with `sudo ss -tlnp \| grep ':4317'`. If a stray `tempo`/`loki` from an old experiment shows up: `sudo systemctl stop tempo loki; sudo systemctl disable tempo loki` |
 | React SPA can't reach API | Check `run_api.sh` is running; in dev the Vite proxy (`/api → http://localhost:8000`) handles routing automatically |
 | Slow first inference | Cold-start cost — Ollama loads the model into RAM on first request; subsequent calls are fast |

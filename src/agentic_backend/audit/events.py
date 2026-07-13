@@ -36,6 +36,10 @@ PLANNER_PLAN = "planner.plan"
 ORCHESTRATOR_STEP = "orchestrator.step"
 FEEDBACK_RECEIVED = "feedback.received"
 
+# Voice I/O
+VOICE_TRANSCRIBE = "voice.transcribe"
+VOICE_SYNTHESIZE = "voice.synthesize"
+
 # HITL approval gates
 APPROVAL_SUSPENDED = "approval.suspended"
 APPROVAL_GRANTED = "approval.granted"
@@ -63,4 +67,6 @@ EventType = Literal[
     "approval.rejected",
     "approval.expired",
     "approval.resumed",
+    "voice.transcribe",
+    "voice.synthesize",
 ]

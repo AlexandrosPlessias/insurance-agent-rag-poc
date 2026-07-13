@@ -11,24 +11,32 @@ CONTAINER_NAME="${CONTAINER_NAME:-aspire-dashboard}"
 IMAGE="${IMAGE:-mcr.microsoft.com/dotnet/aspire-dashboard:9.0}"
 
 if ! command -v docker >/dev/null 2>&1; then
-  echo "ERROR: docker not found. Install Docker (Desktop on Windows, "
-  echo "       docker-ce in WSL2) and retry." >&2
+  echo "ERROR: docker not found." >&2
+  echo "       macOS:  brew install --cask docker" >&2
+  echo "       WSL2:   sudo apt-get install -y docker.io" >&2
   exit 1
 fi
 
-# Daemon liveness check. `command -v docker` only proves the CLI is
-# on PATH; the daemon may still be stopped (Docker Desktop closed,
-# `dockerd` not running). Without this, `docker pull` would hang ~30s
-# with no output and then fail under set -e, killing the script
-# silently. Fail fast with a useful message instead.
+# Daemon liveness check. `command -v docker` only proves the CLI is on PATH;
+# the daemon may still be stopped. On macOS we can open Docker Desktop
+# automatically; on other platforms we fail fast with a useful message.
 if ! docker info >/dev/null 2>&1; then
-  echo "ERROR: Docker is installed but the daemon isn't reachable." >&2
-  echo "       On Windows: start Docker Desktop and wait for the" >&2
-  echo "       whale icon to go solid, then retry." >&2
-  echo "       On Linux:   sudo systemctl start docker" >&2
-  echo "       Or skip Aspire entirely:" >&2
-  echo "         SKIP_OBSERVABILITY=true bash scripts/run_all.sh" >&2
-  exit 1
+  if [[ "$(uname)" == "Darwin" ]]; then
+    echo "Docker daemon not running — starting Docker Desktop..."
+    open /Applications/Docker.app
+    echo "Waiting for daemon (up to 60 s)..."
+    for _ in $(seq 1 30); do
+      sleep 2
+      docker info >/dev/null 2>&1 && break || true
+    done
+  fi
+  if ! docker info >/dev/null 2>&1; then
+    echo "ERROR: Docker daemon isn't reachable." >&2
+    echo "       Windows/WSL2: open Docker Desktop and wait for the whale icon." >&2
+    echo "       Linux:        sudo systemctl start docker" >&2
+    echo "       Or skip Aspire: SKIP_OBSERVABILITY=true bash scripts/run_all.sh" >&2
+    exit 1
+  fi
 fi
 
 # Stop any existing instance
@@ -72,7 +80,7 @@ if [ -z "${RUN_ALL_ACTIVE:-}" ]; then
   cat <<EOF
 
 Next (standalone mode):
-  1. Set OTEL_ENABLED=true in poc/.env
+  1. Set OTEL_ENABLED=true in src/.env
   2. Restart the API:  bash scripts/run_api.sh
   3. Restart the UI:   cd poc/frontend && npm run dev
   4. Make a query and refresh the dashboard.

@@ -98,6 +98,13 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
 
+    # --- Voice I/O (Phase 13) ---
+    voice_enabled: bool = False
+    voice_stt_model: str = "medium"
+    voice_tts_voice: str = "en_US-lessac-medium"
+    voice_tts_voice_el: str = "el_GR-rapunzelina-low"
+    voice_models_dir: Path = POC_ROOT / "voice" / "piper_voices"
+
     # --- Observability ---
     # Default ON. setup_otel() probes the endpoint at startup and
     # self-disables (logs a warning) if Aspire isn't reachable.
@@ -123,6 +130,7 @@ class Settings(BaseSettings):
         "processed_dir",
         "metadata_dir",
         "metadata_schema_path",
+        "voice_models_dir",
         mode="before",
     )
     @classmethod

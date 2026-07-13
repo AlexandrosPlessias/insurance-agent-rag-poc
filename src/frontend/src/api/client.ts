@@ -9,6 +9,7 @@ import type {
   Message,
   NDJSONEvent,
   PlanStatus,
+  TranscribeResponse,
 } from "./types";
 
 const BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:8000";
@@ -189,4 +190,26 @@ export async function uploadDocument(
     throw new Error(msg || `HTTP ${r.status}`);
   }
   return r.json() as Promise<IngestResponse>;
+}
+
+export async function transcribeAudio(
+  blob: Blob,
+  language = "en",
+): Promise<TranscribeResponse> {
+  const form = new FormData();
+  form.append("file", blob, "recording.wav");
+  form.append("language", language);
+  const r = await fetch(`${BASE}/audio/transcribe`, { method: "POST", body: form });
+  if (!r.ok) throw new Error(`Transcription failed: HTTP ${r.status}`);
+  return r.json() as Promise<TranscribeResponse>;
+}
+
+export async function synthesizeSpeech(text: string, language = "en"): Promise<Blob> {
+  const r = await fetch(`${BASE}/audio/synthesize`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, language }),
+  });
+  if (!r.ok) throw new Error(`Synthesis failed: HTTP ${r.status}`);
+  return r.blob();
 }

@@ -58,6 +58,13 @@ openinference-instrumentation-langchain>=0.1.30
 # --- Phase 12: Telegram bot ---
 python-telegram-bot>=21.0
 
+# --- Phase 13: Voice I/O (STT + TTS) ---
+# faster-whisper: CTranslate2-backed Whisper, no compilation required, int8 CPU.
+# piper-tts: local neural TTS, pip-installable, no compilation required.
+# Both are lazy-loaded and unused when VOICE_ENABLED=false.
+faster-whisper>=1.0.0
+piper-tts>=1.2.0
+
 # --- Testing ---
 pytest>=8.3.0
 pytest-asyncio>=0.24.0

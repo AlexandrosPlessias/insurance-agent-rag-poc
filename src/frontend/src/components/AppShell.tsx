@@ -58,6 +58,7 @@ export function AppShell() {
   const [telegramOk, setTelegramOk] = useState(TELEGRAM_CONFIGURED);
   const [otelEnabled, setOtelEnabled] = useState(false);
   const [aspireUrl, setAspireUrl] = useState("http://localhost:18888");
+  const [voiceEnabled, setVoiceEnabled] = useState(false);
 
   useEffect(() => {
     const check = async () => {
@@ -68,6 +69,7 @@ export function AppShell() {
         setTelegramOk(h.telegram_configured);
         setOtelEnabled(h.otel_enabled);
         setAspireUrl(h.otel_ui_url);
+        setVoiceEnabled(h.voice_enabled);
       } catch {
         setApiUp(false);
         setOllamaUp(false);
@@ -79,10 +81,11 @@ export function AppShell() {
   }, []);
 
   const services: ServiceRow[] = [
-    { label: "Backend API", state: apiUp      ? "ok" : "down" },
-    { label: "Ollama LLM",  state: ollamaUp   ? "ok" : "down" },
-    { label: "Telegram",    state: telegramOk ? "ok" : "inactive" },
-    { label: "Aspire",      detail: "OTEL",  state: otelEnabled ? "ok" : "inactive" },
+    { label: "Backend API", state: apiUp        ? "ok" : "down" },
+    { label: "Ollama LLM",  state: ollamaUp     ? "ok" : "down" },
+    { label: "Telegram",    state: telegramOk   ? "ok" : "inactive" },
+    { label: "Aspire",      detail: "OTEL",  state: otelEnabled  ? "ok" : "inactive" },
+    { label: "Voice",       detail: "STT/TTS", state: voiceEnabled ? "ok" : "inactive" },
   ];
 
   const handleConversationCreated = (id: number) => {
@@ -273,6 +276,7 @@ export function AppShell() {
               conversationId={state.conversationId}
               userId={userId}
               telegramConfigured={TELEGRAM_CONFIGURED}
+              voiceEnabled={voiceEnabled}
               onConversationCreated={handleConversationCreated}
             />
           </div>
