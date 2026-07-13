@@ -1,11 +1,15 @@
 import { useState, useRef, type KeyboardEvent } from "react";
+import { VoiceInput, type VoiceLanguage } from "./VoiceInput";
 
 interface Props {
   onSubmit: (text: string) => void;
   disabled?: boolean;
+  voiceEnabled?: boolean;
+  voiceLanguage?: VoiceLanguage;
+  onVoiceLanguageChange?: (lang: VoiceLanguage) => void;
 }
 
-export function ChatInput({ onSubmit, disabled }: Props) {
+export function ChatInput({ onSubmit, disabled, voiceEnabled, voiceLanguage = "en", onVoiceLanguageChange }: Props) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -49,6 +53,13 @@ export function ChatInput({ onSubmit, disabled }: Props) {
         (e.currentTarget as HTMLDivElement).style.boxShadow = "var(--shadow-md)";
       }}
     >
+      <VoiceInput
+        voiceEnabled={Boolean(voiceEnabled)}
+        disabled={Boolean(disabled)}
+        language={voiceLanguage}
+        onLanguageChange={onVoiceLanguageChange ?? (() => {})}
+        onTranscript={(t) => setValue(t)}
+      />
       <textarea
         ref={textareaRef}
         value={value}
