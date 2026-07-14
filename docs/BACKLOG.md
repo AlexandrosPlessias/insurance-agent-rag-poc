@@ -111,6 +111,138 @@ OAuth 2.0 → RBAC. OAuth / RBAC depend on each other; the rest are independent.
 
 ---
 
+## Phase 18 (proposed) — Container orchestration & microservices
+
+**Goal:** Break the monolithic FastAPI backend into isolated, independently deployable
+service pods. Introduce a management platform for viewing, updating, and monitoring the
+running stack — replacing the current "run everything in one process" model.
+
+---
+
+### Service decomposition
+
+```
+┌──────────────┐   ┌──────────────┐   ┌──────────────┐
+│   frontend   │   │  api-gateway │   │ voice-service│
+│  Nginx + SPA │   │  FastAPI     │   │ STT + TTS    │
+│  :5173/80    │   │  :8000       │   │  :8001       │
+└──────────────┘   └──────┬───────┘   └──────────────┘
+                          │ routes to
+          ┌───────────────┼────────────────┐
+          ▼               ▼                ▼
+┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+│  agentic-svc │  │  rag-service │  │ingestion-svc │
+│  LangGraph   │  │  ChromaDB    │  │ PDF pipeline │
+│  Planner +   │  │  retrieval   │  │  :8004       │
+│  Workers     │  │  :8003       │  └──────────────┘
+│  :8002       │  └──────────────┘
+└──────────────┘
+
+Infrastructure pods (shared):
+  ollama     :11434   (LLM inference — GPU or CPU)
+  chromadb   :8005    (vector store server mode)
+  postgres   :5432    (replaces SQLite for memory + audit)
+  aspire     :18888   (OTel traces + metrics + logs)
+  portainer  :9000    (container management UI — Phase 18a)
+  headlamp   :4466    (Kubernetes dashboard — Phase 18b)
+```
+
+---
+
+### Service responsibilities
+
+| Pod | Routes | Key dependency | Image base |
+|---|---|---|---|
+| **frontend** | `GET /` (static) | — | `node:20-alpine` → `nginx:alpine` |
+| **api-gateway** | `/chat`, `/health`, `/feedback`, `/plans`, `/admin` | agentic-svc, rag-svc, voice-svc | `python:3.12-slim` |
+| **voice-service** | `/audio/transcribe`, `/audio/synthesize`, `/audio/correction` | Piper `.onnx` volume, Whisper model cache | `python:3.12-slim` |
+| **agentic-service** | internal gRPC/HTTP (called by api-gateway) | ollama, rag-svc, postgres | `python:3.12-slim` |
+| **rag-service** | `/rag/search`, `/rag/retrieve` (internal) | chromadb, ollama (embeddings) | `python:3.12-slim` |
+| **ingestion-service** | `/ingest` | rag-svc, postgres | `python:3.12-slim` |
+| **chromadb** | `:8005` (ChromaDB HTTP API) | volume: `chroma_data/` | `chromadb/chroma` |
+| **postgres** | `:5432` | volume: `pg_data/` | `postgres:16-alpine` |
+| **ollama** | `:11434` | GPU runtime or CPU, volume: `ollama_models/` | `ollama/ollama` |
+| **aspire** | `:18888` / `:4317` | — | `mcr.microsoft.com/dotnet/aspire-dashboard:9.0` |
+
+---
+
+### Key technical migrations
+
+**SQLite → PostgreSQL**
+Both `memory.sqlite` and `audit.sqlite` must move to Postgres so multiple pods can write
+concurrently. SQLAlchemy already abstracts the DB layer — swapping the connection string is
+the main change. Schema migration via Alembic.
+
+**ChromaDB embedded → server mode**
+Current: `chromadb.PersistentClient(path=...)` (in-process).
+Target: `chromadb.HttpClient(host="chromadb", port=8005)` + `chromadb/chroma` Docker image.
+One-line change in `src/agentic_backend/rag/retriever.py`.
+
+**Model files as volumes**
+Piper `.onnx` files and the Whisper model cache must be Docker volumes (not baked into the
+image) to keep image sizes small and allow model updates without rebuilding.
+
+**Inter-service communication**
+API-gateway → other services: REST over HTTP (FastAPI `httpx` client, same pattern as Ollama calls today).
+Shared state (LangGraph graph run): agentic-service is a single pod in Phase 18 — no
+horizontal scaling yet, so LangGraph state stays in-process.
+
+---
+
+### Delivery in two sub-phases
+
+**Phase 18a — Docker Compose (local dev)**
+- One `Dockerfile` per service.
+- `docker-compose.yml` at repo root wiring all pods, volumes, and env vars.
+- Management UI: **Portainer CE** (`portainer/portainer-ce`) — browser UI for containers,
+  images, volumes, networks, logs, and one-click restart/update.
+- Replace `run_all.sh` with `docker compose up --build`.
+- Smoke test: `docker compose ps` → all services healthy; `smoke_test.py` hits gateway.
+
+**Phase 18b — Kubernetes + Helm (production-ready)**
+- One `Deployment` + `Service` per pod; `ConfigMap` for env, `Secret` for tokens.
+- `helm/` chart at repo root with `values.yaml` for environment overrides.
+- Persistent volumes for Postgres, ChromaDB, Ollama models, Piper voices.
+- Liveness + readiness probes on every service (`GET /health`).
+- Horizontal Pod Autoscaler on voice-service and agentic-service.
+- Management UI: **Headlamp** (`headlamp-k8s/headlamp`) — free Kubernetes dashboard,
+  WSL2-compatible, supports rolling updates, log streaming, and pod restart from the UI.
+  Complements **k9s** (terminal) + **Stern** (aggregated multi-pod logs).
+
+---
+
+### Management platform summary
+
+| Tool | Phase | Role |
+|---|---|---|
+| **Portainer CE** | 18a | Web UI for Docker Compose — container list, logs, restart, image pull |
+| **Headlamp** | 18b | Web UI for Kubernetes — pod health, rolling updates, log tail |
+| **k9s** | 18b | Terminal K8s explorer (fast namespace/pod navigation) |
+| **Stern** | 18b | Aggregated multi-pod log streaming (grep across pods) |
+| **Aspire Dashboard** | both | OTel traces + metrics + structured logs (already running) |
+| **React SPA — Services tab** | both | Custom health summary inside the existing UI (HTTP /health poll of each service; no container API needed) |
+
+The **Services tab** in the React SPA is a lightweight complement (not a replacement) to
+Portainer/Headlamp: it shows the health status that operations staff see inside the app
+without switching to another browser tab.
+
+---
+
+### Out of scope for Phase 18
+- Horizontal scaling of the agentic-service (LangGraph state is in-process; needs Redis-backed
+  state store first — Phase 19 territory).
+- GPU scheduling in Kubernetes (Ollama node affinity — operational config, not code).
+- CI/CD pipeline for image builds (GitHub Actions workflow — separate DevOps track).
+- Multi-tenant namespace isolation (Phase 17 OAuth prerequisite).
+
+---
+
+**Effort estimate:** L (Phase 18a Docker Compose) + L (Phase 18b Kubernetes).
+**Recommended order:** 18a first — gives immediate value with minimal risk; 18b unlocks
+production deployment and horizontal scale.
+
+---
+
 ## Tech debt / nice-to-have (no phase assigned)
 
 | Item | Why deferred | Effort |
@@ -150,6 +282,10 @@ Cross-referencing `docs/insurance_rag_strategic_roadmap.md` §5 against the PoC 
 | Auto-evaluation pipeline | Phase 17 (proposed) | ❌ gap |
 | Azure Document Intelligence (scanned PDFs) | Not planned | ❌ gap (cloud dependency) |
 | SharePoint connectors | Not planned | ❌ gap (cloud dependency) |
+| Container orchestration — Docker Compose | Phase 18a (proposed) | ❌ gap |
+| Kubernetes + Helm deployment | Phase 18b (proposed) | ❌ gap |
+| SQLite → PostgreSQL (multi-pod DB) | Phase 18 (proposed) | ❌ gap |
+| ChromaDB server mode | Phase 18 (proposed) | ❌ gap |
 | Multi-tenant architecture | Not planned | ❌ gap (architecture change) |
 | TimeGEN-1 forecasting | Not planned | ❌ gap (separate model) |
 
@@ -159,26 +295,42 @@ Cross-referencing `docs/insurance_rag_strategic_roadmap.md` §5 against the PoC 
 
 ```
 NOW (hotfix)
-  F1 STT pre-download at setup
-  F2 HF_TOKEN in setup
-  F3 Update strategic roadmap doc
+  F1  STT pre-download at setup
+  F2  HF_TOKEN in setup
+  F3  Strategic roadmap doc update ✅ (done in this commit)
 
-NEXT (Phase 14)
-  Cross-conversation planning
-  → already partially built (plans table exists from Phase 12)
-  → highest user-visible value ("resume my report from yesterday")
+FEATURE TRACK (sequential — each depends on the previous)
+  Phase 14  Cross-conversation planning
+            → plans table already exists from Phase 12
+            → highest user-visible value: "resume my report from yesterday"
 
-THEN (Phase 15)
-  Recursive Skill composition
-  → enables complex multi-step autonomous workflows
-  → depends on Phase 14 plan persistence
+  Phase 15  Recursive Skill composition
+            → enables complex multi-step autonomous workflows
+            → depends on Phase 14 plan persistence
 
-PARALLEL TRACK — Language (Phase 16)
-  Multilingual answer pipeline (Option A first)
-  → small team can run this while Phase 14/15 are in progress
-  → Phase 13 already wired language detection from STT
+LANGUAGE TRACK (parallel — independent of feature track)
+  Phase 16  Multilingual answer pipeline
+            → Option A (translate LLM reply) first — low risk, reversible
+            → Phase 13 STT already returns info.language; just wire translation
+              into the Assembler output path
 
-PARALLEL TRACK — Governance (Phase 17)
-  Skills registry → Prompt registry → Auto-eval → MCP Gateway → OAuth → RBAC
-  → enterprise handoff readiness; not gating PoC capabilities
+GOVERNANCE TRACK (parallel — enterprise readiness)
+  Phase 17  Skills registry → Prompt registry → Auto-eval
+            → MCP Gateway → OAuth 2.0 → RBAC
+            → not gating PoC capabilities; targets production handoff
+
+INFRASTRUCTURE TRACK (parallel — can start anytime)
+  Phase 18a Docker Compose — containerise all services, add Portainer CE UI
+            → replaces run_all.sh; no code changes to business logic
+            → requires: SQLite → Postgres migration, ChromaDB server mode
+
+  Phase 18b Kubernetes + Helm — production-grade orchestration
+            → adds Headlamp dashboard, HPA on voice + agentic pods
+            → depends on Phase 18a (images already exist)
+
+DEPENDENCY GRAPH
+  14 → 15
+  16 ──────────────────────────────── independent
+  17 ──────────────────────────────── independent (OAuth blocks RBAC internally)
+  18a → 18b ─────────────────────── independent (blocks horizontal scale of agentic)
 ```
