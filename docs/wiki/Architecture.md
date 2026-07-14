@@ -11,7 +11,7 @@ insurance-agent-rag-poc/
 ├── src/
 │   ├── agentic_backend/      # FastAPI + LangGraph backend (Python)
 │   │   ├── agents/           # Planner, Assembler, legacy worker agents
-│   │   ├── api/              # FastAPI routes (chat, ingest, reports, sources, plans)
+│   │   ├── api/              # FastAPI routes (chat, ingest, reports, sources, plans, audio)
 │   │   ├── approvals/        # HMAC-signed approval tokens + Telegram bot
 │   │   ├── audit/            # Audit event writer + middleware
 │   │   ├── graph/            # LangGraph builder, orchestrator, state, streaming
@@ -20,8 +20,10 @@ insurance-agent-rag-poc/
 │   │   ├── memory/           # SQLite conversations + summarizer
 │   │   ├── observability/    # OTel logging + tracing helpers
 │   │   ├── skills/           # Skill registry + auto-discovery
-│   │   └── tools/            # Tool registry + atomic tool implementations
+│   │   ├── tools/            # Tool registry + atomic tool implementations
+│   │   └── voice/            # STT (faster-whisper) + TTS (piper-tts) engines
 │   ├── data/                 # Knowledge-base PDFs, processed MD, metadata, ChromaDB
+│   │   └── audit_audio/      # Raw audio blobs when AUDIT_RETAIN_AUDIO=true (gitignored)
 │   ├── frontend/             # React + Vite + TypeScript SPA
 │   ├── scripts/              # CLI tools (ingest, smoke test, audit export, screenshots…)
 │   └── tests/                # pytest unit + integration tests
@@ -128,13 +130,48 @@ Full guide: [Approval-Gates.md](Approval-Gates.md)
 
 ---
 
+## Voice I/O (Phase 13)
+
+Voice is wired at the **transport boundary** — the LangGraph graph receives and returns
+plain text strings unchanged. Audio is transcribed before the graph sees input;
+synthesized after it produces output.
+
+```
+Browser mic  →  POST /audio/transcribe  →  transcript text
+                                                 │
+                                         POST /chat/stream  (graph unchanged)
+                                                 │
+                                          final answer text
+                                                 │
+             ←  POST /audio/synthesize  ←  WAV response
+```
+
+**STT:** `faster-whisper` (CTranslate2-backed, int8 CPU, pip-installable). Singleton
+`WhisperModel` lazy-loaded on first call. OTel span: `tool.speech_to_text`.
+
+**TTS:** `piper-tts` (pip-installable, `.onnx` models). Multi-voice cache keyed by language —
+`en_US-lessac-medium` (English) and `el_GR-rapunzelina-low` (Greek). OTel span: `tool.text_to_speech`.
+
+**WER metric:** `POST /audio/correction` fires when the user edits a voice-filled transcript
+before sending. WER + CER computed via Levenshtein; logged as `voice.correction` audit event.
+
+**Audit retention:** `AUDIT_RETAIN_AUDIO=true` writes raw blobs to `data/audit_audio/<sha256>.wav`.
+Default off — only sha256 + transcript recorded.
+
+Full reference: [architecture/voice-integration.md](../architecture/voice-integration.md)
+
+---
+
 ## Data flow diagram
 
 ```
 Browser (React SPA)
-  │  POST /api/chat/stream (NDJSON)
+  │  POST /audio/transcribe  (voice in — Phase 13)
+  │  POST /api/chat/stream   (NDJSON)
+  │  POST /audio/synthesize  (voice out — Phase 13)
   ▼
 FastAPI (uvicorn, port 8000)
+  │  voice: faster-whisper STT / piper-tts TTS
   │  LangGraph graph.stream()
   ▼
 LangGraph runtime

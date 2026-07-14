@@ -133,6 +133,7 @@ Phases 1–12 are implemented. Phases 13–15 are designed but not yet built.
 | **10** ✅ | PoC stakeholder deck — Markdown source of truth ([docs/presentation/deck.md](docs/presentation/deck.md)) + python-pptx builder that embeds live-app screenshots from `docs/screens/`. Renders TODO placeholders for shots not yet captured so the deck always builds. 14 slides covering problem framing, capability tour, observability, retrospective | [src/scripts/build_pptx.py](src/scripts/build_pptx.py) · [docs/presentation/](docs/presentation/). Details: [Phase 10](#phase-10--poc-presentation-deck-) |
 | **11** ✅ | Agentic multi-intent stack + thumbs feedback — Planner · Orchestrator · Workers · Skills · Tools DAG replacing the Phase 1–10 supervisor→single-worker routing; `POST /feedback`; `plan_id` threaded end-to-end | [src/agentic_backend/agents/planner_agent.py](src/agentic_backend/agents/planner_agent.py) · [src/agentic_backend/graph/orchestrator.py](src/agentic_backend/graph/orchestrator.py) · [src/agentic_backend/skills/](src/agentic_backend/skills/) · [src/agentic_backend/tools/](src/agentic_backend/tools/) · [src/agentic_backend/api/routes/feedback.py](src/agentic_backend/api/routes/feedback.py). Details: [Phase 11](#phase-11--agentic-multi-intent-architecture--feedback-) |
 | **12** ✅ | Human-in-the-Loop approval gates + Telegram channel — suspendable Plans, per-Step approval gates, HMAC-signed callback tokens, `ApprovalChannel` interface (Telegram · Slack · Teams pluggable) | [src/agentic_backend/approvals/](src/agentic_backend/approvals/) · [src/agentic_backend/api/routes/plans.py](src/agentic_backend/api/routes/plans.py). Details: [Phase 12](#phase-12--human-in-the-loop--telegram-channel-) |
+| **13** ✅ | Multi-modal voice — local faster-whisper STT + Piper TTS as transport-layer bookends; EN/EL bilingual; React mic button + AudioPlayer; `AUDIT_RETAIN_AUDIO`; OTel spans `tool.speech_to_text` / `tool.text_to_speech`; WER correction metric | [src/agentic_backend/voice/](src/agentic_backend/voice/) · [src/agentic_backend/api/routes/audio.py](src/agentic_backend/api/routes/audio.py) · [src/frontend/src/components/VoiceInput.tsx](src/frontend/src/components/VoiceInput.tsx). Details: [Phase 13](#phase-13--multi-modal-voice-) |
 
 ### Nice-to-have (not on the roadmap)
 
@@ -382,16 +383,18 @@ Phase 12 turns the Phase 11 Orchestrator into a **suspendable workflow engine**:
 - **Use cases.** *"Generate the executive annual report → pause → compliance officer approves → send to leadership"* · *"Bulk-ingest a new policy PDF → pause → legal reviews the metadata + first 3 chunks → orchestrator continues the ingestion pipeline"* · *"Customer-facing data answer flagged by Validator → pause → senior agent approves before sending"*.
 - **Out of scope.** SMS / WhatsApp approval (paid carriers · regulatory hassle) · approval-chain workflows (one approver per gate in Phase 12) · push notifications via Apple/Google services.
 
-### Phase 13 — Multi-modal voice 📋
+### Phase 13 — Multi-modal voice ✅
 
-Phase 13 adds **audio in and audio out** as first-class modalities. Customers in a branch can dictate a question and hear the answer; the architecture stays 100 % local — no Whisper-API, no ElevenLabs.
+Phase 13 adds **audio in and audio out** as first-class modalities. Customers in a branch can dictate a question and hear the answer; the architecture stays 100 % local — no cloud STT, no ElevenLabs.
 
-- **Speech-to-text Tool.** New `speech_to_text(audio_blob, language)` Tool wrapping a local Whisper.cpp build (small or medium model — quantised, CPU-friendly). Streamed transcription so the Planner can begin building the Plan before the user finishes speaking.
-- **Text-to-speech Tool.** New `text_to_speech(text, voice_id)` Tool wrapping a local TTS engine (Piper or Coqui-TTS — Piper preferred for latency and small model size). Voice cloning explicitly out of scope.
-- **UI.** React voice-input component + an audio-output player below every assistant message. Both gated by a `settings.voice.enabled` flag — voice is **opt-in** to avoid surprising users with microphone prompts.
-- **Audit + privacy.** Audio blobs are **never** persisted by default — only their sha256 + transcript are recorded in `audit_events`. Behind a `settings.audit.retain_audio = true` flag, blobs land in a separate `audit_audio/` directory with a 30-day TTL. The privacy posture (nothing leaves the workstation) is unchanged.
-- **OTel.** New spans `tool.speech_to_text` + `tool.text_to_speech` with `model_id`, `audio_length_ms`, `latency_ms` attributes. WER (word-error rate) recorded as a metric where the user corrects the transcript.
-- **Out of scope.** Image / vision inputs (deferred — no phase yet) · voice cloning · real-time bidirectional voice (the loop is request/response, not streaming dialog) · multilingual TTS beyond the languages Piper ships with.
+- **Speech-to-text.** `faster-whisper` (CTranslate2-backed, int8 CPU, pip-installable — no native compilation). Singleton model lazy-loaded on first call; `vad_filter=True` suppresses silence. Supports `tiny` / `small` / `medium` / `large-v3` via `VOICE_STT_MODEL`.
+- **Text-to-speech.** `piper-tts` (pip-installable, `.onnx` models). Per-language voice cache; two languages shipped: `en_US-lessac-medium` (English) and `el_GR-rapunzelina-low` (Greek). Voice models are downloaded once via `src/scripts/download_voice_models.sh` and never committed.
+- **Bilingual UI.** React `VoiceInput` component with a mic button and an **EN / ΕΛ** language toggle. `AudioPlayer` component renders synthesized speech below each assistant message. Both components are hidden when `VOICE_ENABLED=false` — zero UI impact when the feature is off.
+- **Transport-layer wiring.** Voice is wired at the API boundary, not inside the LangGraph graph. The graph receives and returns plain strings unchanged — no graph modifications were needed.
+- **Audit + privacy.** Only sha256 + transcript recorded by default. `AUDIT_RETAIN_AUDIO=true` writes raw blobs to `data/audit_audio/<sha256>.wav`; the directory is tracked via `.gitkeep`, WAV files are gitignored. Privacy posture (100 % local) is unchanged.
+- **OTel.** New spans `tool.speech_to_text` and `tool.text_to_speech` in Aspire with attributes `model_id`, `audio_bytes`, `latency_ms`, `language`, `audio_duration_ms`, `wav_bytes`.
+- **WER correction metric.** Frontend detects when a user edits a voice-filled transcript before sending. `POST /audio/correction` computes Word Error Rate and Character Error Rate via Levenshtein and logs a `voice.correction` audit event — a passive quality signal requiring no extra user action.
+- **Out of scope.** Image/vision inputs (no phase yet) · voice cloning · real-time bidirectional voice · STT streaming before transcription completes.
 
 ### Phase 14 — Cross-conversation planning 📋
 
