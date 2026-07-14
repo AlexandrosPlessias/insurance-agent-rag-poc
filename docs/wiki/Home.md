@@ -140,8 +140,9 @@ Full guide: [`USAGE.md`](../../USAGE.md).
 | **11 — Agentic multi-intent (+ feedback)** | ✅ | **Planner · Orchestrator · Workers · Tools · Skills** stack — uniform pipeline, structured outputs, `plan_id` on every turn, thumbs-feedback, `decline` Skill for out-of-scope refusals. See [`docs/architecture/agentic-pipeline.md`](../architecture/agentic-pipeline.md). |
 | **12 — Human-in-the-Loop & Telegram channel** | ✅ | Suspendable Plans · HMAC-signed approval gates between Steps · Telegram bot (Slack / Teams pluggable) · `plans` table · drill-down chips on data turns · React UX redesign |
 | **13 — Multi-modal voice** | ✅ | faster-whisper STT + Piper TTS · EN/EL bilingual · React mic + AudioPlayer · `AUDIT_RETAIN_AUDIO` · OTel spans · WER correction metric. See [Voice-Integration.md](Voice-Integration.md). |
-| **14 — Cross-conversation planning** | 📋 planned | Plans become first-class memory · resume-tokens · multi-user participants · Skill schema migration |
-| **15 — Recursive Skill composition** | 📋 planned | Skills can emit sub-Plans · `max_recursion_depth` · cycle detection · nested OTel span tree |
+| **14 — Container orchestration** | 📋 planned | Decompose monolith into pods · Docker Compose + Portainer CE (14a) · Kubernetes + Helm + Headlamp (14b) · SQLite → Postgres · ChromaDB server mode |
+| **15 — Cross-conversation planning** | 📋 planned | Plans become first-class memory · resume-tokens · multi-user participants · Skill schema migration |
+| **16 — Recursive Skill composition** | 📋 planned | Skills can emit sub-Plans · `max_recursion_depth` · cycle detection · nested OTel span tree |
 
 Detailed per-phase write-ups live in the main [`README.md`](../../README.md). The Phase 11 agentic architecture is documented in depth at [`docs/architecture/agentic-pipeline.md`](../architecture/agentic-pipeline.md).
 

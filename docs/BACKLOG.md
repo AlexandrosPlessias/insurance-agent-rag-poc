@@ -16,102 +16,7 @@
 
 ---
 
-## Phase 14 — Cross-conversation planning 📋
-
-**Goal:** Lift Plans from per-turn artefacts to first-class memory objects that persist across
-sessions, days, and users.
-
-**Key capabilities:**
-- Plan persistence beyond a turn — users can pick up `"the 2024 annual report you were
-  generating last Tuesday"` via a resume-token chip in the UI or `/resume <plan_id>` in chat.
-- Plan-aware episodic memory — the Phase 4 rolling-summarisation includes the current plan
-  state so the assistant doesn't lose context across sessions.
-- Multi-user plans — a Step can require approval from a different `user_id` than the initiator;
-  ACLs enforced at the Orchestrator.
-- Plan migration hooks — when a Skill's `input_schema` evolves, persisted Plans get a
-  `migrate_v{n}_to_v{n+1}` hook at resume time.
-- UI sidebar panel — *"Your plans"* list (pending · in-progress · done · expired) with
-  one-click resume.
-
-**Out of scope:** Plan branching/forking · cross-tenant plans · plan-of-plans.
-
-**Dependencies:** Phase 12 `plans` table already exists; the schema needs a `ttl=NULL` variant
-and a `participants` column.
-
----
-
-## Phase 15 — Recursive Skill composition 📋
-
-**Goal:** Let a Skill emit a sub-Plan mid-execution. The Orchestrator becomes recursive.
-
-**Key capabilities:**
-- A Worker can return `SubPlanRequest{steps, merge_strategy}` instead of a `StepResult`.
-- Recursion budgets: `max_recursion_depth` (default 3), shared `max_steps` /
-  `max_tool_calls` / `max_seconds` across parent + children.
-- Cycle detection — a Step that re-emits its own `skill_name` is rejected.
-- OTel renders the nested span tree; audit replay handles recursion transparently.
-
-**Use case:** *"Generate annual report → each section Skill spawns a data-quality-check
-sub-Plan → merge → return the umbrella summary."*
-
-**Out of scope:** Skills loaded from external sources · cross-thread sub-Plan parallelism ·
-sub-Plans that mutate the parent's `args`.
-
----
-
-## Phase 16 (proposed) — Language-aware pipeline & multilingual answers
-
-**Goal:** Detect the question language and reply in the same language. Currently the
-LangGraph pipeline is English-only; Phase 13 added Greek *voice* but the LLM answers
-are always in English.
-
-**Two implementation strategies (trade-offs below):**
-
-### Option A — Translate the LLM reply
-- Detect question language (LangDetect / Whisper `info.language` already returned from STT).
-- After Assembler produces an English answer, call a lightweight translation step
-  (local MarianMT or Ollama with a multilingual model) before streaming to the client.
-- **Pro:** Source documents unchanged; single retrieval index.
-- **Con:** Translation latency (~0.5–2 s); translation errors compound on top of LLM errors;
-  citations remain in English.
-
-### Option B — Translate the source documents and re-index
-- Run the existing ingestion pipeline on Greek-translated versions of the PDFs.
-- Store both EN and EL variants in ChromaDB with a `language` metadata field.
-- Retriever filters by detected question language.
-- **Pro:** Full end-to-end Greek — citations also in Greek; no translation latency at query time.
-- **Con:** Ingestion overhead (~60 s per PDF for translation); storage doubles; translation
-  quality of legal/insurance text needs validation.
-
-**Recommended starting point:** Option A (reply translation) — lower risk, reversible,
-lets the team validate Greek answer quality before committing to Option B.
-
-**What Phase 13 already provides:** `info.language` from STT, language passed to TTS, EN/ΕΛ
-toggle in the UI. Phase 16 only needs to wire translation into the Assembler output path.
-
-**Effort estimate:** M (Option A) / L (Option B).
-
----
-
-## Phase 17 (proposed) — Enterprise governance layer
-
-From `ideas.txt` — enterprise-readiness features needed before a production handoff.
-
-| Capability | Description | Effort |
-|---|---|---|
-| **Prompt registry** | Version-controlled store of all system prompts + skill prompts with SHA256 fingerprints. Audit row links every LLM call to the prompt version used. Enables A/B testing and rollback without a code deploy. | M |
-| **Skills registry** | Formal versioned registry (extending the current auto-discovery) with `schema_version`, deprecation flags, and a `/admin/skills` endpoint. Lays the ground for Phase 15's migration hooks. | S |
-| **Auto-evaluation pipeline** | Scheduled eval runs comparing LLM answers against a golden set. WER (Phase 13b) is the first metric; extend to RAGAS (faithfulness, answer relevance, context recall), latency p95, and validator pass-rate. | M |
-| **MCP Gateway** | Expose Skills and Tools as MCP tools behind a standard gateway so external agents (Claude Desktop, Cursor, etc.) can invoke them. Maps cleanly onto the existing `AgentTool` + `Skill` structure. | M |
-| **OAuth 2.0 / SSO** | Replace the current `user_id` string with a proper identity token. OIDC-compatible; integrates with Azure Entra ID for enterprise SSO. Prerequisite for document-level RBAC. | L |
-| **Document-level RBAC** | ChromaDB metadata `user_group` field already planned in the strategic schema (§ 2.2.2). Retriever filters by `user_group` from the OAuth token. | M |
-
-**Recommended order:** Skills registry → Prompt registry → Auto-eval → MCP Gateway →
-OAuth 2.0 → RBAC. OAuth / RBAC depend on each other; the rest are independent.
-
----
-
-## Phase 18 (proposed) — Container orchestration & microservices
+## Phase 14 (proposed) — Container orchestration & microservices
 
 **Goal:** Break the monolithic FastAPI backend into isolated, independently deployable
 service pods. Introduce a management platform for viewing, updating, and monitoring the
@@ -143,8 +48,8 @@ Infrastructure pods (shared):
   chromadb   :8005    (vector store server mode)
   postgres   :5432    (replaces SQLite for memory + audit)
   aspire     :18888   (OTel traces + metrics + logs)
-  portainer  :9000    (container management UI — Phase 18a)
-  headlamp   :4466    (Kubernetes dashboard — Phase 18b)
+  portainer  :9000    (container management UI — Phase 14a)
+  headlamp   :4466    (Kubernetes dashboard — Phase 14b)
 ```
 
 ---
@@ -184,14 +89,14 @@ image) to keep image sizes small and allow model updates without rebuilding.
 
 **Inter-service communication**
 API-gateway → other services: REST over HTTP (FastAPI `httpx` client, same pattern as Ollama calls today).
-Shared state (LangGraph graph run): agentic-service is a single pod in Phase 18 — no
+Shared state (LangGraph graph run): agentic-service is a single pod in Phase 14 — no
 horizontal scaling yet, so LangGraph state stays in-process.
 
 ---
 
 ### Delivery in two sub-phases
 
-**Phase 18a — Docker Compose (local dev)**
+**Phase 14a — Docker Compose (local dev)**
 - One `Dockerfile` per service.
 - `docker-compose.yml` at repo root wiring all pods, volumes, and env vars.
 - Management UI: **Portainer CE** (`portainer/portainer-ce`) — browser UI for containers,
@@ -199,7 +104,7 @@ horizontal scaling yet, so LangGraph state stays in-process.
 - Replace `run_all.sh` with `docker compose up --build`.
 - Smoke test: `docker compose ps` → all services healthy; `smoke_test.py` hits gateway.
 
-**Phase 18b — Kubernetes + Helm (production-ready)**
+**Phase 14b — Kubernetes + Helm (production-ready)**
 - One `Deployment` + `Service` per pod; `ConfigMap` for env, `Secret` for tokens.
 - `helm/` chart at repo root with `values.yaml` for environment overrides.
 - Persistent volumes for Postgres, ChromaDB, Ollama models, Piper voices.
@@ -228,18 +133,113 @@ without switching to another browser tab.
 
 ---
 
-### Out of scope for Phase 18
+### Out of scope for Phase 14
 - Horizontal scaling of the agentic-service (LangGraph state is in-process; needs Redis-backed
   state store first — Phase 19 territory).
 - GPU scheduling in Kubernetes (Ollama node affinity — operational config, not code).
 - CI/CD pipeline for image builds (GitHub Actions workflow — separate DevOps track).
-- Multi-tenant namespace isolation (Phase 17 OAuth prerequisite).
+- Multi-tenant namespace isolation (Phase 18 OAuth prerequisite).
 
 ---
 
-**Effort estimate:** L (Phase 18a Docker Compose) + L (Phase 18b Kubernetes).
+**Effort estimate:** L (Phase 14a Docker Compose) + L (Phase 14b Kubernetes).
 **Recommended order:** 18a first — gives immediate value with minimal risk; 18b unlocks
 production deployment and horizontal scale.
+
+---
+
+## Phase 15 — Cross-conversation planning 📋
+
+**Goal:** Lift Plans from per-turn artefacts to first-class memory objects that persist across
+sessions, days, and users.
+
+**Key capabilities:**
+- Plan persistence beyond a turn — users can pick up `"the 2024 annual report you were
+  generating last Tuesday"` via a resume-token chip in the UI or `/resume <plan_id>` in chat.
+- Plan-aware episodic memory — the Phase 4 rolling-summarisation includes the current plan
+  state so the assistant doesn't lose context across sessions.
+- Multi-user plans — a Step can require approval from a different `user_id` than the initiator;
+  ACLs enforced at the Orchestrator.
+- Plan migration hooks — when a Skill's `input_schema` evolves, persisted Plans get a
+  `migrate_v{n}_to_v{n+1}` hook at resume time.
+- UI sidebar panel — *"Your plans"* list (pending · in-progress · done · expired) with
+  one-click resume.
+
+**Out of scope:** Plan branching/forking · cross-tenant plans · plan-of-plans.
+
+**Dependencies:** Phase 12 `plans` table already exists; the schema needs a `ttl=NULL` variant
+and a `participants` column.
+
+---
+
+## Phase 16 — Recursive Skill composition 📋
+
+**Goal:** Let a Skill emit a sub-Plan mid-execution. The Orchestrator becomes recursive.
+
+**Key capabilities:**
+- A Worker can return `SubPlanRequest{steps, merge_strategy}` instead of a `StepResult`.
+- Recursion budgets: `max_recursion_depth` (default 3), shared `max_steps` /
+  `max_tool_calls` / `max_seconds` across parent + children.
+- Cycle detection — a Step that re-emits its own `skill_name` is rejected.
+- OTel renders the nested span tree; audit replay handles recursion transparently.
+
+**Use case:** *"Generate annual report → each section Skill spawns a data-quality-check
+sub-Plan → merge → return the umbrella summary."*
+
+**Out of scope:** Skills loaded from external sources · cross-thread sub-Plan parallelism ·
+sub-Plans that mutate the parent's `args`.
+
+---
+
+## Phase 17 (proposed) — Language-aware pipeline & multilingual answers
+
+**Goal:** Detect the question language and reply in the same language. Currently the
+LangGraph pipeline is English-only; Phase 13 added Greek *voice* but the LLM answers
+are always in English.
+
+**Two implementation strategies (trade-offs below):**
+
+### Option A — Translate the LLM reply
+- Detect question language (LangDetect / Whisper `info.language` already returned from STT).
+- After Assembler produces an English answer, call a lightweight translation step
+  (local MarianMT or Ollama with a multilingual model) before streaming to the client.
+- **Pro:** Source documents unchanged; single retrieval index.
+- **Con:** Translation latency (~0.5–2 s); translation errors compound on top of LLM errors;
+  citations remain in English.
+
+### Option B — Translate the source documents and re-index
+- Run the existing ingestion pipeline on Greek-translated versions of the PDFs.
+- Store both EN and EL variants in ChromaDB with a `language` metadata field.
+- Retriever filters by detected question language.
+- **Pro:** Full end-to-end Greek — citations also in Greek; no translation latency at query time.
+- **Con:** Ingestion overhead (~60 s per PDF for translation); storage doubles; translation
+  quality of legal/insurance text needs validation.
+
+**Recommended starting point:** Option A (reply translation) — lower risk, reversible,
+lets the team validate Greek answer quality before committing to Option B.
+
+**What Phase 13 already provides:** `info.language` from STT, language passed to TTS, EN/ΕΛ
+toggle in the UI. Phase 17 only needs to wire translation into the Assembler output path.
+
+**Effort estimate:** M (Option A) / L (Option B).
+
+---
+
+## Phase 18 (proposed) — Enterprise governance layer
+
+From `ideas.txt` — enterprise-readiness features needed before a production handoff.
+
+| Capability | Description | Effort |
+|---|---|---|
+| **Prompt registry** | Version-controlled store of all system prompts + skill prompts with SHA256 fingerprints. Audit row links every LLM call to the prompt version used. Enables A/B testing and rollback without a code deploy. | M |
+| **Skills registry** | Formal versioned registry (extending the current auto-discovery) with `schema_version`, deprecation flags, and a `/admin/skills` endpoint. Lays the ground for Phase 16's migration hooks. | S |
+| **Auto-evaluation pipeline** | Scheduled eval runs comparing LLM answers against a golden set. WER (Phase 13b) is the first metric; extend to RAGAS (faithfulness, answer relevance, context recall), latency p95, and validator pass-rate. | M |
+| **MCP Gateway** | Expose Skills and Tools as MCP tools behind a standard gateway so external agents (Claude Desktop, Cursor, etc.) can invoke them. Maps cleanly onto the existing `AgentTool` + `Skill` structure. | M |
+| **OAuth 2.0 / SSO** | Replace the current `user_id` string with a proper identity token. OIDC-compatible; integrates with Azure Entra ID for enterprise SSO. Prerequisite for document-level RBAC. | L |
+| **Document-level RBAC** | ChromaDB metadata `user_group` field already planned in the strategic schema (§ 2.2.2). Retriever filters by `user_group` from the OAuth token. | M |
+
+**Recommended order:** Skills registry → Prompt registry → Auto-eval → MCP Gateway →
+OAuth 2.0 → RBAC. OAuth / RBAC depend on each other; the rest are independent.
 
 ---
 
@@ -272,20 +272,20 @@ Cross-referencing `docs/insurance_rag_strategic_roadmap.md` §5 against the PoC 
 | Feedback ingestion loop | Phase 11 | ✅ covered |
 | HITL approval gates + Telegram | Phase 12 | ✅ covered |
 | Multi-modal voice (STT + TTS) | Phase 13 | ✅ covered |
-| Cross-conversation planning | Phase 14 | 📋 planned |
-| Recursive Skill composition | Phase 15 | 📋 planned |
-| Multilingual pipeline (EN/EL) | Phase 16 (proposed) | ❌ gap |
-| Prompt registry | Phase 17 (proposed) | ❌ gap |
-| MCP Gateway | Phase 17 (proposed) | ❌ gap |
-| OAuth 2.0 / SSO | Phase 17 (proposed) | ❌ gap |
-| Document-level RBAC | Phase 17 (proposed) | ❌ gap |
-| Auto-evaluation pipeline | Phase 17 (proposed) | ❌ gap |
+| Cross-conversation planning | Phase 15 | 📋 planned |
+| Recursive Skill composition | Phase 16 | 📋 planned |
+| Multilingual pipeline (EN/EL) | Phase 17 (proposed) | ❌ gap |
+| Prompt registry | Phase 18 (proposed) | ❌ gap |
+| MCP Gateway | Phase 18 (proposed) | ❌ gap |
+| OAuth 2.0 / SSO | Phase 18 (proposed) | ❌ gap |
+| Document-level RBAC | Phase 18 (proposed) | ❌ gap |
+| Auto-evaluation pipeline | Phase 18 (proposed) | ❌ gap |
 | Azure Document Intelligence (scanned PDFs) | Not planned | ❌ gap (cloud dependency) |
 | SharePoint connectors | Not planned | ❌ gap (cloud dependency) |
-| Container orchestration — Docker Compose | Phase 18a (proposed) | ❌ gap |
-| Kubernetes + Helm deployment | Phase 18b (proposed) | ❌ gap |
-| SQLite → PostgreSQL (multi-pod DB) | Phase 18 (proposed) | ❌ gap |
-| ChromaDB server mode | Phase 18 (proposed) | ❌ gap |
+| Container orchestration — Docker Compose | Phase 14a (proposed) | ❌ gap |
+| Kubernetes + Helm deployment | Phase 14b (proposed) | ❌ gap |
+| SQLite → PostgreSQL (multi-pod DB) | Phase 14 (proposed) | ❌ gap |
+| ChromaDB server mode | Phase 14 (proposed) | ❌ gap |
 | Multi-tenant architecture | Not planned | ❌ gap (architecture change) |
 | TimeGEN-1 forecasting | Not planned | ❌ gap (separate model) |
 
@@ -300,33 +300,33 @@ NOW (hotfix)
   F3  Strategic roadmap doc update ✅ (done in this commit)
 
 FEATURE TRACK (sequential — each depends on the previous)
-  Phase 14  Cross-conversation planning
+  Phase 15  Cross-conversation planning
             → plans table already exists from Phase 12
             → highest user-visible value: "resume my report from yesterday"
 
-  Phase 15  Recursive Skill composition
+  Phase 16  Recursive Skill composition
             → enables complex multi-step autonomous workflows
-            → depends on Phase 14 plan persistence
+            → depends on Phase 15 plan persistence
 
 LANGUAGE TRACK (parallel — independent of feature track)
-  Phase 16  Multilingual answer pipeline
+  Phase 17  Multilingual answer pipeline
             → Option A (translate LLM reply) first — low risk, reversible
             → Phase 13 STT already returns info.language; just wire translation
               into the Assembler output path
 
 GOVERNANCE TRACK (parallel — enterprise readiness)
-  Phase 17  Skills registry → Prompt registry → Auto-eval
+  Phase 18  Skills registry → Prompt registry → Auto-eval
             → MCP Gateway → OAuth 2.0 → RBAC
             → not gating PoC capabilities; targets production handoff
 
 INFRASTRUCTURE TRACK (parallel — can start anytime)
-  Phase 18a Docker Compose — containerise all services, add Portainer CE UI
+  Phase 14a Docker Compose — containerise all services, add Portainer CE UI
             → replaces run_all.sh; no code changes to business logic
             → requires: SQLite → Postgres migration, ChromaDB server mode
 
-  Phase 18b Kubernetes + Helm — production-grade orchestration
+  Phase 14b Kubernetes + Helm — production-grade orchestration
             → adds Headlamp dashboard, HPA on voice + agentic pods
-            → depends on Phase 18a (images already exist)
+            → depends on Phase 14a (images already exist)
 
 DEPENDENCY GRAPH
   14 → 15

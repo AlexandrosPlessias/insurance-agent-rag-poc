@@ -134,6 +134,7 @@ Phases 1–12 are implemented. Phases 13–15 are designed but not yet built.
 | **11** ✅ | Agentic multi-intent stack + thumbs feedback — Planner · Orchestrator · Workers · Skills · Tools DAG replacing the Phase 1–10 supervisor→single-worker routing; `POST /feedback`; `plan_id` threaded end-to-end | [src/agentic_backend/agents/planner_agent.py](src/agentic_backend/agents/planner_agent.py) · [src/agentic_backend/graph/orchestrator.py](src/agentic_backend/graph/orchestrator.py) · [src/agentic_backend/skills/](src/agentic_backend/skills/) · [src/agentic_backend/tools/](src/agentic_backend/tools/) · [src/agentic_backend/api/routes/feedback.py](src/agentic_backend/api/routes/feedback.py). Details: [Phase 11](#phase-11--agentic-multi-intent-architecture--feedback-) |
 | **12** ✅ | Human-in-the-Loop approval gates + Telegram channel — suspendable Plans, per-Step approval gates, HMAC-signed callback tokens, `ApprovalChannel` interface (Telegram · Slack · Teams pluggable) | [src/agentic_backend/approvals/](src/agentic_backend/approvals/) · [src/agentic_backend/api/routes/plans.py](src/agentic_backend/api/routes/plans.py). Details: [Phase 12](#phase-12--human-in-the-loop--telegram-channel-) |
 | **13** ✅ | Multi-modal voice — local faster-whisper STT + Piper TTS as transport-layer bookends; EN/EL bilingual; React mic button + AudioPlayer; `AUDIT_RETAIN_AUDIO`; OTel spans `tool.speech_to_text` / `tool.text_to_speech`; WER correction metric | [src/agentic_backend/voice/](src/agentic_backend/voice/) · [src/agentic_backend/api/routes/audio.py](src/agentic_backend/api/routes/audio.py) · [src/frontend/src/components/VoiceInput.tsx](src/frontend/src/components/VoiceInput.tsx). Details: [Phase 13](#phase-13--multi-modal-voice-) |
+| **14** 📋 | Container orchestration & microservices — decompose monolith into 6 independent pods (frontend, api-gateway, voice, agentic, rag, ingestion); SQLite → Postgres; ChromaDB embedded → server mode; Docker Compose + Portainer CE (14a) → Kubernetes + Helm + Headlamp (14b) | [docs/BACKLOG.md](docs/BACKLOG.md#phase-14-proposed--container-orchestration--microservices) |
 
 ### Nice-to-have (not on the roadmap)
 
@@ -352,8 +353,8 @@ Today the graph routes each user message to ONE of four workers. *"What's the re
 **Out of scope (next-phase pointers).**
 - Long-running plans + human-in-the-loop approvals → [Phase 12](#phase-12--human-in-the-loop--telegram-channel-).
 - Multi-modal audio I/O → [Phase 13](#phase-13--multi-modal-voice-).
-- Cross-conversation plans → [Phase 14](#phase-14--cross-conversation-planning-).
-- Recursive Skill composition (Skills authoring sub-Skills) → [Phase 15](#phase-15--recursive-skill-composition-).
+- Cross-conversation plans → [Phase 15](#phase-15--cross-conversation-planning-).
+- Recursive Skill composition (Skills authoring sub-Skills) → [Phase 16](#phase-16--recursive-skill-composition-).
 - Distributed worker execution · Skill marketplace UI / versioning / A-B comparison → no phase yet.
 
 #### 2 — Secondary: feedback support
@@ -396,20 +397,42 @@ Phase 13 adds **audio in and audio out** as first-class modalities. Customers in
 - **WER correction metric.** Frontend detects when a user edits a voice-filled transcript before sending. `POST /audio/correction` computes Word Error Rate and Character Error Rate via Levenshtein and logs a `voice.correction` audit event — a passive quality signal requiring no extra user action.
 - **Out of scope.** Image/vision inputs (no phase yet) · voice cloning · real-time bidirectional voice · STT streaming before transcription completes.
 
-### Phase 14 — Cross-conversation planning 📋
+### Phase 14 — Container orchestration & microservices 📋
 
-Phase 14 lifts Plans from **per-turn** artefacts to **first-class memory objects** that span sessions, days, and users.
+Phase 14 breaks the single FastAPI process into independently deployable service pods, adds
+a shared infrastructure tier, and introduces a management platform for operating the running
+stack.
+
+- **Service decomposition.** Six application pods — `frontend` (Nginx), `api-gateway`,
+  `voice-service` (STT + TTS), `agentic-service` (LangGraph), `rag-service` (ChromaDB retrieval),
+  `ingestion-service` (PDF pipeline) — plus shared infrastructure: `chromadb` server, `postgres`,
+  `ollama`, `aspire`.
+- **Phase 14a — Docker Compose.** One `Dockerfile` per service; `docker-compose.yml` replaces
+  `run_all.sh`. Management UI: **Portainer CE** (container list, logs, restart, image pull).
+- **Phase 14b — Kubernetes + Helm.** `Deployment` + `Service` per pod, `values.yaml`-driven
+  config. Management UI: **Headlamp** (rolling updates, log streaming, pod restart) +
+  **k9s** (terminal) + **Stern** (multi-pod log aggregation).
+- **Key migrations.** SQLite → Postgres (memory + audit multi-pod compatible); ChromaDB
+  embedded → server mode (one-line client change); model files as Docker volumes.
+- **React SPA Services tab.** Lightweight health summary inside the existing UI — HTTP `/health`
+  poll of each service; complements Portainer/Headlamp without requiring a container API.
+- **Out of scope.** Horizontal scaling of agentic-service (LangGraph state is in-process;
+  needs Redis-backed state store) · GPU scheduling in Kubernetes · CI/CD image pipeline.
+
+### Phase 15 — Cross-conversation planning 📋
+
+Phase 15 lifts Plans from **per-turn** artefacts to **first-class memory objects** that span sessions, days, and users.
 
 - **Plan persistence beyond a turn.** Plans land in a `plans` table (introduced in Phase 12 for HITL — same schema) but with no expiry. A user can pick up *"the 2024 annual report you were generating last Tuesday"* via a resume-token chip in the UI or `/resume <plan_id>` in chat.
 - **Plan-aware memory.** The Phase 4 episodic memory module learns about Plans: rolling-summarisation includes *"currently executing Plan X · awaiting Step Y · 3 of 7 Steps complete"* so the assistant doesn't lose context across sessions.
 - **Multi-user plans.** Plans can have multiple `participant` user_ids — *"compliance officer A approved Step 2, regional manager B will approve Step 3"*. ACLs enforced at the Orchestrator: a Step can only resume for a user listed in its `allowed_participants`.
 - **Plan migration on schema change.** When a Skill's `input_schema` or `output_schema` evolves, persisted Plans referencing the old schema get a migration hook (Skills declare `schema_version`; orchestrator runs a registered `migrate_v{n}_to_v{n+1}` before resuming).
 - **UI.** New sidebar panel: *"Your plans"* — pending · in-progress · done · expired — with a one-click resume.
-- **Out of scope.** Plan branching / forking (a Plan is linear in Phase 14 even when re-planned) · cross-tenant plans (single-tenant PoC) · plan-of-plans (meta-orchestration; that's Phase 15 territory).
+- **Out of scope.** Plan branching / forking (a Plan is linear in Phase 15 even when re-planned) · cross-tenant plans (single-tenant PoC) · plan-of-plans (meta-orchestration; that's Phase 16 territory).
 
-### Phase 15 — Recursive Skill composition 📋
+### Phase 16 — Recursive Skill composition 📋
 
-Phase 15 lets a **Skill emit a sub-Plan** mid-execution — *"I need to dig deeper here, so spawn three child Skills, wait for them, fold their results back into my own output."* The Orchestrator becomes recursive.
+Phase 16 lets a **Skill emit a sub-Plan** mid-execution — *"I need to dig deeper here, so spawn three child Skills, wait for them, fold their results back into my own output."* The Orchestrator becomes recursive.
 
 - **Sub-Plan emission.** A Worker, mid-Step, can return a `SubPlanRequest{steps: [...], merge_strategy}` instead of a normal `StepResult`. The Orchestrator pauses the parent Step, dispatches the sub-Plan, and resumes the parent with the sub-Plan's structured results once it completes.
 - **Recursion budgets.** New `max_recursion_depth` (default: 3) and shared `max_steps` / `max_tool_calls` / `max_seconds` budgets that span parent + children. Overrun → graceful early-stop, partial result. **Cycle detection** — a Step that re-emits its own `skill_name` in its sub-Plan is rejected at the orchestrator.
