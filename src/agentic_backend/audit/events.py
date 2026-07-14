@@ -39,6 +39,7 @@ FEEDBACK_RECEIVED = "feedback.received"
 # Voice I/O
 VOICE_TRANSCRIBE = "voice.transcribe"
 VOICE_SYNTHESIZE = "voice.synthesize"
+VOICE_CORRECTION = "voice.correction"
 
 # HITL approval gates
 APPROVAL_SUSPENDED = "approval.suspended"
@@ -69,4 +70,5 @@ EventType = Literal[
     "approval.resumed",
     "voice.transcribe",
     "voice.synthesize",
+    "voice.correction",
 ]

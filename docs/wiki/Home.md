@@ -26,13 +26,16 @@ no document or customer detail ever leaves the workstation.
 ```
                   ┌────────────────┐
                   │  React SPA     │  Chat UI · plan stepper · thumbs feedback ·
-                  │  (Vite + TS)   │  download buttons · view-chunk popovers
+                  │  (Vite + TS)   │  download buttons · view-chunk popovers ·
+                  │                │  VoiceInput (mic + EN/ΕΛ) · AudioPlayer
                   └───────┬────────┘
                           │  HTTP (Vite proxy /api → :8000 in dev)
                           ▼
                   ┌────────────────┐
                   │    FastAPI     │  /chat · /feedback · /ingest
                   │   (Backend)    │  /reports/{year}.{md|docx|pdf} · /health
+                  │                │  /audio/transcribe · /audio/synthesize
+                  │                │  /audio/correction  (Phase 13 voice)
                   └───────┬────────┘
                           │
                           ▼
@@ -136,9 +139,10 @@ Full guide: [`USAGE.md`](../../USAGE.md).
 | 10 — Stakeholder deck | ✅ | `python-pptx` rendered from `deck.md`; LangGraph + Azure northstar slides |
 | **11 — Agentic multi-intent (+ feedback)** | ✅ | **Planner · Orchestrator · Workers · Tools · Skills** stack — uniform pipeline, structured outputs, `plan_id` on every turn, thumbs-feedback, `decline` Skill for out-of-scope refusals. See [`docs/architecture/agentic-pipeline.md`](../architecture/agentic-pipeline.md). |
 | **12 — Human-in-the-Loop & Telegram channel** | ✅ | Suspendable Plans · HMAC-signed approval gates between Steps · Telegram bot (Slack / Teams pluggable) · `plans` table · drill-down chips on data turns · React UX redesign |
-| **13 — Multi-modal voice** | 📋 planned | Local Whisper.cpp + Piper TTS as Tools · audio in/out in the React UI · no cloud STT/TTS |
-| **14 — Cross-conversation planning** | 📋 planned | Plans become first-class memory · resume-tokens · multi-user participants · Skill schema migration |
-| **15 — Recursive Skill composition** | 📋 planned | Skills can emit sub-Plans · `max_recursion_depth` · cycle detection · nested OTel span tree |
+| **13 — Multi-modal voice** | ✅ | faster-whisper STT + Piper TTS · EN/EL bilingual · React mic + AudioPlayer · `AUDIT_RETAIN_AUDIO` · OTel spans · WER correction metric. See [Voice-Integration.md](Voice-Integration.md). |
+| **14 — Container orchestration** | 📋 planned | Decompose monolith into pods · Docker Compose + Portainer CE (14a) · Kubernetes + Helm + Headlamp (14b) · SQLite → Postgres · ChromaDB server mode |
+| **15 — Cross-conversation planning** | 📋 planned | Plans become first-class memory · resume-tokens · multi-user participants · Skill schema migration |
+| **16 — Recursive Skill composition** | 📋 planned | Skills can emit sub-Plans · `max_recursion_depth` · cycle detection · nested OTel span tree |
 
 Detailed per-phase write-ups live in the main [`README.md`](../../README.md). The Phase 11 agentic architecture is documented in depth at [`docs/architecture/agentic-pipeline.md`](../architecture/agentic-pipeline.md).
 
@@ -162,6 +166,7 @@ Detailed per-phase write-ups live in the main [`README.md`](../../README.md). Th
 | [`architecture/agentic-pipeline.md`](../architecture/agentic-pipeline.md) | ✅ **Phase 11** — Planner · Orchestrator · Workers · Tools · Skills capability catalogue + extension playbook |
 | [`architecture/design-rationale.md`](../architecture/design-rationale.md) | Why six separate nodes — design intent, MUST/MUST-NOT contracts |
 | [`architecture/ingestion.md`](../architecture/ingestion.md) | Phase 6 ingestion + chunking design + tuning |
+| [`architecture/voice-integration.md`](../architecture/voice-integration.md) | ✅ **Phase 13** — STT/TTS transport layer · API routes · OTel spans · WER metric · config reference |
 | [`architecture/agentic-pipeline.md § 10`](../architecture/agentic-pipeline.md#10--legacy-phase-110-contracts) | Phase 1–10 per-node MUST/MUST-NOT contracts |
 
 #### Strategic vision

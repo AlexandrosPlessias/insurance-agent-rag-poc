@@ -4,7 +4,7 @@
 #
 # Skip the Aspire Docker image pre-pull with:
 #   SKIP_OBSERVABILITY=true bash poc/scripts/setup_wsl.sh
-# Skip the Piper TTS voice model download with:
+# Skip voice model downloads (Piper TTS + faster-whisper STT) with:
 #   SKIP_VOICE=true bash poc/scripts/setup_wsl.sh
 set -euo pipefail
 
@@ -162,15 +162,40 @@ else
   fi
 fi
 
-echo "[10/10] Downloading Piper TTS voice models (Phase 13, optional)..."
+echo "[10/10] Downloading voice models — Piper TTS + faster-whisper STT (Phase 13, optional)..."
 if [ "$SKIP_VOICE" = "true" ]; then
   echo "  Skipped (SKIP_VOICE=true). Download later with:"
-  echo "    bash scripts/download_voice_models.sh"
-elif [ -f "voice/piper_voices/en_US-lessac-medium.onnx" ]; then
-  echo "  Voice model already present — skipping download."
+  echo "    bash scripts/download_voice_models.sh                          # EN voice"
+  echo "    bash scripts/download_voice_models.sh el_GR-rapunzelina-low   # EL voice"
+  echo "    python -c \"from faster_whisper.utils import download_model; download_model('medium')\""
 else
-  bash "$SCRIPT_DIR/download_voice_models.sh"
-  bash "$SCRIPT_DIR/download_voice_models.sh" el_GR-rapunzelina-low
+  # Piper TTS — EN and EL voices
+  if [ -f "voice/piper_voices/en_US-lessac-medium.onnx" ]; then
+    echo "  Piper EN model already present — skipping."
+  else
+    bash "$SCRIPT_DIR/download_voice_models.sh"
+  fi
+  if [ -f "voice/piper_voices/el_GR-rapunzelina-low.onnx" ]; then
+    echo "  Piper EL model already present — skipping."
+  else
+    bash "$SCRIPT_DIR/download_voice_models.sh" el_GR-rapunzelina-low
+  fi
+
+  # faster-whisper STT — pre-cache the model so the first API call is instant
+  # and avoids HuggingFace unauthenticated rate limits (especially on macOS).
+  WHISPER_MODEL="${VOICE_STT_MODEL:-medium}"
+  echo "  Pre-downloading faster-whisper model '${WHISPER_MODEL}' to HF cache..."
+  if python -c "
+from faster_whisper.utils import download_model
+download_model('${WHISPER_MODEL}')
+print('  faster-whisper model ready.')
+" 2>&1; then
+    :
+  else
+    echo "  WARN: faster-whisper download failed (network / HF rate limit)." >&2
+    echo "        The model will be downloaded automatically on first /audio/transcribe call." >&2
+    echo "        To retry: python -c \"from faster_whisper.utils import download_model; download_model('${WHISPER_MODEL}')\"" >&2
+  fi
 fi
 
 echo

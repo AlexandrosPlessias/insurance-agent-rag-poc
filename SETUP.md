@@ -202,10 +202,11 @@ Defaults work out of the box. Adjust only what you need:
 | `APPROVALS_KPI_THRESHOLD` | `1000000.0` | KPI value above which a human-in-the-loop approval gate is triggered |
 | `TELEGRAM_BOT_TOKEN` | *(optional)* | Telegram bot token for approval notifications — leave blank to use UI-only flow |
 | `TELEGRAM_CHAT_ID` | *(optional)* | Telegram chat ID to receive approval messages |
-| `VOICE_ENABLED` | `false` | Set `true` to activate `/audio/transcribe` and `/audio/synthesize` (Phase 13) |
-| `WHISPER_MODEL` | `medium` | faster-whisper model size: `tiny` / `small` / `medium` / `large-v3` |
-| `VOICE_LANGUAGE` | `en` | ISO-639-1 language hint for Whisper; leave blank for auto-detect |
-| `VOICE_TTS_VOICE` | `en_US-lessac-medium` | Piper voice ID — must match a model in `src/voice/piper_voices/` |
+| `VOICE_ENABLED` | `false` | Set `true` to activate `/audio/transcribe`, `/audio/synthesize`, `/audio/correction` (Phase 13) |
+| `VOICE_STT_MODEL` | `medium` | faster-whisper model size: `tiny` / `small` / `medium` / `large-v3` |
+| `VOICE_TTS_VOICE` | `en_US-lessac-medium` | Piper voice ID for English — must match a model in `src/voice/piper_voices/` |
+| `VOICE_TTS_VOICE_EL` | `el_GR-rapunzelina-low` | Piper voice ID for Greek (UI language toggle ΕΛ) |
+| `AUDIT_RETAIN_AUDIO` | `false` | Persist raw audio blobs to `data/audit_audio/<sha256>.wav` alongside the audit record |
 
 ### APPROVAL_HMAC_SECRET (Phase 12)
 

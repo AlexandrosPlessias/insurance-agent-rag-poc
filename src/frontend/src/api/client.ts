@@ -213,3 +213,15 @@ export async function synthesizeSpeech(text: string, language = "en"): Promise<B
   if (!r.ok) throw new Error(`Synthesis failed: HTTP ${r.status}`);
   return r.blob();
 }
+
+export async function reportVoiceCorrection(
+  original: string,
+  corrected: string,
+  language = "en",
+): Promise<void> {
+  await fetch(`${BASE}/audio/correction`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ original, corrected, language }),
+  }).catch(() => {});
+}
