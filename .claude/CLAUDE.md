@@ -13,6 +13,7 @@ Docstrings: Google style
 ## Available Skills
 
 - `/branch-review` — full branch audit: black, isort, naming, exceptions, repo structure, python security, prompt security
+- `/wiki-check` — validate docs/wiki relative links against transform_wiki_links.py SUBSTITUTIONS; auto-fix any missing entries
 
 ---
 
