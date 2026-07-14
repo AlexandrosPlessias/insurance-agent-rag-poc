@@ -10,9 +10,9 @@
 
 | # | Item | Source | Effort |
 |---|------|---------|--------|
-| F1 | **STT model pre-download at setup** — On macOS, faster-whisper downloads the Whisper model from HuggingFace on the *first transcription call*, which hits HF's unauthenticated rate limit. The model download must move into `setup_macos.sh` (and `setup_wsl.sh`) alongside the Piper model step. | `ideas.txt` | S |
-| F2 | **HuggingFace token in setup** — Add `HF_TOKEN` as an optional env var in `.env.example` and pass it during setup so authenticated downloads avoid rate limits and work in CI. | `ideas.txt` | S |
-| F3 | **Update `insurance_rag_strategic_roadmap.md` Phase 13 entry** — Row currently reads `Planned`; should be `✅`. | Internal | XS |
+| ~~F1~~ | ~~**STT model pre-download at setup**~~ — ✅ Done: `setup_wsl.sh` and `setup_macos.sh` step 10/9 now runs `faster_whisper.utils.download_model(VOICE_STT_MODEL)` after Piper downloads; graceful WARN on network failure. | `ideas.txt` | — |
+| F2 | **HuggingFace token in setup** — Optional: add `HF_TOKEN` env var to `.env.example` and pass it during setup for authenticated downloads. Left as optional — the download step has a soft WARN fallback so it never blocks setup. | `ideas.txt` | S |
+| ~~F3~~ | ~~**Update `insurance_rag_strategic_roadmap.md` Phase 13 entry**~~ — ✅ Done: row now shows `✅`. | Internal | — |
 
 ---
 
@@ -295,9 +295,9 @@ Cross-referencing `docs/insurance_rag_strategic_roadmap.md` §5 against the PoC 
 
 ```
 NOW (hotfix)
-  F1  STT pre-download at setup
-  F2  HF_TOKEN in setup
-  F3  Strategic roadmap doc update ✅ (done in this commit)
+  ✅ F1  STT pre-download at setup (done)
+  ~~ F2  HF_TOKEN in setup (optional — soft WARN fallback in place)
+  ✅ F3  Strategic roadmap doc update (done)
 
 FEATURE TRACK (sequential — each depends on the previous)
   Phase 15  Cross-conversation planning
