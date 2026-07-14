@@ -104,6 +104,11 @@ class Settings(BaseSettings):
     voice_tts_voice: str = "en_US-lessac-medium"
     voice_tts_voice_el: str = "el_GR-rapunzelina-low"
     voice_models_dir: Path = POC_ROOT / "voice" / "piper_voices"
+    # When true, raw audio blobs are persisted alongside the audit log so
+    # compliance teams can replay STT decisions.  Blobs land at:
+    # <audit_audio_dir>/<sha256>.wav
+    audit_retain_audio: bool = False
+    audit_audio_dir: Path = POC_ROOT / "data" / "audit_audio"
 
     # --- Observability ---
     # Default ON. setup_otel() probes the endpoint at startup and
@@ -130,6 +135,7 @@ class Settings(BaseSettings):
         "processed_dir",
         "metadata_dir",
         "metadata_schema_path",
+        "audit_audio_dir",
         "voice_models_dir",
         mode="before",
     )

@@ -1,4 +1,5 @@
 import { useState, useRef, type KeyboardEvent } from "react";
+import { reportVoiceCorrection } from "../api/client";
 import { VoiceInput, type VoiceLanguage } from "./VoiceInput";
 
 interface Props {
@@ -11,11 +12,18 @@ interface Props {
 
 export function ChatInput({ onSubmit, disabled, voiceEnabled, voiceLanguage = "en", onVoiceLanguageChange }: Props) {
   const [value, setValue] = useState("");
+  const [voiceOriginal, setVoiceOriginal] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const submit = () => {
     const trimmed = value.trim();
     if (!trimmed || disabled) return;
+
+    if (voiceOriginal !== null && trimmed !== voiceOriginal.trim()) {
+      void reportVoiceCorrection(voiceOriginal.trim(), trimmed, voiceLanguage);
+    }
+
+    setVoiceOriginal(null);
     onSubmit(trimmed);
     setValue("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
@@ -58,7 +66,10 @@ export function ChatInput({ onSubmit, disabled, voiceEnabled, voiceLanguage = "e
         disabled={Boolean(disabled)}
         language={voiceLanguage}
         onLanguageChange={onVoiceLanguageChange ?? (() => {})}
-        onTranscript={(t) => setValue(t)}
+        onTranscript={(t) => {
+          setValue(t);
+          setVoiceOriginal(t);
+        }}
       />
       <textarea
         ref={textareaRef}
