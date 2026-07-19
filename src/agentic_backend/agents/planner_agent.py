@@ -29,6 +29,7 @@ from agentic_backend.graph.state import GraphState
 from agentic_backend.llm import load_prompt
 from agentic_backend.llm.ollama_client import get_fast_llm
 from agentic_backend.observability.logging import get_logger
+from agentic_backend.observability.metrics import record_plan_steps
 from agentic_backend.observability.tracing import get_tracer
 from agentic_backend.skills import get_skill_registry, skill_catalog_for_planner
 
@@ -37,6 +38,9 @@ tracer = get_tracer(__name__)
 
 _PLANNER_TEMPLATE = load_prompt("planner")
 _JSON_FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
+# Matches end-of-value followed by a newline and then a new key/value start —
+# i.e., a missing comma between adjacent JSON properties or array elements.
+_MISSING_COMMA = re.compile(r'(["\d\w\]\}])([ \t]*\n)([ \t]*)(["\{\[])')
 
 
 # ---------------------------------------------------------------------------
@@ -50,6 +54,21 @@ def _extract_json(raw: str) -> str:
         if match:
             text = match.group(0)
     return text
+
+
+def _repair_json(text: str) -> str:
+    """Best-effort repair of LLM JSON syntax errors (no external deps).
+
+    Handles the three most common small-model failures:
+    - Missing comma between adjacent properties/elements
+    - Trailing commas before ] or }
+    - JS-style // and /* */ comments
+    """
+    text = re.sub(r"//[^\n]*", "", text)
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    text = _MISSING_COMMA.sub(r"\1,\2\3\4", text)
+    text = re.sub(r",(\s*[}\]])", r"\1", text)
+    return text.strip()
 
 
 def _has_cycle(steps: list[dict]) -> bool:
@@ -128,7 +147,10 @@ def planner_node(state: GraphState) -> dict:
     _MAX_QUESTION_CHARS = 2_000
     question = (state.get("question") or "")[:_MAX_QUESTION_CHARS]
     if len(state.get("question") or "") > _MAX_QUESTION_CHARS:
-        log.warning("Planner: question truncated to %d chars to prevent context stuffing", _MAX_QUESTION_CHARS)
+        log.warning(
+            "Planner: question truncated to %d chars to prevent context stuffing",
+            _MAX_QUESTION_CHARS,
+        )
     covered_years = state.get("covered_years") or settings.kb_covered_years
     today = state.get("today") or ""
     history = state.get("history") or []
@@ -166,23 +188,28 @@ def planner_node(state: GraphState) -> dict:
         span.set_attribute("planner.output_chars", len(raw))
         log.info("Planner LLM returned %d chars in %.2fs", len(raw), elapsed)
 
-        # Parse JSON plan.
+        # Parse JSON plan — try raw first, then best-effort repair.
+        extracted = _extract_json(raw)
         try:
-            plan_dict = json.loads(_extract_json(raw))
-        except json.JSONDecodeError as exc:
-            log.warning("Planner output not valid JSON (%s) — single RAG fallback", exc)
-            plan_dict = {
-                "plan_id": plan_id,
-                "steps": [
-                    {
-                        "step_id": "step-1",
-                        "skill_name": "answer-policy-question",
-                        "args": {"query": question},
-                        "depends_on": [],
-                        "heading": "Answer",
-                    }
-                ],
-            }
+            plan_dict = json.loads(extracted)
+        except json.JSONDecodeError:
+            try:
+                plan_dict = json.loads(_repair_json(extracted))
+                log.info("Planner JSON repaired successfully")
+            except json.JSONDecodeError as exc:
+                log.warning("Planner output not valid JSON (%s) — single RAG fallback", exc)
+                plan_dict = {
+                    "plan_id": plan_id,
+                    "steps": [
+                        {
+                            "step_id": "step-1",
+                            "skill_name": "answer-policy-question",
+                            "args": {"query": question},
+                            "depends_on": [],
+                            "heading": "Answer",
+                        }
+                    ],
+                }
 
         plan_dict["plan_id"] = plan_id
 
@@ -207,6 +234,7 @@ def planner_node(state: GraphState) -> dict:
 
         n_steps = len(plan_dict.get("steps", []))
         span.set_attribute("planner.steps", n_steps)
+        record_plan_steps(n_steps)
         log.info(
             "Plan ready: id=%s steps=%d",
             plan_dict.get("plan_id"),

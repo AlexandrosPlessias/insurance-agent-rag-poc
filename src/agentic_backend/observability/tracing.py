@@ -1,9 +1,8 @@
 """OpenTelemetry setup for traces + logs + metrics.
 
 Targets Aspire Dashboard via OTLP gRPC on `OTEL_ENDPOINT`
-(default `http://localhost:4317`). Start the backend with:
-
-    bash scripts/run_observability.sh
+(default `http://aspire:18889` inside Docker). Aspire runs as part of
+the Docker Compose stack — start with `docker compose up`.
 
 `setup_otel(app=None, service_suffix=None)` is idempotent. It probes
 the endpoint at startup and self-disables (logs a warning) when
@@ -36,9 +35,7 @@ def _backend_reachable(timeout_s: float = 1.0) -> bool:
 def _resource(service_suffix: str | None):
     from opentelemetry.sdk.resources import Resource
 
-    name = settings.otel_service_name
-    if service_suffix:
-        name = f"{name}-{service_suffix}"
+    name = service_suffix if service_suffix else settings.otel_service_name
     return Resource.create(
         {
             "service.name": name,
@@ -172,13 +169,19 @@ def _setup_metrics(resource) -> None:
 def _instrument_fastapi(app: Any) -> None:
     from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
-    FastAPIInstrumentor.instrument_app(app)
+    FastAPIInstrumentor.instrument_app(app, excluded_urls="/health,/health/services,/favicon")
 
 
 def _instrument_httpx() -> None:
     from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 
-    HTTPXClientInstrumentor().instrument()
+    _SKIP_FRAGMENTS = ("/health", "/api/tags", "/api/v2/auth", "/api/v2/tenants/default_tenant")
+
+    def _url_filter(request) -> bool:
+        url = str(getattr(request, "url", request))
+        return not any(frag in url for frag in _SKIP_FRAGMENTS)
+
+    HTTPXClientInstrumentor().instrument(url_filter=_url_filter)
 
 
 # Note: we intentionally do NOT call
@@ -354,8 +357,7 @@ def setup_otel(
         _log.info(
             "OTel enabled: endpoint=%s service=%s ui=%s",
             settings.otel_endpoint,
-            settings.otel_service_name
-            + (f"-{service_suffix}" if service_suffix else ""),
+            service_suffix or settings.otel_service_name,
             settings.otel_ui_url,
         )
         _otel_pipeline_snapshot("end")
