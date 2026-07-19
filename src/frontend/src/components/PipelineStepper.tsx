@@ -7,6 +7,7 @@ interface Props {
   skillLabels: Record<string, string>;
   route: string;
   isStreaming: boolean;
+  reformulatedQuery?: string | null;
 }
 
 const SKILL_LABELS: Record<string, string> = {
@@ -23,6 +24,7 @@ const SUBSTAGE_TOOL: Record<string, string> = {
   reformulate: "LLM",
   retrieve: "Chroma",
   answer: "LLM",
+  validate: "Validator",
   // executive-section-summary tools_used
   kpi_query: "KPI DB",
   vector_search: "Chroma",
@@ -74,7 +76,7 @@ const Connector = () => (
   <div style={{ width: 24, height: 2, background: "#e4e4e7", marginTop: -10, flexShrink: 0 }} />
 );
 
-export function PipelineStepper({ stages, skillLabels, route, isStreaming }: Props) {
+export function PipelineStepper({ stages, skillLabels, route, isStreaming, reformulatedQuery }: Props) {
   const isAgentic = route === "agentic";
   const [open, setOpen] = useState(isAgentic);
 
@@ -196,6 +198,16 @@ export function PipelineStepper({ stages, skillLabels, route, isStreaming }: Pro
           })}
         </Collapsible.Content>
       </Collapsible.Root>
+      {reformulatedQuery && (
+        <div style={{
+          marginTop: 5, fontSize: 11,
+          display: "flex", gap: 4, alignItems: "baseline",
+          color: "var(--text-primary)",
+        }}>
+          <span style={{ fontWeight: 600, flexShrink: 0, color: "var(--text-muted)" }}>Reformulated:</span>
+          <span style={{ fontStyle: "italic" }}>{reformulatedQuery}</span>
+        </div>
+      )}
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   );
