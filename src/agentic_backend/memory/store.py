@@ -4,6 +4,7 @@ One MemoryStore instance per app. Connections are opened per-method
 so it's safe under FastAPI's worker threading model.
 """
 import json
+from datetime import datetime
 from typing import Any
 
 import psycopg2
@@ -12,6 +13,14 @@ import psycopg2.extras
 from agentic_backend.observability.logging import get_logger
 
 log = get_logger(__name__)
+
+
+def _serialize(row: dict) -> dict:
+    """Convert psycopg2 datetime values to ISO strings for Pydantic/JSON."""
+    return {
+        k: v.isoformat() if isinstance(v, datetime) else v
+        for k, v in row.items()
+    }
 
 
 class MemoryStore:
@@ -53,7 +62,7 @@ class MemoryStore:
                 (user_id,),
             )
             rows = cur.fetchall()
-        return [dict(r) for r in rows]
+        return [_serialize(dict(r)) for r in rows]
 
     def list_all_conversations(self) -> list[dict]:
         """Return all conversations across all users with their message counts.
@@ -73,7 +82,7 @@ class MemoryStore:
                 "ORDER BY c.created_at DESC"
             )
             rows = cur.fetchall()
-        return [dict(r) for r in rows]
+        return [_serialize(dict(r)) for r in rows]
 
     def get_conversation(self, conversation_id: int) -> dict | None:
         with self._connect() as conn:
@@ -84,7 +93,7 @@ class MemoryStore:
                 (conversation_id,),
             )
             row = cur.fetchone()
-        return dict(row) if row else None
+        return _serialize(dict(row)) if row else None
 
     def delete_conversation(self, conversation_id: int) -> None:
         with self._connect() as conn:
@@ -222,7 +231,7 @@ class MemoryStore:
 
     @staticmethod
     def _row_to_message(row: dict) -> dict:
-        d = dict(row)
+        d = _serialize(dict(row))
         if d.get("citations_json"):
             try:
                 d["citations"] = json.loads(d["citations_json"])

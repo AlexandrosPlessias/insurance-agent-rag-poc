@@ -360,21 +360,32 @@ def _patch_otel_detach() -> None:
 
     FastAPI streaming responses iterate sync generators across multiple
     anyio threadpool threads. Each thread gets its own Context copy, so a
-    token created in Thread A cannot be reset in Thread B — OTel raises a
-    ValueError deep inside the FastAPI middleware cleanup. This patch makes
-    detach() a no-op on ValueError instead of propagating the traceback.
+    token created in Thread A cannot be reset in Thread B — OTel's detach()
+    catches the ValueError internally and logs it at ERROR level before
+    re-raising. We silence it at two levels:
+      1. Patch _RUNTIME_CONTEXT.detach so the ValueError never fires.
+      2. Add a log filter on opentelemetry.context to drop any residual
+         "Failed to detach context" records that slip through.
     """
     import opentelemetry.context as _ctx_mod
 
-    _orig_detach = _ctx_mod.detach
+    # Level 1: patch the inner ContextVar reset so ValueError never fires.
+    _orig_runtime_detach = _ctx_mod._RUNTIME_CONTEXT.detach
 
-    def _safe_detach(token: object) -> None:
+    def _safe_runtime_detach(token: object) -> None:
         try:
-            _orig_detach(token)
+            _orig_runtime_detach(token)
         except ValueError:
             pass
 
-    _ctx_mod.detach = _safe_detach
+    _ctx_mod._RUNTIME_CONTEXT.detach = _safe_runtime_detach
+
+    # Level 2: silence any residual log records from the OTel context logger.
+    class _DetachFilter(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            return "Failed to detach context" not in record.getMessage()
+
+    logging.getLogger("opentelemetry.context").addFilter(_DetachFilter())
 
 
 def setup_otel(
