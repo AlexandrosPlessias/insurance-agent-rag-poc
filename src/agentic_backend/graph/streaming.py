@@ -197,7 +197,7 @@ def _suspend_for_approval(
         "target_year": state.get("target_year"),
     }
 
-    store = ApprovalStore(settings.audit_sqlite_path)
+    store = ApprovalStore(settings.database_url)
     store.create_plan(
         plan_id=plan_id,
         user_id=user_id,
@@ -430,7 +430,7 @@ def stream_plan_resume(plan_id: str) -> Iterator[dict]:
     pending step and any remaining steps, then runs the Assembler.
     The plan state is updated to 'done' on success.
     """
-    store = ApprovalStore(settings.audit_sqlite_path)
+    store = ApprovalStore(settings.database_url)
     plan_db = store.get_plan(plan_id)
 
     if plan_db is None:

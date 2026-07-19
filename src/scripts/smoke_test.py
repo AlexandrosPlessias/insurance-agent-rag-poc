@@ -248,16 +248,6 @@ def main() -> int:
         except Exception as exc:  # noqa: BLE001
             log.warning("reset_collection failed (probably first run): %s", exc)
 
-        # Reset SQLite memory so cross-session history starts empty.
-        if settings.sqlite_path.exists():
-            log.info("Removing SQLite memory at %s", settings.sqlite_path)
-            settings.sqlite_path.unlink()
-
-        # Phase 7 - reset audit DB so the smoke run gets a clean trail.
-        if settings.audit_sqlite_path.exists():
-            log.info("Removing audit DB at %s", settings.audit_sqlite_path)
-            settings.audit_sqlite_path.unlink()
-
         # Ingest the seed PDF through the Phase 6 pipeline. The LLM
         # summariser writes a fresh sidecar; subsequent queries pick up the
         # newly-built section_title metadata.
@@ -271,7 +261,7 @@ def main() -> int:
             ingest_result.markdown_path.name,
         )
 
-    store = MemoryStore(settings.sqlite_path)
+    store = MemoryStore(settings.database_url)
     results: list[TestResult] = []
 
     for scenario in SCENARIOS:

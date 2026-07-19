@@ -71,12 +71,12 @@ app.include_router(admin.router)
 setup_otel(app=app, service_suffix="api-gateway")
 
 log.info(
-    "FastAPI ready - model=%s embed=%s chroma=%s:%s sqlite=%s otel=%s",
+    "FastAPI ready - model=%s embed=%s chroma=%s:%s db=%s otel=%s",
     settings.llm_model,
     settings.embed_model,
     settings.chroma_host,
     settings.chroma_port,
-    settings.sqlite_path,
+    settings.database_url,
     settings.otel_enabled,
 )
 

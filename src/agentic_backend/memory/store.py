@@ -1,40 +1,31 @@
-"""SQLite-backed memory store: conversations + messages.
+"""PostgreSQL-backed memory store: conversations + messages.
 
 One MemoryStore instance per app. Connections are opened per-method
 so it's safe under FastAPI's worker threading model.
 """
 import json
-import sqlite3
-from pathlib import Path
 from typing import Any
+
+import psycopg2
+import psycopg2.extras
 
 from agentic_backend.observability.logging import get_logger
 
 log = get_logger(__name__)
 
-_SCHEMA_FILE = Path(__file__).parent / "schema.sql"
-
 
 class MemoryStore:
-    def __init__(self, db_path: Path | str):
-        self.db_path = Path(db_path)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._init_schema()
-        log.info("MemoryStore ready at %s", self.db_path)
+    def __init__(self, database_url: str):
+        self._url = database_url
+        log.info("MemoryStore ready (postgres)")
 
     # --- connection helpers ---
 
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")   # safe concurrent reads across pods
-        conn.execute("PRAGMA foreign_keys = ON")
+    def _connect(self):
+        conn = psycopg2.connect(self._url)
+        conn.cursor_factory = psycopg2.extras.RealDictCursor
+        conn.autocommit = True
         return conn
-
-    def _init_schema(self) -> None:
-        schema = _SCHEMA_FILE.read_text(encoding="utf-8")
-        with self._connect() as conn:
-            conn.executescript(schema)
 
     # --- conversations ---
 
@@ -42,23 +33,26 @@ class MemoryStore:
         self, user_id: str, title: str | None = None
     ) -> int:
         with self._connect() as conn:
-            cur = conn.execute(
-                "INSERT INTO conversations (user_id, title) VALUES (?, ?)",
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO conversations (user_id, title) VALUES (%s, %s) RETURNING id",
                 (user_id, title),
             )
-            conv_id = int(cur.lastrowid or 0)
+            conv_id = int(cur.fetchone()["id"])
         log.info("Created conversation %d for user=%r", conv_id, user_id)
         return conv_id
 
     def list_conversations(self, user_id: str) -> list[dict]:
         with self._connect() as conn:
-            rows = conn.execute(
+            cur = conn.cursor()
+            cur.execute(
                 "SELECT id, user_id, title, created_at "
                 "FROM conversations "
-                "WHERE user_id = ? "
+                "WHERE user_id = %s "
                 "ORDER BY created_at DESC",
                 (user_id,),
-            ).fetchall()
+            )
+            rows = cur.fetchall()
         return [dict(r) for r in rows]
 
     def list_all_conversations(self) -> list[dict]:
@@ -69,38 +63,43 @@ class MemoryStore:
             Ordered by created_at descending (newest first).
         """
         with self._connect() as conn:
-            rows = conn.execute(
+            cur = conn.cursor()
+            cur.execute(
                 "SELECT c.id, c.user_id, c.title, c.created_at, "
                 "       COUNT(m.id) AS message_count "
                 "FROM conversations c "
                 "LEFT JOIN messages m ON m.conversation_id = c.id "
                 "GROUP BY c.id "
                 "ORDER BY c.created_at DESC"
-            ).fetchall()
+            )
+            rows = cur.fetchall()
         return [dict(r) for r in rows]
 
     def get_conversation(self, conversation_id: int) -> dict | None:
         with self._connect() as conn:
-            row = conn.execute(
+            cur = conn.cursor()
+            cur.execute(
                 "SELECT id, user_id, title, created_at "
-                "FROM conversations WHERE id = ?",
+                "FROM conversations WHERE id = %s",
                 (conversation_id,),
-            ).fetchone()
+            )
+            row = cur.fetchone()
         return dict(row) if row else None
 
     def delete_conversation(self, conversation_id: int) -> None:
         with self._connect() as conn:
-            conn.execute("PRAGMA foreign_keys = ON")
-            conn.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,))
+            cur = conn.cursor()
+            cur.execute("DELETE FROM conversations WHERE id = %s", (conversation_id,))
         log.info("Deleted conversation %d", conversation_id)
 
     def set_title_if_empty(
         self, conversation_id: int, title: str
     ) -> None:
         with self._connect() as conn:
-            conn.execute(
-                "UPDATE conversations SET title = ? "
-                "WHERE id = ? AND (title IS NULL OR title = '')",
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE conversations SET title = %s "
+                "WHERE id = %s AND (title IS NULL OR title = '')",
                 (title, conversation_id),
             )
 
@@ -116,13 +115,14 @@ class MemoryStore:
     ) -> int:
         citations_json = json.dumps(citations) if citations else None
         with self._connect() as conn:
-            cur = conn.execute(
+            cur = conn.cursor()
+            cur.execute(
                 "INSERT INTO messages "
                 "(conversation_id, role, content, route, citations_json) "
-                "VALUES (?, ?, ?, ?, ?)",
+                "VALUES (%s, %s, %s, %s, %s) RETURNING id",
                 (conversation_id, role, content, route, citations_json),
             )
-            msg_id = int(cur.lastrowid or 0)
+            msg_id = int(cur.fetchone()["id"])
         # Auto-title the conversation on the first user message.
         if role == "user":
             title = content[:50].strip()
@@ -136,27 +136,33 @@ class MemoryStore:
         conversation_id: int,
         limit: int | None = None,
     ) -> list[dict]:
-        sql = (
-            "SELECT id, conversation_id, role, content, route, "
-            "       citations_json, created_at "
-            "FROM messages "
-            "WHERE conversation_id = ? "
-            "ORDER BY created_at ASC, id ASC"
-        )
-        params: tuple[Any, ...] = (conversation_id,)
         if limit is not None:
             # Fetch the LAST N then return in chronological order.
             sql = (
                 "SELECT * FROM ("
-                + sql.replace(
-                    "ORDER BY created_at ASC, id ASC",
-                    "ORDER BY created_at DESC, id DESC LIMIT ?",
-                )
-                + ") ORDER BY created_at ASC, id ASC"
+                "  SELECT id, conversation_id, role, content, route, "
+                "         citations_json, created_at "
+                "  FROM messages "
+                "  WHERE conversation_id = %s "
+                "  ORDER BY created_at DESC, id DESC "
+                "  LIMIT %s"
+                ") sub "
+                "ORDER BY created_at ASC, id ASC"
             )
-            params = (conversation_id, limit)
+            params: tuple[Any, ...] = (conversation_id, limit)
+        else:
+            sql = (
+                "SELECT id, conversation_id, role, content, route, "
+                "       citations_json, created_at "
+                "FROM messages "
+                "WHERE conversation_id = %s "
+                "ORDER BY created_at ASC, id ASC"
+            )
+            params = (conversation_id,)
         with self._connect() as conn:
-            rows = conn.execute(sql, params).fetchall()
+            cur = conn.cursor()
+            cur.execute(sql, params)
+            rows = cur.fetchall()
         return [self._row_to_message(r) for r in rows]
 
     def get_messages_with_summary(
@@ -205,15 +211,17 @@ class MemoryStore:
             "       m.citations_json, m.created_at, c.title "
             "FROM messages m "
             "JOIN conversations c ON c.id = m.conversation_id "
-            "WHERE c.user_id = ? AND m.role = 'user' "
-            "ORDER BY m.created_at DESC, m.id DESC LIMIT ?"
+            "WHERE c.user_id = %s AND m.role = 'user' "
+            "ORDER BY m.created_at DESC, m.id DESC LIMIT %s"
         )
         with self._connect() as conn:
-            rows = conn.execute(sql, (user_id, limit)).fetchall()
+            cur = conn.cursor()
+            cur.execute(sql, (user_id, limit))
+            rows = cur.fetchall()
         return [self._row_to_message(r) for r in rows]
 
     @staticmethod
-    def _row_to_message(row: sqlite3.Row) -> dict:
+    def _row_to_message(row: dict) -> dict:
         d = dict(row)
         if d.get("citations_json"):
             try:

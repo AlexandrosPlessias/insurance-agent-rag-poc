@@ -26,8 +26,8 @@ from agentic_backend.observability.tracing import annotate_request_span
 log = get_logger(__name__)
 router = APIRouter(prefix="/plans", tags=["plans"])
 
-_approval_store = ApprovalStore(settings.audit_sqlite_path)
-_audit_store = AuditStore(settings.audit_sqlite_path)
+_approval_store = ApprovalStore(settings.database_url)
+_audit_store = AuditStore(settings.database_url)
 
 
 class ApproveRequest(BaseModel):

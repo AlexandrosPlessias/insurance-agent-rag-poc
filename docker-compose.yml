@@ -28,7 +28,6 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - sqlite_data:/app/data
       - ./src/data:/app/data/kb:ro
       - ./src/data/reports:/app/data/reports
     healthcheck:
@@ -38,6 +37,8 @@ services:
       retries: 5
       start_period: 20s
     depends_on:
+      postgres:
+        condition: service_healthy
       agentic-service:
         condition: service_healthy
       voice-service:
@@ -58,13 +59,15 @@ services:
     volumes:
       - ./src/voice/piper_voices:/app/voice/piper_voices:ro
       - ~/.cache/huggingface:/root/.cache/huggingface
-      - sqlite_data:/app/data
     healthcheck:
       test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8001/health', timeout=3)"]
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   # ── Agentic service ──────────────────────────────────────────────────────────
   agentic-service:
@@ -75,7 +78,6 @@ services:
     ports:
       - "8002:8002"
     volumes:
-      - sqlite_data:/app/data
       - ./src/data/reports:/app/data/reports
     healthcheck:
       test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8002/health', timeout=3)"]
@@ -84,6 +86,8 @@ services:
       retries: 5
       start_period: 30s
     depends_on:
+      postgres:
+        condition: service_healthy
       rag-service:
         condition: service_healthy
       ollama-pull:
@@ -104,6 +108,8 @@ services:
       retries: 5
       start_period: 20s
     depends_on:
+      postgres:
+        condition: service_healthy
       chromadb:
         condition: service_healthy
 
@@ -124,8 +130,31 @@ services:
       retries: 5
       start_period: 20s
     depends_on:
+      postgres:
+        condition: service_healthy
       rag-service:
         condition: service_healthy
+
+  # ── PostgreSQL ───────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: poc
+      POSTGRES_USER: ${POSTGRES_USER:-poc}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-poc}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./src/scripts/sql/init_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "poc", "-d", "poc"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - poc-net
 
   # ── ChromaDB ─────────────────────────────────────────────────────────────────
   chromadb:
@@ -242,7 +271,7 @@ services:
       - poc-net
 
 volumes:
-  sqlite_data:      # shared SQLite files (memory.sqlite + audit.sqlite)
+  pg_data:          # PostgreSQL data (conversations, audit, plans)
   chroma_data:      # ChromaDB vector store
   portainer_data:   # Portainer config
   ollama_data:      # Ollama models (persists across restarts — pulled once by ollama-pull)

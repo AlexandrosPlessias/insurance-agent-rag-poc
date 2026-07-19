@@ -34,14 +34,15 @@ class Settings(BaseSettings):
     planner_model: str = "qwen2.5:3b"
     embed_model: str = "nomic-embed-text"
 
+    # --- PostgreSQL ---
+    # In practice always set via DATABASE_URL in src/.env (gitignored).
+    # The bare default below is a last-resort fallback — it matches docker-compose.yml's
+    # ${POSTGRES_USER:-poc} / ${POSTGRES_PASSWORD:-poc} substitution defaults only,
+    # not the credentials configured in your actual .env.
+    database_url: str = "postgresql://poc:poc@postgres:5432/poc"
+
     # --- Storage paths ---
     chroma_collection: str = "policies"
-    sqlite_path: Path = POC_ROOT / "data" / "memory.sqlite"
-    # Separate SQLite file so business memory
-    # (memory.sqlite) and audit telemetry don't share a transaction
-    # boundary, and the compliance team can copy/rotate this file
-    # without touching conversation history.
-    audit_sqlite_path: Path = POC_ROOT / "data" / "audit.sqlite"
 
     # --- Knowledge ingestion ---
     # data/knowledge_base/raw       <- source PDFs
@@ -138,8 +139,6 @@ class Settings(BaseSettings):
         return self
 
     @field_validator(
-        "sqlite_path",
-        "audit_sqlite_path",
         "raw_pdf_dir",
         "processed_dir",
         "metadata_dir",
