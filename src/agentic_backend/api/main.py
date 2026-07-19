@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from agentic_backend.api.routes import (
     admin,
-    audio,
+    audio_proxy,
     chat,
     conversations,
     feedback,
@@ -48,10 +48,6 @@ async def _lifespan(app: FastAPI):
 
 app = FastAPI(title="Insurance Assistant PoC", version="0.5.0", lifespan=_lifespan)
 
-# Initialise OTel (no-op if OTEL_ENABLED=false). Must run before the
-# routers see traffic so FastAPIInstrumentor can wrap the app.
-setup_otel(app=app, service_suffix="api")
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -60,7 +56,7 @@ app.add_middleware(
 )
 
 app.include_router(health.router)
-app.include_router(audio.router)
+app.include_router(audio_proxy.router)
 app.include_router(chat.router)
 app.include_router(conversations.router)
 app.include_router(ingest.router)
@@ -70,11 +66,16 @@ app.include_router(feedback.router)
 app.include_router(plans.router)
 app.include_router(admin.router)
 
+# Initialise OTel after middleware + routers so FastAPIInstrumentor wraps
+# the fully-built middleware stack and all route spans are captured.
+setup_otel(app=app, service_suffix="api-gateway")
+
 log.info(
-    "FastAPI ready - model=%s embed=%s chroma=%s sqlite=%s otel=%s",
+    "FastAPI ready - model=%s embed=%s chroma=%s:%s sqlite=%s otel=%s",
     settings.llm_model,
     settings.embed_model,
-    settings.chroma_persist_dir,
+    settings.chroma_host,
+    settings.chroma_port,
     settings.sqlite_path,
     settings.otel_enabled,
 )
