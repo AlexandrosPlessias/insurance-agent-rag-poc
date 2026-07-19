@@ -313,6 +313,28 @@ def _otel_pipeline_snapshot(label: str) -> None:
         _log.warning("[otel-debug %s] snapshot failed: %s", label, exc)
 
 
+def _patch_otel_detach() -> None:
+    """Suppress the cross-thread contextvars ValueError from OTel detach.
+
+    FastAPI streaming responses iterate sync generators across multiple
+    anyio threadpool threads. Each thread gets its own Context copy, so a
+    token created in Thread A cannot be reset in Thread B — OTel raises a
+    ValueError deep inside the FastAPI middleware cleanup. This patch makes
+    detach() a no-op on ValueError instead of propagating the traceback.
+    """
+    import opentelemetry.context as _ctx_mod
+
+    _orig_detach = _ctx_mod.detach
+
+    def _safe_detach(token: object) -> None:
+        try:
+            _orig_detach(token)
+        except ValueError:
+            pass
+
+    _ctx_mod.detach = _safe_detach
+
+
 def setup_otel(
     app: Any | None = None,
     service_suffix: str | None = None,
@@ -334,6 +356,8 @@ def setup_otel(
             settings.otel_endpoint,
         )
         return
+
+    _patch_otel_detach()
 
     try:
         resource = _resource(service_suffix)
