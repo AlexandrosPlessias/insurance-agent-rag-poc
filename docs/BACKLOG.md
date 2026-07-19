@@ -148,6 +148,33 @@ production deployment and horizontal scale.
 
 ---
 
+## Phase 14c — SQLite → PostgreSQL migration 📋
+
+**Goal:** Replace the shared-volume SQLite workaround (introduced in Phase 14a) with a
+proper multi-writer PostgreSQL instance so all pods can write to memory and audit tables
+concurrently without lock contention.
+
+**Prerequisite:** Phase 14a stable in Docker Compose with smoke tests passing.
+
+| Deliverable | Detail |
+|---|---|
+| `alembic/` at repo root | Initial migration mirroring the existing SQLite schema for `conversations`, `messages`, `audit_events`, `plans` tables |
+| `src/agentic_backend/config.py` | Add `database_url: str` field; default `sqlite+aiosqlite:///./data/memory.sqlite` for local dev |
+| `src/agentic_backend/memory/store.py` | Use `settings.database_url` instead of hardcoded path |
+| `src/agentic_backend/audit/store.py` | Same swap |
+| `docker-compose.yml` | Replace `sqlite_data` named volume with `postgres:16-alpine` service + `pg_data` volume |
+| `src/requirements.txt` | Add `alembic>=1.13.0`, `asyncpg>=0.29.0` |
+| Remove single-writer constraint | All pods write to Postgres directly; api-gateway no longer the sole DB writer |
+
+**Verification:**
+- `docker compose exec postgres psql -U poc -c '\dt'` — all tables present
+- `alembic upgrade head` runs cleanly on a fresh Postgres instance
+- `python src/scripts/smoke_test.py` — full chat flow; `audit_events` written to Postgres
+
+**Effort estimate:** M
+
+---
+
 ## Phase 15 — Cross-conversation planning 📋
 
 **Goal:** Lift Plans from per-turn artefacts to first-class memory objects that persist across

@@ -100,12 +100,10 @@ insurance-agent-rag-poc/
     │   ├── src/                    # components, hooks, pages, API client
     │   └── dist/                   # production build (gitignored; served by FastAPI StaticFiles)
     │
-    ├── scripts/                    # WSL2 CLI helpers
-    │   ├── setup_wsl.sh            # one-shot bootstrap
-    │   ├── run_all.sh              # Aspire + API + React dev server in one terminal
-    │   ├── run_observability.sh    # Aspire Dashboard via Docker
-    │   ├── run_api.sh              # individual API launcher
-    │   ├── ingest_pdfs.py          # PDF → ChromaDB pipeline
+    ├── scripts/                    # CLI helpers
+    │   ├── setup_wsl.sh            # WSL2 Docker bootstrap
+    │   ├── setup_macos.sh          # macOS Docker bootstrap
+    │   ├── ingest_pdfs.py          # manual PDF → ChromaDB trigger
     │   ├── reset_stores.py         # wipe ChromaDB + SQLite
     │   └── smoke_test.py           # end-to-end verification
     │
@@ -134,7 +132,7 @@ Phases 1–12 are implemented. Phases 13–15 are designed but not yet built.
 | **11** ✅ | Agentic multi-intent stack + thumbs feedback — Planner · Orchestrator · Workers · Skills · Tools DAG replacing the Phase 1–10 supervisor→single-worker routing; `POST /feedback`; `plan_id` threaded end-to-end | [src/agentic_backend/agents/planner_agent.py](src/agentic_backend/agents/planner_agent.py) · [src/agentic_backend/graph/orchestrator.py](src/agentic_backend/graph/orchestrator.py) · [src/agentic_backend/skills/](src/agentic_backend/skills/) · [src/agentic_backend/tools/](src/agentic_backend/tools/) · [src/agentic_backend/api/routes/feedback.py](src/agentic_backend/api/routes/feedback.py). Details: [Phase 11](#phase-11--agentic-multi-intent-architecture--feedback-) |
 | **12** ✅ | Human-in-the-Loop approval gates + Telegram channel — suspendable Plans, per-Step approval gates, HMAC-signed callback tokens, `ApprovalChannel` interface (Telegram · Slack · Teams pluggable) | [src/agentic_backend/approvals/](src/agentic_backend/approvals/) · [src/agentic_backend/api/routes/plans.py](src/agentic_backend/api/routes/plans.py). Details: [Phase 12](#phase-12--human-in-the-loop--telegram-channel-) |
 | **13** ✅ | Multi-modal voice — local faster-whisper STT + Piper TTS as transport-layer bookends; EN/EL bilingual; React mic button + AudioPlayer; `AUDIT_RETAIN_AUDIO`; OTel spans `tool.speech_to_text` / `tool.text_to_speech`; WER correction metric | [src/agentic_backend/voice/](src/agentic_backend/voice/) · [src/agentic_backend/api/routes/audio.py](src/agentic_backend/api/routes/audio.py) · [src/frontend/src/components/VoiceInput.tsx](src/frontend/src/components/VoiceInput.tsx). Details: [Phase 13](#phase-13--multi-modal-voice-) |
-| **14** 📋 | Container orchestration & microservices — decompose monolith into 6 independent pods (frontend, api-gateway, voice, agentic, rag, ingestion); SQLite → Postgres; ChromaDB embedded → server mode; Docker Compose + Portainer CE (14a) → Kubernetes + Helm + Headlamp (14b) | [docs/BACKLOG.md](docs/BACKLOG.md#phase-14-proposed--container-orchestration--microservices) |
+| **14** ✅ | Container orchestration & microservices — decompose monolith into 6 independent pods (frontend, api-gateway, voice, agentic, rag, ingestion); SQLite shared volume + WAL (14a/14b); ChromaDB embedded → server mode; Docker Compose + Portainer CE (14a) → Kubernetes + Helm + Headlamp (14b); SQLite → Postgres (14c) | [docker-compose.yml](docker-compose.yml) · [docs/architecture/container-orchestration.md](docs/architecture/container-orchestration.md) |
 
 ### Nice-to-have (not on the roadmap)
 
@@ -190,7 +188,7 @@ What's instrumented:
 - **OTLP logs** — Python `logging` records flow to Aspire alongside the existing stderr handler, with `trace_id`/`span_id` enrichment.
 - **OTLP metrics** — `rag_poc.node.invocations`, `rag_poc.node.duration` (histogram per node), `rag_poc.validator.outcomes{result=pass\|fail}`, `rag_poc.rag.chunks_retrieved`.
 
-Backend: **Aspire Dashboard** as a single Docker container from `mcr.microsoft.com/dotnet/aspire-dashboard:9.0`. OTLP gRPC on `localhost:4317`, web UI on `http://localhost:18888`. Start it with `bash src/scripts/run_observability.sh` (or just `run_all.sh`). `run_all.sh` recycles the container on every invocation so each run starts with empty telemetry.
+Backend: **Aspire Dashboard** runs as the `aspire` container in Docker Compose (`mcr.microsoft.com/dotnet/aspire-dashboard:9.0`). OTLP gRPC on `aspire:18889` (internal), web UI on `http://localhost:18888`. Starts automatically with `docker compose up` — no separate step needed. Health routes (`/health`, `/health/services`) are excluded from OTel to reduce noise.
 
 ### Phase 7 — Year-aware RAG, Clarifier, Audit trail ✅
 
@@ -397,27 +395,38 @@ Phase 13 adds **audio in and audio out** as first-class modalities. Customers in
 - **WER correction metric.** Frontend detects when a user edits a voice-filled transcript before sending. `POST /audio/correction` computes Word Error Rate and Character Error Rate via Levenshtein and logs a `voice.correction` audit event — a passive quality signal requiring no extra user action.
 - **Out of scope.** Image/vision inputs (no phase yet) · voice cloning · real-time bidirectional voice · STT streaming before transcription completes.
 
-### Phase 14 — Container orchestration & microservices 📋
+### Phase 14 — Container orchestration & microservices ✅
 
 Phase 14 breaks the single FastAPI process into independently deployable service pods, adds
 a shared infrastructure tier, and introduces a management platform for operating the running
-stack.
+stack. No new product features — pure infrastructure and packaging.
 
-- **Service decomposition.** Six application pods — `frontend` (Nginx), `api-gateway`,
+- **Service decomposition.** Six application pods — `frontend` (nginx:alpine), `api-gateway`,
   `voice-service` (STT + TTS), `agentic-service` (LangGraph), `rag-service` (ChromaDB retrieval),
-  `ingestion-service` (PDF pipeline) — plus shared infrastructure: `chromadb` server, `postgres`,
-  `ollama`, `aspire`.
-- **Phase 14a — Docker Compose.** One `Dockerfile` per service; `docker-compose.yml` replaces
-  `run_all.sh`. Management UI: **Portainer CE** (container list, logs, restart, image pull).
+  `ingestion-service` (PDF pipeline) — plus shared infrastructure: `chromadb` server, `ollama`,
+  `aspire`, **Portainer CE** (Phase 14a).
+- **Phase 14a — Docker Compose.** One `Dockerfile` per service in `docker/`; `docker-compose.yml`
+  at repo root. Docker Compose is the **only** runtime — no native Python venv or Ollama install
+  needed. Ollama is fully containerized with a named `ollama_data` volume and an `ollama-pull`
+  one-shot init container that downloads models on first run. macOS overlay via
+  `docker-compose.override.macos.yml` (adds `platform: linux/arm64` for Apple Silicon).
 - **Phase 14b — Kubernetes + Helm.** `Deployment` + `Service` per pod, `values.yaml`-driven
-  config. Management UI: **Headlamp** (rolling updates, log streaming, pod restart) +
+  config, HPA on `api-gateway` and `voice-service`. Management: **Headlamp** (`:4466`) +
   **k9s** (terminal) + **Stern** (multi-pod log aggregation).
-- **Key migrations.** SQLite → Postgres (memory + audit multi-pod compatible); ChromaDB
-  embedded → server mode (one-line client change); model files as Docker volumes.
-- **React SPA Services tab.** Lightweight health summary inside the existing UI — HTTP `/health`
-  poll of each service; complements Portainer/Headlamp without requiring a container API.
+- **SQLite shared volume (14a/14b).** Both `memory.sqlite` and `audit.sqlite` on a named Docker
+  volume `sqlite_data`. WAL mode enabled at every connection. All writes route through
+  `api-gateway`. Zero Python changes required.
+- **Phase 14c — SQLite → Postgres** (separate backlog phase). Add `postgres:16-alpine` + Alembic
+  migrations; remove single-writer constraint. See [docs/BACKLOG.md](docs/BACKLOG.md).
+- **Key migrations.** ChromaDB embedded → server mode (`settings.chroma_host` toggle, one-line
+  change); model files as bind mounts (`~/.ollama`, `~/.cache/huggingface`, `piper_voices`).
+- **SSE streaming preserved.** `proxy_buffering off` in nginx.conf; `httpx.AsyncClient.stream()`
+  + FastAPI `StreamingResponse` in `gateway_client.py` — token-by-token streaming through nginx.
+- **React SPA Services tab.** Polls `GET /health/services` every 10 s; api-gateway fans out to
+  all pods via `gateway_client.all_service_health()`. No Portainer/Docker socket needed.
 - **Out of scope.** Horizontal scaling of agentic-service (LangGraph state is in-process;
   needs Redis-backed state store) · GPU scheduling in Kubernetes · CI/CD image pipeline.
+- **Architecture reference.** [`docs/architecture/container-orchestration.md`](docs/architecture/container-orchestration.md)
 
 ### Phase 15 — Cross-conversation planning 📋
 

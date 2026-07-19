@@ -225,3 +225,11 @@ export async function reportVoiceCorrection(
     body: JSON.stringify({ original, corrected, language }),
   }).catch(() => {});
 }
+
+export async function getServicesHealth(): Promise<
+  Array<{ name: string; status: string; latency_ms: number }>
+> {
+  const r = await fetch(`${BASE}/health/services`);
+  if (!r.ok) return [];
+  return r.json() as Promise<Array<{ name: string; status: string; latency_ms: number }>>;
+}

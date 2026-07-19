@@ -1,0 +1,9 @@
+# voice-service — STT + TTS (Phase 13)
+-r base.txt
+
+# faster-whisper: CTranslate2-backed Whisper, no compilation required, int8 CPU
+faster-whisper>=1.0.0
+# piper-tts: local neural TTS, pip-installable, no compilation required
+piper-tts>=1.2.0
+# OTel LangChain instrumentation (shared with other services via tracing.py)
+openinference-instrumentation-langchain>=0.1.30

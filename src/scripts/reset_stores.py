@@ -1,15 +1,15 @@
-"""Wipe local ChromaDB, memory SQLite, and Phase 7 audit SQLite.
+"""Wipe ChromaDB collection, memory SQLite, and Phase 7 audit SQLite.
 
-Raw PDFs in data/knowledge_base/raw/ are kept. Use --keep-audit to
-preserve the audit trail across resets (useful when iterating on
-retrieval while keeping the compliance log intact).
+ChromaDB runs in server mode (Docker) — the collection is deleted via the
+HTTP API. Raw PDFs in data/knowledge_base/raw/ are kept. Use --keep-audit to
+preserve the audit trail across resets (useful when iterating on retrieval
+while keeping the compliance log intact).
 
-Run from poc/:
+Run from inside the docker compose network or with ChromaDB port exposed:
   python scripts/reset_stores.py               # wipe chroma + memory + audit
   python scripts/reset_stores.py --keep-audit  # keep audit.sqlite
 """
 import argparse
-import shutil
 import sys
 from pathlib import Path
 
@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from agentic_backend.config import settings  # noqa: E402
 from agentic_backend.observability.logging import configure_logging, get_logger  # noqa: E402
+from agentic_backend.rag.vectorstore import reset_collection  # noqa: E402
 
 configure_logging()
 log = get_logger("reset_stores")
@@ -39,11 +40,11 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    if settings.chroma_persist_dir.exists():
-        log.info("Removing %s", settings.chroma_persist_dir)
-        shutil.rmtree(settings.chroma_persist_dir)
-    else:
-        log.info("ChromaDB dir not present: %s", settings.chroma_persist_dir)
+    log.info("Resetting ChromaDB collection via %s:%s", settings.chroma_host, settings.chroma_port)
+    try:
+        reset_collection()
+    except Exception as exc:
+        log.warning("ChromaDB reset failed (server may be down): %s", exc)
 
     _unlink(settings.sqlite_path, "memory SQLite")
 

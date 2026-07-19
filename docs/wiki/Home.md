@@ -73,28 +73,32 @@ Diagrams: [`docs/architecture/high_level_architecture.png`](../architecture/high
 
 ## ⚙️ Setup
 
-1. **WSL2 Ubuntu 22.04+** with Docker (Desktop or `docker.io`).
-2. Clone the repo and run the bootstrap (installs Python deps, Ollama, models,
-   Docker if missing, and pre-pulls the Aspire image):
+**Prerequisites:** Docker Desktop (WSL2 integration enabled on Windows), 16 GB RAM, 15 GB free disk.
 
+1. Clone the repo:
    ```bash
-   bash src/scripts/setup_wsl.sh
+   git clone <repo-url> && cd insurance-agent-rag-poc
    ```
-3. Copy the env template:
-
+2. Copy the env template and fill in secrets:
    ```bash
    cp src/.env.example src/.env
+   # edit src/.env — add APPROVAL_HMAC_SECRET and optionally TELEGRAM_BOT_TOKEN
    ```
-4. Activate the venv and run the full stack in one terminal:
-
+3. Start the full stack (first run downloads ~7 GB of models and indexes PDFs):
    ```bash
-   cd src && source .venv/bin/activate
-   bash scripts/run_all.sh
+   docker compose up --build
+   ```
+   **macOS (Apple Silicon):**
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.override.macos.yml up --build
    ```
 
-   - React SPA → http://localhost:5173
-   - API → http://localhost:8000
-   - Aspire dashboard → http://localhost:18888
+   | Service | URL |
+   |---|---|
+   | React SPA | http://localhost:5173 |
+   | API gateway | http://localhost:8000 |
+   | Aspire (OTel) | http://localhost:18888 |
+   | Portainer | http://localhost:9000 |
 
 Full details + troubleshooting: [`SETUP.md`](../../SETUP.md).
 
@@ -140,7 +144,7 @@ Full guide: [`USAGE.md`](../../USAGE.md).
 | **11 — Agentic multi-intent (+ feedback)** | ✅ | **Planner · Orchestrator · Workers · Tools · Skills** stack — uniform pipeline, structured outputs, `plan_id` on every turn, thumbs-feedback, `decline` Skill for out-of-scope refusals. See [`docs/architecture/agentic-pipeline.md`](../architecture/agentic-pipeline.md). |
 | **12 — Human-in-the-Loop & Telegram channel** | ✅ | Suspendable Plans · HMAC-signed approval gates between Steps · Telegram bot (Slack / Teams pluggable) · `plans` table · drill-down chips on data turns · React UX redesign |
 | **13 — Multi-modal voice** | ✅ | faster-whisper STT + Piper TTS · EN/EL bilingual · React mic + AudioPlayer · `AUDIT_RETAIN_AUDIO` · OTel spans · WER correction metric. See [Voice-Integration.md](Voice-Integration.md). |
-| **14 — Container orchestration** | 📋 planned | Decompose monolith into pods · Docker Compose + Portainer CE (14a) · Kubernetes + Helm + Headlamp (14b) · SQLite → Postgres · ChromaDB server mode |
+| **14 — Container orchestration** | ✅ | Decompose monolith into 6 pods · Docker Compose + Portainer CE (14a) · Kubernetes + Helm + Headlamp (14b) · SQLite shared volume + WAL (14a/14b) · SQLite → Postgres (14c) · ChromaDB server mode. See [Container-Orchestration.md](Container-Orchestration.md). |
 | **15 — Cross-conversation planning** | 📋 planned | Plans become first-class memory · resume-tokens · multi-user participants · Skill schema migration |
 | **16 — Recursive Skill composition** | 📋 planned | Skills can emit sub-Plans · `max_recursion_depth` · cycle detection · nested OTel span tree |
 
@@ -167,6 +171,7 @@ Detailed per-phase write-ups live in the main [`README.md`](../../README.md). Th
 | [`architecture/design-rationale.md`](../architecture/design-rationale.md) | Why six separate nodes — design intent, MUST/MUST-NOT contracts |
 | [`architecture/ingestion.md`](../architecture/ingestion.md) | Phase 6 ingestion + chunking design + tuning |
 | [`architecture/voice-integration.md`](../architecture/voice-integration.md) | ✅ **Phase 13** — STT/TTS transport layer · API routes · OTel spans · WER metric · config reference |
+| [`architecture/container-orchestration.md`](../architecture/container-orchestration.md) | ✅ **Phase 14** — service map · Docker Compose · Kubernetes + Helm · SQLite shared volume · SSE streaming · macOS overlay |
 | [`architecture/agentic-pipeline.md § 10`](../architecture/agentic-pipeline.md#10--legacy-phase-110-contracts) | Phase 1–10 per-node MUST/MUST-NOT contracts |
 
 #### Strategic vision

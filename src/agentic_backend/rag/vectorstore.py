@@ -1,6 +1,7 @@
 """ChromaDB initialisation, persistence, and collection helpers."""
 import time
 
+import chromadb
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 
@@ -14,11 +15,14 @@ tracer = get_tracer(__name__)
 
 
 def get_vectorstore() -> Chroma:
-    settings.chroma_persist_dir.mkdir(parents=True, exist_ok=True)
+    http_client = chromadb.HttpClient(
+        host=settings.chroma_host,
+        port=settings.chroma_port,
+    )
     return Chroma(
+        client=http_client,
         collection_name=settings.chroma_collection,
         embedding_function=get_embeddings(),
-        persist_directory=str(settings.chroma_persist_dir),
     )
 
 
@@ -39,6 +43,22 @@ def add_documents(documents: list[Document]) -> int:
             elapsed,
         )
         return len(documents)
+
+
+def get_chunk_count() -> int:
+    """Return the number of chunks in the collection without loading embeddings.
+
+    Returns 0 if the collection does not yet exist.
+    """
+    http_client = chromadb.HttpClient(
+        host=settings.chroma_host,
+        port=settings.chroma_port,
+    )
+    try:
+        collection = http_client.get_collection(settings.chroma_collection)
+        return collection.count()
+    except Exception:
+        return 0
 
 
 def reset_collection() -> None:

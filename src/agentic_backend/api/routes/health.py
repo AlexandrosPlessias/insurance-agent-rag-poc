@@ -2,6 +2,7 @@
 import httpx
 from fastapi import APIRouter
 
+from agentic_backend.api.gateway_client import all_service_health
 from agentic_backend.api.schemas import HealthResponse
 from agentic_backend.config import settings
 
@@ -23,3 +24,14 @@ def health() -> HealthResponse:
         otel_ui_url=settings.otel_ui_url,
         voice_enabled=settings.voice_enabled,
     )
+
+
+@router.get("/health/services")
+async def services_health() -> list[dict]:
+    """Fan out health probes to all downstream pods (Phase 14).
+
+    Returns a list of {name, status, latency_ms} dicts — one per service.
+    Used by the React SPA Services panel to show per-pod health without
+    requiring direct access to Portainer or the Docker socket.
+    """
+    return await all_service_health()
