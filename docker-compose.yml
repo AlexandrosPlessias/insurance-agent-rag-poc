@@ -139,17 +139,17 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    env_file:
+      - src/.env          # provides POSTGRES_USER and POSTGRES_PASSWORD
     environment:
-      POSTGRES_DB: poc
-      POSTGRES_USER: ${POSTGRES_USER:-poc}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-poc}
+      POSTGRES_DB: poc    # database name is fixed; user/password come from env_file
     ports:
       - "5432:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
       - ./src/scripts/sql/init_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "poc", "-d", "poc"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d poc"]
       interval: 10s
       timeout: 5s
       retries: 5
