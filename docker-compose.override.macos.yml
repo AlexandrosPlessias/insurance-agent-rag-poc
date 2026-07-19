@@ -32,5 +32,7 @@ services:
     platform: linux/arm64
   aspire:
     platform: linux/arm64
+  postgres:
+    platform: linux/arm64
   portainer:
     platform: linux/arm64

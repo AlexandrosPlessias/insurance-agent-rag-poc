@@ -57,7 +57,7 @@ Planner · Orchestrator · Workers · Skills · Tools — every turn is a small 
 
 ### 3. 🌐 Enterprise System Integration (designed-for)
 *   **Document management** — secure PDF upload → vector pipeline.
-*   **Multi-user memory** — every turn keyed by `user_id`, persisted in SQLite across sessions.
+*   **Multi-user memory** — every turn keyed by `user_id`, persisted in PostgreSQL across sessions.
 
 ### 4. ⚙️ LLM Deployment, Fine-Tuning & Cost Optimization
 *   **Local inference** — Ollama serves `qwen2.5:7b` quantised. No per-token cost.
@@ -87,7 +87,7 @@ insurance-agent-rag-poc/
     │   ├── tools/                  # Atomic tool registry + 5 tools (Phase 11)
     │   ├── rag/                    # PDF loader, chunker, vector store, retriever
     │   ├── data/                   # KPI dataset loader, Operation schema, pandas executor (Phase 8)
-    │   ├── memory/                 # SQLite episodic memory (Phase 4)
+    │   ├── memory/                 # PostgreSQL episodic memory (Phase 4)
     │   ├── reporting/              # Markdown + chart + executive annual report (Phase 3/9)
     │   ├── audit/                  # Audit-event store + middleware (Phase 7)
     │   ├── llm/                    # Ollama clients + prompt templates
@@ -104,10 +104,10 @@ insurance-agent-rag-poc/
     │   ├── setup_wsl.sh            # WSL2 Docker bootstrap
     │   ├── setup_macos.sh          # macOS Docker bootstrap
     │   ├── ingest_pdfs.py          # manual PDF → ChromaDB trigger
-    │   ├── reset_stores.py         # wipe ChromaDB + SQLite
+    │   ├── reset_stores.py         # wipe ChromaDB
     │   └── smoke_test.py           # end-to-end verification
     │
-    ├── data/                       # gitignored — PDFs, chroma_db, memory.sqlite
+    ├── data/                       # gitignored — PDFs, chroma_data
     └── tests/                      # unit + integration tests
 ```
 
@@ -122,17 +122,17 @@ Phases 1–12 are implemented. Phases 13–15 are designed but not yet built.
 | **1** ✅ | Basic RAG + streaming + citations | [src/agentic_backend/rag/](src/agentic_backend/rag/), [src/agentic_backend/agents/rag_agent.py](src/agentic_backend/agents/rag_agent.py) |
 | **2** ✅ | LangGraph supervisor + validator with retry loop | [src/agentic_backend/graph/](src/agentic_backend/graph/), [src/agentic_backend/agents/validator_agent.py](src/agentic_backend/agents/validator_agent.py) |
 | **3** ✅ | Reporting autonomy (Markdown + embedded charts) | [src/agentic_backend/reporting/](src/agentic_backend/reporting/), [src/agentic_backend/agents/report_agent.py](src/agentic_backend/agents/report_agent.py) |
-| **4** ✅ | SQLite long-term memory + per-user conversations | [src/agentic_backend/memory/](src/agentic_backend/memory/), [src/agentic_backend/agents/memory_agent.py](src/agentic_backend/agents/memory_agent.py) |
+| **4** ✅ | PostgreSQL long-term memory + per-user conversations | [src/agentic_backend/memory/](src/agentic_backend/memory/), [src/agentic_backend/agents/memory_agent.py](src/agentic_backend/agents/memory_agent.py) |
 | **5** ✅ | OpenTelemetry traces + logs + metrics (Aspire Dashboard) | [src/agentic_backend/observability/](src/agentic_backend/observability/), [src/scripts/run_observability.sh](src/scripts/run_observability.sh) |
 | **6** ✅ | Per-document ingestion pipeline: PDF → Markdown → metadata sidecar → ChromaDB. Same flow used by the batch script and the `POST /ingest` endpoint for UI uploads | [src/agentic_backend/ingestion/](src/agentic_backend/ingestion/), [src/data/knowledge_base/](src/data/knowledge_base/) |
-| **7** ✅ | Year-aware retrieval (KB covers 2020/2021/2022/2024 — 2023 gap), today-aware reasoning, out-of-year fallback, clarifier node, audit-trail SQLite DB | [src/agentic_backend/graph/clarifier.py](src/agentic_backend/graph/clarifier.py), [src/agentic_backend/audit/](src/agentic_backend/audit/), retriever `where_filter`. Details: [Phase 7](#phase-7--year-aware-rag-clarifier-audit-trail-) |
+| **7** ✅ | Year-aware retrieval (KB covers 2020/2021/2022/2024 — 2023 gap), today-aware reasoning, out-of-year fallback, clarifier node, audit-trail PostgreSQL DB | [src/agentic_backend/graph/clarifier.py](src/agentic_backend/graph/clarifier.py), [src/agentic_backend/audit/](src/agentic_backend/audit/), retriever `where_filter`. Details: [Phase 7](#phase-7--year-aware-rag-clarifier-audit-trail-) |
 | **8** ✅ | Talk-to-Data agent over `insurance_kpis_2020_2024.csv` (year / period / channel / product line × 14 KPIs) — natural-language quantitative analysis with drill-down follow-ups and verifiable typed Operation JSON | [src/agentic_backend/agents/data_agent.py](src/agentic_backend/agents/data_agent.py), [src/agentic_backend/data/](src/agentic_backend/data/). Details: [Phase 8](#phase-8--talk-to-data-agent-) |
 | **9** ✅ | Executive annual report for a selected year — section-by-section pipeline (collector → narrator → assemble) over the Phase 8 KPI data + Phase 1 RAG chunks. Deterministic risk-flag thresholds (no LLM-decided severity), reproducibility hash, three writers (Markdown · DOCX · PDF) | [src/agentic_backend/reporting/executive/](src/agentic_backend/reporting/executive/) · [src/agentic_backend/reporting/writers/](src/agentic_backend/reporting/writers/) · [src/agentic_backend/api/routes/reports.py](src/agentic_backend/api/routes/reports.py). Details: [Phase 9](#phase-9--executive-annual-report-) |
 | **10** ✅ | PoC stakeholder deck — Markdown source of truth ([docs/presentation/deck.md](docs/presentation/deck.md)) + python-pptx builder that embeds live-app screenshots from `docs/screens/`. Renders TODO placeholders for shots not yet captured so the deck always builds. 14 slides covering problem framing, capability tour, observability, retrospective | [src/scripts/build_pptx.py](src/scripts/build_pptx.py) · [docs/presentation/](docs/presentation/). Details: [Phase 10](#phase-10--poc-presentation-deck-) |
 | **11** ✅ | Agentic multi-intent stack + thumbs feedback — Planner · Orchestrator · Workers · Skills · Tools DAG replacing the Phase 1–10 supervisor→single-worker routing; `POST /feedback`; `plan_id` threaded end-to-end | [src/agentic_backend/agents/planner_agent.py](src/agentic_backend/agents/planner_agent.py) · [src/agentic_backend/graph/orchestrator.py](src/agentic_backend/graph/orchestrator.py) · [src/agentic_backend/skills/](src/agentic_backend/skills/) · [src/agentic_backend/tools/](src/agentic_backend/tools/) · [src/agentic_backend/api/routes/feedback.py](src/agentic_backend/api/routes/feedback.py). Details: [Phase 11](#phase-11--agentic-multi-intent-architecture--feedback-) |
 | **12** ✅ | Human-in-the-Loop approval gates + Telegram channel — suspendable Plans, per-Step approval gates, HMAC-signed callback tokens, `ApprovalChannel` interface (Telegram · Slack · Teams pluggable) | [src/agentic_backend/approvals/](src/agentic_backend/approvals/) · [src/agentic_backend/api/routes/plans.py](src/agentic_backend/api/routes/plans.py). Details: [Phase 12](#phase-12--human-in-the-loop--telegram-channel-) |
 | **13** ✅ | Multi-modal voice — local faster-whisper STT + Piper TTS as transport-layer bookends; EN/EL bilingual; React mic button + AudioPlayer; `AUDIT_RETAIN_AUDIO`; OTel spans `tool.speech_to_text` / `tool.text_to_speech`; WER correction metric | [src/agentic_backend/voice/](src/agentic_backend/voice/) · [src/agentic_backend/api/routes/audio.py](src/agentic_backend/api/routes/audio.py) · [src/frontend/src/components/VoiceInput.tsx](src/frontend/src/components/VoiceInput.tsx). Details: [Phase 13](#phase-13--multi-modal-voice-) |
-| **14** ✅ | Container orchestration & microservices — decompose monolith into 6 independent pods (frontend, api-gateway, voice, agentic, rag, ingestion); SQLite shared volume + WAL (14a/14b); ChromaDB embedded → server mode; Docker Compose + Portainer CE (14a) → Kubernetes + Helm + Headlamp (14b); SQLite → Postgres (14c) | [docker-compose.yml](docker-compose.yml) · [docs/architecture/container-orchestration.md](docs/architecture/container-orchestration.md) |
+| **14** ✅ | Container orchestration & microservices — decompose monolith into 6 independent pods (frontend, api-gateway, voice, agentic, rag, ingestion); PostgreSQL (psycopg2, port 5432, DBeaver-ready); ChromaDB server mode; Docker Compose + Portainer CE | [docker-compose.yml](docker-compose.yml) · [docs/architecture/container-orchestration.md](docs/architecture/container-orchestration.md) |
 
 ### Nice-to-have (not on the roadmap)
 
@@ -151,7 +151,7 @@ Compiled `StateGraph` ([src/agentic_backend/graph/builder.py](src/agentic_backen
 Adds a third route `report`. The report agent retrieves with `k=10`, asks the LLM to extract structured fields (policy, coverage, premium, claims, exclusions) as JSON, renders a Markdown report including a matplotlib bar chart (lump-sum vs installment total) embedded inline as a base64 PNG. Reports bypass the validator. The UI stepper adapts: `Supervisor → Report` for reports, `Supervisor → RAG → Validator` for rag, `Supervisor` only for declines.
 
 ### Phase 4 — Long-Term Memory
-SQLite (`conversations`, `messages`) at `src/data/memory.sqlite` via [src/agentic_backend/memory/store.py](src/agentic_backend/memory/store.py). Every `/chat` and `/chat/stream` turn is persisted, keyed by `user_id` and `conversation_id`. RAG prepends the last 3 turns to its prompt so follow-ups stay coherent. The report agent reads the user's last 10 cross-conversation messages and renders a **User Activity** section at the top of the report. The React sidebar lists conversations with auto-generated titles; clicking a past conversation replays it from SQLite.
+PostgreSQL (`conversations`, `messages`) via [src/agentic_backend/memory/store.py](src/agentic_backend/memory/store.py). Every `/chat` and `/chat/stream` turn is persisted, keyed by `user_id` and `conversation_id`. RAG prepends the last 3 turns to its prompt so follow-ups stay coherent. The report agent reads the user's last 10 cross-conversation messages. The React sidebar lists conversations; clicking a past conversation replays it from PostgreSQL.
 
 ### Phase 5 — Observability (Aspire Dashboard)
 OTel SDK wired into both the API and the UI ([src/agentic_backend/observability/tracing.py](src/agentic_backend/observability/tracing.py)). **Enabled by default** — `setup_otel()` TCP-probes `OTEL_ENDPOINT` at startup and self-disables (one-line warning) when Aspire isn't running.
@@ -179,7 +179,7 @@ Tuning knobs (single env var change in `src/.env`):
 Symptoms → action:
 - "Answers miss details I know are in the doc" → chunks may be too small; bump to 1500 / 250.
 - "Answers wander, include unrelated facts" → chunks may be too large; drop to 900 / 150.
-- After changing, always **reset + re-ingest**: `python scripts/reset_stores.py && python scripts/ingest_pdfs.py`.
+- After changing, always **reset + re-ingest**: `python scripts/reset_stores.py` (ChromaDB only) + `docker compose exec postgres psql -U poc -d poc < src/scripts/sql/reset_stores.sql`, then `python scripts/ingest_pdfs.py`.
 
 What's instrumented:
 - **Auto-instrumentation** of FastAPI and httpx — a request from the React SPA → API → graph nodes shows up as a single connected trace.
@@ -200,7 +200,7 @@ Folds three closely-related concerns into the existing graph: temporal awareness
 - **Out-of-year fallback.** KB covers **2020 / 2021 / 2022 / 2024** — the **2023 gap** is explicit. When the requested year is outside the covered set the agent declines without retrieving and offers the nearest covered years ("I have 2022 and 2024 — which one applies?").
 - **Clarifier node `clarifier.ask`.** Fourth supervisor route `needs_clarification`. Triggers: no year mentioned and history doesn't resolve one · the relevant clause differs materially across years · the year is outside the covered set. Emits one targeted question and ends the turn; the next user message re-enters the supervisor.
 - **Worked example (the user's question).** *"A customer requests a refund for a product purchased 10 days ago, no receipt but shows a bank transaction. Based on the 2020 policy, what should I do?"* → supervisor extracts `target_year=2020`, `purchase_date=2026-05-22` → retriever runs with `{"year": 2020}` → validator checks no other-year content leaked in.
-- **Audit trail.** New SQLite database `audit.sqlite` (separate file from `memory.sqlite` so business memory and audit telemetry don't share a transaction boundary). Schema:
+- **Audit trail.** PostgreSQL `audit_events` table. Schema:
     ```sql
     CREATE TABLE audit_events (
       id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -219,7 +219,7 @@ Folds three closely-related concerns into the existing graph: temporal awareness
     - `clarifier.ask` → `{"reason": "year_missing", "question": "Which policy year — 2022 or 2024?"}`
     - `validator.judge` → `{"grounded": true, "citations_ok": true, "retry_count": 0}`
 - **Trace correlation.** Every audit row carries the current OTel `trace_id`, so an Aspire span is one click away from its audit record and vice versa.
-- **Files (new / changed).** `src/agentic_backend/graph/clarifier.py` (new) · `src/agentic_backend/graph/state.py` (+`today`, `target_year`, `clarifier_reason`) · `src/agentic_backend/graph/supervisor.py` (new routes) · `src/agentic_backend/llm/prompts/supervisor.txt` (inject `today` + covered-years list) · `src/agentic_backend/rag/retriever.py` (accept `where_filter`) · `src/agentic_backend/audit/` (new package: `store.py`, `events.py`, `middleware.py`) · `src/scripts/audit_export.py` (new — CSV dump for compliance review).
+- **Files (new / changed).** `src/agentic_backend/graph/clarifier.py` (new) · `src/agentic_backend/graph/state.py` (+`today`, `target_year`, `clarifier_reason`) · `src/agentic_backend/graph/supervisor.py` (new routes) · `src/agentic_backend/llm/prompts/supervisor.txt` (inject `today` + covered-years list) · `src/agentic_backend/rag/retriever.py` (accept `where_filter`) · `src/agentic_backend/audit/` (new package: `store.py`, `events.py`, `middleware.py`).
 - **Out of scope.** UI for the audit log (CSV export is enough for the PoC) · cross-year reformulation (Phase 8/9 concern) · backfilling audit rows for already-stored conversations.
 
 ### Phase 8 — Talk-to-Data agent ✅
@@ -410,22 +410,22 @@ stack. No new product features — pure infrastructure and packaging.
   needed. Ollama is fully containerized with a named `ollama_data` volume and an `ollama-pull`
   one-shot init container that downloads models on first run. macOS overlay via
   `docker-compose.override.macos.yml` (adds `platform: linux/arm64` for Apple Silicon).
-- **Phase 14b — Kubernetes + Helm.** `Deployment` + `Service` per pod, `values.yaml`-driven
-  config, HPA on `api-gateway` and `voice-service`. Management: **Headlamp** (`:4466`) +
-  **k9s** (terminal) + **Stern** (multi-pod log aggregation).
-- **SQLite shared volume (14a/14b).** Both `memory.sqlite` and `audit.sqlite` on a named Docker
-  volume `sqlite_data`. WAL mode enabled at every connection. All writes route through
-  `api-gateway`. Zero Python changes required.
-- **Phase 14c — SQLite → Postgres** (separate backlog phase). Add `postgres:16-alpine` + Alembic
-  migrations; remove single-writer constraint. See [docs/BACKLOG.md](docs/BACKLOG.md).
+- **Phase 14b — Kubernetes + Helm** _(nice-to-have future enhancement)._ Helm chart skeleton
+  drafted; not pursued — Docker Compose fully meets PoC needs. See [BACKLOG](docs/BACKLOG.md).
+- **PostgreSQL (Phase 14c).** `memory`, `audit`, and `approval` stores all connect to a
+  `postgres:16-alpine` container via psycopg2. Schema is created on first boot via
+  `src/scripts/sql/init_schema.sql` (mounted as postgres init script). Port 5432 is
+  exposed on the host for DBeaver / TablePlus / psql. Ad-hoc queries live in
+  `src/scripts/sql/` — run them with:
+  `docker compose exec postgres psql -U poc -d poc -f /dev/stdin < src/scripts/sql/audit_events.sql`
 - **Key migrations.** ChromaDB embedded → server mode (`settings.chroma_host` toggle, one-line
   change); model files as bind mounts (`~/.ollama`, `~/.cache/huggingface`, `piper_voices`).
 - **SSE streaming preserved.** `proxy_buffering off` in nginx.conf; `httpx.AsyncClient.stream()`
   + FastAPI `StreamingResponse` in `gateway_client.py` — token-by-token streaming through nginx.
 - **React SPA Services tab.** Polls `GET /health/services` every 10 s; api-gateway fans out to
   all pods via `gateway_client.all_service_health()`. No Portainer/Docker socket needed.
-- **Out of scope.** Horizontal scaling of agentic-service (LangGraph state is in-process;
-  needs Redis-backed state store) · GPU scheduling in Kubernetes · CI/CD image pipeline.
+- **Out of scope / nice-to-have.** Kubernetes + Helm (14b) · horizontal scaling of
+  agentic-service (needs Redis-backed state store) · GPU scheduling · CI/CD image pipeline.
 - **Architecture reference.** [`docs/architecture/container-orchestration.md`](docs/architecture/container-orchestration.md)
 
 ### Phase 15 — Cross-conversation planning 📋

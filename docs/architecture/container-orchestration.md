@@ -90,13 +90,11 @@ There is no native dev mode. Docker Compose is the only supported runtime. All i
 URLs (Ollama, ChromaDB, inter-service) are baked into `config.py` defaults pointing at Docker
 service names (`http://ollama:11434`, `chromadb:8000`, etc.). `src/.env` carries secrets only.
 
-**SQLite shared volume (Phase 14a/14b)**
+**PostgreSQL (Phase 14c)**
 
-SQLite is kept as-is. Both `memory.sqlite` and `audit.sqlite` live on the `sqlite_data`
-named Docker volume so they persist across restarts. WAL mode is enabled at every connection
-(`PRAGMA journal_mode=WAL`) to allow concurrent reads from non-writer pods. All writes are
-routed exclusively through `api-gateway`. This is a pragmatic workaround — see Phase 14c for
-the full Postgres migration.
+`postgres:16-alpine` service in Docker Compose. Schema created on first boot via
+`src/scripts/sql/init_schema.sql`. Port 5432 exposed for DBeaver. All three stores
+(`MemoryStore`, `AuditStore`, `ApprovalStore`) use psycopg2 with connection-per-method.
 
 **ChromaDB server mode**
 
@@ -189,7 +187,7 @@ without requiring the Docker CLI.
 | Container stats | Containers → `<name>` → Stats | Live CPU, memory, network I/O, disk I/O charts |
 | Container exec | Containers → `<name>` → Console | Interactive shell inside a running container |
 | Image list | Images | Pulled images with sizes; use to spot bloat |
-| Volume list | Volumes | Named volumes (`sqlite_data`, `chroma_data`, `ollama_data`, etc.) |
+| Volume list | Volumes | Named volumes (`pg_data`, `chroma_data`, `ollama_data`, etc.) |
 | Network | Networks | `poc-net` bridge — shows which containers are connected |
 
 ### Operational tasks via Portainer
@@ -228,42 +226,52 @@ view: resource utilisation, raw logs, and the ability to restart containers.
 
 ---
 
-## Phase 14b — Kubernetes + Helm
+## Phase 14b — Kubernetes + Helm _(nice-to-have / future)_
 
-### Files
+Not pursued — Docker Compose fully covers PoC needs. Retained here as a reference spec if the
+project graduates to a production environment.
 
-```
-helm/
-  Chart.yaml
-  values.yaml              # default / dev values
-  values.prod.yaml         # production overrides
-  templates/
-    _helpers.tpl
-    configmap.yaml
-    <service>/deployment.yaml + service.yaml
-    voice-service/hpa.yaml
-    api-gateway/hpa.yaml
-    postgres/pvc.yaml + secret.yaml
-    chromadb/pvc.yaml
-    ollama/pvc.yaml
-```
-
-### Key design decisions
-
-- Each `Deployment` has `livenessProbe` + `readinessProbe` on `GET /health`
-- Resource requests/limits on every pod
+**Draft design:**
+- One `Deployment` + `Service` per pod; `values.yaml`-driven config, `values.prod.yaml` overrides
+- `livenessProbe` + `readinessProbe` on `GET /health` for every pod
+- Resource requests/limits on every container
 - HPA on `voice-service` and `api-gateway` (CPU threshold, min 1 / max 3 replicas)
-- `envFrom` referencing shared `ConfigMap` + per-service `Secret`
-- **Headlamp** — http://localhost:4466 (rolling updates, log streaming, pod restart)
-- Complement tools: **k9s** (terminal), **Stern** (multi-pod log aggregation)
+- `envFrom` referencing shared `ConfigMap` + per-service `Secret` for credentials
+- **Headlamp** (web UI) · **k9s** (terminal) · **Stern** (multi-pod log aggregation)
 
 ---
 
-## Phase 14c — SQLite → PostgreSQL (future)
+## Phase 14c — PostgreSQL (complete)
 
-See [`docs/BACKLOG.md` Phase 14c section](../BACKLOG.md) for the full migration plan.
-Short summary: swap `sqlite3` for SQLAlchemy async + `asyncpg`; add Alembic migrations;
-replace the `sqlite_data` named volume with a `postgres:16-alpine` service.
+SQLite replaced entirely with `postgres:16-alpine`. No fallback.
+
+**What changed:**
+- All three stores (`MemoryStore`, `AuditStore`, `ApprovalStore`) rewritten with `psycopg2`.
+- Schema initialised via `src/scripts/sql/init_schema.sql` (mounted as Docker init script — runs once on first volume creation).
+- `sqlite_data` volume removed; `pg_data` volume added.
+- Port `5432` exposed on the host for DBeaver / TablePlus / psql direct access.
+- `audit_export.py` and `view_feedback.py` replaced by SQL files in `src/scripts/sql/`.
+
+**Ad-hoc queries:**
+```bash
+# Recent audit events
+docker compose exec postgres psql -U poc -d poc -f /dev/stdin < src/scripts/sql/audit_events.sql
+
+# Feedback received
+docker compose exec postgres psql -U poc -d poc -f /dev/stdin < src/scripts/sql/feedback.sql
+
+# All conversations
+docker compose exec postgres psql -U poc -d poc -f /dev/stdin < src/scripts/sql/conversations.sql
+
+# Wipe all data (ChromaDB separately via reset_stores.py)
+docker compose exec postgres psql -U poc -d poc < src/scripts/sql/reset_stores.sql
+```
+
+**DBeaver / TablePlus / DataGrip:**
+```
+host: localhost   port: 5432   db: poc
+user/password: from src/.env (POSTGRES_USER / POSTGRES_PASSWORD)
+```
 
 ---
 

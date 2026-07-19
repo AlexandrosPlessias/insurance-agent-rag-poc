@@ -69,25 +69,16 @@ Open http://localhost:9000 after first launch. Portainer provides:
 
 ---
 
-## Phase 14b — Kubernetes + Helm
+## Phase 14b — Kubernetes + Helm _(nice-to-have / future)_
 
-```bash
-# Install the chart (dry-run first)
-helm install insurance-rag ./helm --dry-run
-helm install insurance-rag ./helm
+Not pursued — Docker Compose fully meets PoC and demo needs. Helm chart skeleton was drafted
+but not shipped. Potential future work if the PoC graduates to a production environment:
 
-# Check pod status
-kubectl get pods
+- One `Deployment` + `Service` per pod, `values.yaml`-driven config
+- HPA on `api-gateway` and `voice-service` (CPU threshold, min 1 / max 3 replicas)
+- Management: **Headlamp** (web UI) · **k9s** (terminal) · **Stern** (multi-pod logs)
 
-# Open Headlamp dashboard
-kubectl port-forward svc/headlamp 4466:80
-# → http://localhost:4466
-```
-
-**Management tools:**
-- **Headlamp** (`:4466`) — web UI: rolling updates, log tail, pod restart
-- **k9s** — terminal explorer (`k9s` in any terminal)
-- **Stern** — aggregated multi-pod logs (`stern insurance-rag`)
+See [BACKLOG.md](../BACKLOG.md) for the full spec.
 
 ---
 
@@ -129,13 +120,37 @@ Subsequent `docker compose up` runs skip the download entirely.
 
 ---
 
-## Phase 14c — SQLite → PostgreSQL (future)
+## Phase 14c — PostgreSQL (complete)
 
-Phase 14a/14b keep SQLite on a shared Docker volume (`sqlite_data`) with WAL mode enabled.
-Phase 14c replaces this with a proper `postgres:16-alpine` container and Alembic migrations
-so all pods can write to memory and audit tables concurrently.
+SQLite replaced entirely with `postgres:16-alpine`. No fallback.
 
-See [`docs/BACKLOG.md`](../BACKLOG.md) for the Phase 14c delivery plan.
+**What changed:**
+- All three stores (`MemoryStore`, `AuditStore`, `ApprovalStore`) rewritten with `psycopg2`.
+- Schema initialised via `src/scripts/sql/init_schema.sql` (mounted as Docker init script — runs once on first volume creation).
+- `sqlite_data` volume removed; `pg_data` volume added.
+- Port `5432` exposed on the host for DBeaver / TablePlus / psql direct access.
+- `audit_export.py` and `view_feedback.py` replaced by SQL files in `src/scripts/sql/`.
+
+**Ad-hoc queries:**
+```bash
+# Recent audit events
+docker compose exec postgres psql -U poc -d poc -f /dev/stdin < src/scripts/sql/audit_events.sql
+
+# Feedback received
+docker compose exec postgres psql -U poc -d poc -f /dev/stdin < src/scripts/sql/feedback.sql
+
+# All conversations
+docker compose exec postgres psql -U poc -d poc -f /dev/stdin < src/scripts/sql/conversations.sql
+
+# Wipe all data (ChromaDB separately via reset_stores.py)
+docker compose exec postgres psql -U poc -d poc < src/scripts/sql/reset_stores.sql
+```
+
+**DBeaver / TablePlus / DataGrip:**
+```
+host: localhost   port: 5432   db: poc
+user/password: from src/.env (POSTGRES_USER / POSTGRES_PASSWORD)
+```
 
 ---
 

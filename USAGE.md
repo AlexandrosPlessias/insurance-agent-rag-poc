@@ -193,17 +193,29 @@ docker compose exec ingestion-service python scripts/inspect_chroma.py --report
 
 ## 8. Resetting state
 
-### Wipe ChromaDB and SQLite stores
+### Wipe ChromaDB
 
 ```bash
-docker compose exec api-gateway python scripts/reset_stores.py
+docker compose exec ingestion-service python scripts/reset_stores.py
 ```
 
-This wipes ChromaDB and the SQLite memory and audit databases. The
-`ingestion-service` will re-index all PDFs automatically on the next restart:
+The `ingestion-service` will re-index all PDFs automatically on the next restart:
 
 ```bash
 docker compose restart ingestion-service
+```
+
+### Wipe the PostgreSQL database (conversations, audit, plans)
+
+```bash
+docker compose exec postgres psql -U poc -d poc < src/scripts/sql/reset_stores.sql
+```
+
+Or interactively:
+
+```bash
+docker compose exec postgres psql -U poc -d poc
+poc=# TRUNCATE conversations, messages, audit_events, plans, plan_approval_tokens RESTART IDENTITY CASCADE;
 ```
 
 ### Full volume reset (re-downloads models)
@@ -292,31 +304,31 @@ Aspire Structured Logs tab when OTel is enabled.
 
 ## 12. Feedback and audit
 
-All routing, retrieval, validation, and feedback events are written to a SQLite audit
-database inside the `api-gateway` container.
+All routing, retrieval, validation, and feedback events are written to the PostgreSQL
+`audit_events` table. Query it directly with psql or connect via DBeaver / TablePlus /
+DataGrip.
 
 ```bash
-# Export entire audit log to CSV:
-docker compose exec api-gateway python scripts/audit_export.py
+# Recent 50 audit events:
+docker compose exec postgres psql -U poc -d poc -f /dev/stdin < src/scripts/sql/audit_events.sql
 
-# Export one trace (copy trace_id from Aspire):
-docker compose exec api-gateway python scripts/audit_export.py --trace-id 8d2f...e1
+# Thumbs-up / thumbs-down feedback:
+docker compose exec postgres psql -U poc -d poc -f /dev/stdin < src/scripts/sql/feedback.sql
 
-# Custom output path:
-docker compose exec api-gateway python scripts/audit_export.py --out /tmp/q3_audit.csv
+# All conversations:
+docker compose exec postgres psql -U poc -d poc -f /dev/stdin < src/scripts/sql/conversations.sql
 
-# View thumbs-up / thumbs-down feedback summary:
-docker compose exec api-gateway python scripts/view_feedback.py
+# Messages for conversation 42:
+docker compose exec postgres psql -U poc -d poc -v conv_id=42 -f /dev/stdin < src/scripts/sql/messages.sql
 
-# Filter feedback by user:
-docker compose exec api-gateway python scripts/view_feedback.py --user alice
+# Connect with DBeaver / TablePlus / DataGrip:
+#   host: localhost  port: 5432  db: poc  user: poc  password: poc
 
-# Show last N entries:
-docker compose exec api-gateway python scripts/view_feedback.py --limit 20
+# Interactive psql shell:
+docker compose exec postgres psql -U poc -d poc
 ```
 
-The CSV keeps `payload_json` as a single column so Excel / PowerBI can ingest it without
-per-event schemas. The `trace_id` column links each audit row to its Aspire span.
+The `trace_id` column links each audit row to its Aspire span.
 
 ---
 

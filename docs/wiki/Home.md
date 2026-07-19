@@ -57,13 +57,13 @@ no document or customer detail ever leaves the workstation.
 
   Cross-cutting:
     • OpenTelemetry → Aspire Dashboard (Phase 5)
-    • SQLite audit trail + episodic memory (Phase 4 / 7)
+    • PostgreSQL audit trail + episodic memory (Phase 4 / 7)
     • Skills: agentic_backend/skills/  ·  Skill prompts: agentic_backend/llm/prompts/skills/
     • Tools: agentic_backend/tools/   ·  Feedback: POST /feedback
 ```
 
 **Tech stack.** Python 3.12 · LangGraph · FastAPI · React + Vite + TypeScript · Ollama
-(`qwen2.5:7b` + `qwen2.5:3b` planner + `nomic-embed-text`) · ChromaDB · SQLite · OpenTelemetry +
+(`qwen2.5:7b` + `qwen2.5:3b` planner + `nomic-embed-text`) · ChromaDB · PostgreSQL · OpenTelemetry +
 .NET Aspire Dashboard · python-pptx · python-docx · reportlab.
 
 Diagrams: [`docs/architecture/high_level_architecture.png`](../architecture/high_level_architecture.png) ·
@@ -134,17 +134,17 @@ Full guide: [`USAGE.md`](../../USAGE.md).
 | 1 — Basic RAG | ✅ | Vector retrieval + streaming + citations |
 | 2 — Supervisor + Validator | ✅ | LangGraph orchestration, 1-retry validator loop |
 | 3 — Report agent | ✅ | Markdown reports with embedded matplotlib charts |
-| 4 — Long-term memory | ✅ | SQLite-backed per-user conversation memory |
+| 4 — Long-term memory | ✅ | PostgreSQL-backed per-user conversation memory |
 | 5 — Observability | ✅ | OpenTelemetry → .NET Aspire Dashboard |
 | 6 — Ingestion pipeline | ✅ | PDF → Markdown → metadata sidecar → ChromaDB |
-| 7 — Year-aware RAG + clarifier + audit | ✅ | 2023-gap guard, today-aware reasoning, SQLite audit DB |
+| 7 — Year-aware RAG + clarifier + audit | ✅ | 2023-gap guard, today-aware reasoning, PostgreSQL audit DB |
 | 8 — Talk-to-Data agent | ✅ | Typed `Operation` JSON + pandas executor over a real KPI CSV |
 | 9 — Executive Annual Report | ✅ | Section pipeline · 3 writers (MD/DOCX/PDF) · deterministic risk bands |
 | 10 — Stakeholder deck | ✅ | `python-pptx` rendered from `deck.md`; LangGraph + Azure northstar slides |
 | **11 — Agentic multi-intent (+ feedback)** | ✅ | **Planner · Orchestrator · Workers · Tools · Skills** stack — uniform pipeline, structured outputs, `plan_id` on every turn, thumbs-feedback, `decline` Skill for out-of-scope refusals. See [`docs/architecture/agentic-pipeline.md`](../architecture/agentic-pipeline.md). |
 | **12 — Human-in-the-Loop & Telegram channel** | ✅ | Suspendable Plans · HMAC-signed approval gates between Steps · Telegram bot (Slack / Teams pluggable) · `plans` table · drill-down chips on data turns · React UX redesign |
 | **13 — Multi-modal voice** | ✅ | faster-whisper STT + Piper TTS · EN/EL bilingual · React mic + AudioPlayer · `AUDIT_RETAIN_AUDIO` · OTel spans · WER correction metric. See [Voice-Integration.md](Voice-Integration.md). |
-| **14 — Container orchestration** | ✅ | Decompose monolith into 6 pods · Docker Compose + Portainer CE (14a) · Kubernetes + Helm + Headlamp (14b) · SQLite shared volume + WAL (14a/14b) · SQLite → Postgres (14c) · ChromaDB server mode. See [Container-Orchestration.md](Container-Orchestration.md). |
+| **14 — Container orchestration** | ✅ | Decompose monolith into 6 pods · Docker Compose + Portainer CE (14a) · PostgreSQL psycopg2 + port 5432 DBeaver-ready (14c) · ChromaDB server mode. See [Container-Orchestration.md](Container-Orchestration.md). |
 | **15 — Cross-conversation planning** | 📋 planned | Plans become first-class memory · resume-tokens · multi-user participants · Skill schema migration |
 | **16 — Recursive Skill composition** | 📋 planned | Skills can emit sub-Plans · `max_recursion_depth` · cycle detection · nested OTel span tree |
 
@@ -171,7 +171,7 @@ Detailed per-phase write-ups live in the main [`README.md`](../../README.md). Th
 | [`architecture/design-rationale.md`](../architecture/design-rationale.md) | Why six separate nodes — design intent, MUST/MUST-NOT contracts |
 | [`architecture/ingestion.md`](../architecture/ingestion.md) | Phase 6 ingestion + chunking design + tuning |
 | [`architecture/voice-integration.md`](../architecture/voice-integration.md) | ✅ **Phase 13** — STT/TTS transport layer · API routes · OTel spans · WER metric · config reference |
-| [`architecture/container-orchestration.md`](../architecture/container-orchestration.md) | ✅ **Phase 14** — service map · Docker Compose · Kubernetes + Helm · SQLite shared volume · SSE streaming · macOS overlay |
+| [`architecture/container-orchestration.md`](../architecture/container-orchestration.md) | ✅ **Phase 14** — service map · Docker Compose · PostgreSQL · SSE streaming · macOS overlay · Kubernetes+Helm (future) |
 | [`architecture/agentic-pipeline.md § 10`](../architecture/agentic-pipeline.md#10--legacy-phase-110-contracts) | Phase 1–10 per-node MUST/MUST-NOT contracts |
 
 #### Strategic vision
@@ -192,7 +192,7 @@ Detailed per-phase write-ups live in the main [`README.md`](../../README.md). Th
 ## 🛡 Privacy posture
 
 - 100 % local inference (Ollama) + local vector store (ChromaDB) + local
-  SQLite (memory + audit).
+  PostgreSQL (memory + audit).
 - OpenTelemetry data stays inside the local Aspire container.
 - Source paths in tracked artefacts are **project-relative** — no machine,
   user, or employer folder leaks into commits.
