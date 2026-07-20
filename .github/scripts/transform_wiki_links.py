@@ -41,6 +41,7 @@ SUBSTITUTIONS: list[tuple[str, str]] = [
         r"\.\./architecture/container-orchestration\.md",
         f"{BLOB}/docs/architecture/container-orchestration.md",
     ),
+    (r"\.\./BACKLOG\.md", f"{BLOB}/docs/BACKLOG.md"),
     (
         r"\.\./insurance_rag_strategic_roadmap\.md",
         f"{BLOB}/docs/insurance_rag_strategic_roadmap.md",
