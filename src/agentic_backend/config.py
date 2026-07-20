@@ -27,22 +27,22 @@ class Settings(BaseSettings):
     )
 
     # --- Ollama ---
-    ollama_host: str = "http://localhost:11434"
+    ollama_host: str = "http://ollama:11434"
     llm_model: str = "qwen2.5:7b"
     # fast 3B model for the Planner — keeps planning latency
     # low; the heavier 7B is reserved for the actual workers.
     planner_model: str = "qwen2.5:3b"
     embed_model: str = "nomic-embed-text"
 
+    # --- PostgreSQL ---
+    # In practice always set via DATABASE_URL in src/.env (gitignored).
+    # The bare default below is a last-resort fallback — it matches docker-compose.yml's
+    # ${POSTGRES_USER:-poc} / ${POSTGRES_PASSWORD:-poc} substitution defaults only,
+    # not the credentials configured in your actual .env.
+    database_url: str = "postgresql://poc:poc@postgres:5432/poc"
+
     # --- Storage paths ---
-    chroma_persist_dir: Path = POC_ROOT / "data" / "chroma_db"
     chroma_collection: str = "policies"
-    sqlite_path: Path = POC_ROOT / "data" / "memory.sqlite"
-    # Separate SQLite file so business memory
-    # (memory.sqlite) and audit telemetry don't share a transaction
-    # boundary, and the compliance team can copy/rotate this file
-    # without touching conversation history.
-    audit_sqlite_path: Path = POC_ROOT / "data" / "audit.sqlite"
 
     # --- Knowledge ingestion ---
     # data/knowledge_base/raw       <- source PDFs
@@ -98,8 +98,19 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
 
+    # --- Container orchestration (Phase 14) ---
+    chroma_host: str = "chromadb"
+    chroma_port: int = 8000   # internal Docker port; host-side is mapped to 8005
+    agentic_service_url: str = "http://agentic-service:8002"
+    rag_service_url: str = "http://rag-service:8003"
+    voice_service_url: str = "http://voice-service:8001"
+    ingestion_service_url: str = "http://ingestion-service:8004"
+    # Set to true to force a full ChromaDB wipe + re-ingest on next startup.
+    # Reset to false (or remove) after the re-index completes.
+    force_reingest: bool = False
+
     # --- Voice I/O (Phase 13) ---
-    voice_enabled: bool = False
+    voice_enabled: bool = True
     voice_stt_model: str = "medium"
     voice_tts_voice: str = "en_US-lessac-medium"
     voice_tts_voice_el: str = "el_GR-rapunzelina-low"
@@ -114,7 +125,7 @@ class Settings(BaseSettings):
     # Default ON. setup_otel() probes the endpoint at startup and
     # self-disables (logs a warning) if Aspire isn't reachable.
     otel_enabled: bool = True
-    otel_endpoint: str = "http://localhost:4317"
+    otel_endpoint: str = "http://aspire:18889"
     otel_service_name: str = "rag-poc"
     otel_ui_url: str = "http://localhost:18888"
 
@@ -128,9 +139,6 @@ class Settings(BaseSettings):
         return self
 
     @field_validator(
-        "chroma_persist_dir",
-        "sqlite_path",
-        "audit_sqlite_path",
         "raw_pdf_dir",
         "processed_dir",
         "metadata_dir",

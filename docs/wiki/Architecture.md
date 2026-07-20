@@ -17,7 +17,7 @@ insurance-agent-rag-poc/
 │   │   ├── graph/            # LangGraph builder, orchestrator, state, streaming
 │   │   ├── ingestion/        # PDF → Markdown → ChromaDB pipeline
 │   │   ├── llm/              # Ollama client, prompt loader, Skills/Tools prompts
-│   │   ├── memory/           # SQLite conversations + summarizer
+│   │   ├── memory/           # PostgreSQL conversations
 │   │   ├── observability/    # OTel logging + tracing helpers
 │   │   ├── skills/           # Skill registry + auto-discovery
 │   │   ├── tools/            # Tool registry + atomic tool implementations
@@ -101,7 +101,7 @@ OTel span + one audit row per call:
 | `kpi_query` | Filter + aggregate the KPI CSV via pandas |
 | `knowledge_base_lookup` | Fetch a specific processed Markdown doc by source key |
 | `clarifier_check` | Emit a clarifying question as a StepResult |
-| `audit_write` | Persist an arbitrary event to the SQLite audit trail |
+| `audit_write` | Persist an arbitrary event to the PostgreSQL audit trail |
 
 ---
 
@@ -121,7 +121,7 @@ Diagram + edge reference: [`architecture/GRAPH.md`](../architecture/GRAPH.md)
 Long-running Plans (e.g. the executive annual report) can be paused between Steps
 pending a human sign-off. The approval flow:
 
-1. Orchestrator suspends the Plan and writes a row to the `plans` SQLite table.
+1. Orchestrator suspends the Plan and writes a row to the `plans` PostgreSQL table.
 2. A Telegram message (or stub webhook) is sent with a signed approval URL.
 3. The reviewer clicks **Approve** / **Reject** — the URL carries an HMAC-signed token.
 4. The backend verifies the token, updates `plan_status`, and resumes the Plan.
@@ -181,7 +181,7 @@ LangGraph runtime
   │   └─ kpi_query → pandas (in-process)
   └─ Assembler → merge
   │
-  ├─ audit_write → SQLite (audit.db)
+  ├─ audit_write → PostgreSQL (audit_events)
   ├─ OTel spans → OTLP → .NET Aspire Dashboard (:18888)
-  └─ memory → SQLite (memory.db)
+  └─ memory → PostgreSQL (conversations, messages)
 ```

@@ -1,0 +1,285 @@
+x-python-service: &python-service
+  restart: unless-stopped
+  env_file:
+    - src/.env
+  networks:
+    - poc-net
+
+services:
+
+  # ── Frontend ────────────────────────────────────────────────────────────────
+  frontend:
+    <<: *python-service
+    build:
+      context: .
+      dockerfile: docker/frontend/Dockerfile
+    ports:
+      - "5173:80"
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+
+  # ── API Gateway ─────────────────────────────────────────────────────────────
+  api-gateway:
+    <<: *python-service
+    build:
+      context: .
+      dockerfile: docker/api-gateway/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./src/data:/app/data/kb:ro
+      - ./src/data/reports:/app/data/reports
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      agentic-service:
+        condition: service_healthy
+      voice-service:
+        condition: service_healthy
+      ingestion-service:
+        condition: service_healthy
+      ollama-pull:
+        condition: service_completed_successfully
+
+  # ── Voice service ────────────────────────────────────────────────────────────
+  voice-service:
+    <<: *python-service
+    build:
+      context: .
+      dockerfile: docker/voice-service/Dockerfile
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./src/voice/piper_voices:/app/voice/piper_voices:ro
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8001/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ── Agentic service ──────────────────────────────────────────────────────────
+  agentic-service:
+    <<: *python-service
+    build:
+      context: .
+      dockerfile: docker/agentic-service/Dockerfile
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./src/data/reports:/app/data/reports
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8002/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rag-service:
+        condition: service_healthy
+      ollama-pull:
+        condition: service_completed_successfully
+
+  # ── RAG service ──────────────────────────────────────────────────────────────
+  rag-service:
+    <<: *python-service
+    build:
+      context: .
+      dockerfile: docker/rag-service/Dockerfile
+    ports:
+      - "8003:8003"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8003/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      chromadb:
+        condition: service_healthy
+
+  # ── Ingestion service ────────────────────────────────────────────────────────
+  ingestion-service:
+    <<: *python-service
+    build:
+      context: .
+      dockerfile: docker/ingestion-service/Dockerfile
+    ports:
+      - "8004:8004"
+    volumes:
+      - ./src/data/knowledge_base:/app/data/knowledge_base
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8004/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rag-service:
+        condition: service_healthy
+
+  # ── PostgreSQL ───────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file:
+      - src/.env          # provides POSTGRES_USER and POSTGRES_PASSWORD
+    environment:
+      POSTGRES_DB: poc    # database name is fixed; user/password come from env_file
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./src/scripts/sql/init_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d poc"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - poc-net
+
+  # ── ChromaDB ─────────────────────────────────────────────────────────────────
+  chromadb:
+    image: chromadb/chroma@sha256:1e0b73a187a28757c572acba508c46f48c9e8b0acaf5c20e6d95cdedce1acdf6
+    restart: unless-stopped
+    environment:
+      IS_PERSISTENT: "TRUE"
+      PERSIST_DIRECTORY: /chroma/chroma
+      ANONYMIZED_TELEMETRY: "FALSE"
+    ports:
+      - "8005:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    healthcheck:
+      test: ["CMD", "/usr/bin/bash", "-c", "exec 3<>/dev/tcp/localhost/8000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - poc-net
+
+  # ── Ollama ───────────────────────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:0.9.0
+    restart: unless-stopped
+    # Port 11434 is not exposed on the host — only the internal poc-net
+    # services need it (via http://ollama:11434). Remove host binding to
+    # avoid conflicts with a native Ollama process on the host.
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+    networks:
+      - poc-net
+
+  # ── Ollama model pull (runs once, exits 0 when all models are ready) ─────────
+  ollama-pull:
+    image: ollama/ollama:0.9.0
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Waiting for Ollama..."
+        until ollama list >/dev/null 2>&1; do sleep 2; done
+        echo "Pulling models..."
+        ollama pull qwen2.5:7b
+        ollama pull qwen2.5:3b
+        ollama pull nomic-embed-text
+        echo "All models ready."
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    depends_on:
+      ollama:
+        condition: service_healthy
+    networks:
+      - poc-net
+
+  # ── Aspire Dashboard (OTel) ──────────────────────────────────────────────────
+  aspire:
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:9.0
+    restart: unless-stopped
+    ports:
+      - "18888:18888"
+      - "4317:18889"
+    environment:
+      DOTNET_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS: "true"
+    networks:
+      - poc-net
+
+  # ── Aspire telemetry clear (one-shot; runs on every 'docker compose up') ─────
+  # Aspire stores all telemetry in-memory. Restarting it gives a clean slate on
+  # every stack start. Uses the Docker socket (same trust level as Portainer).
+  aspire-clear:
+    image: docker:27-cli
+    restart: "no"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Waiting for Aspire to initialise..."
+        sleep 15
+        id=$$(docker ps -q --filter "label=com.docker.compose.service=aspire")
+        if [ -n "$$id" ]; then
+          echo "Clearing Aspire telemetry — restarting $$id"
+          docker restart "$$id"
+          echo "Aspire restarted. Traces cleared."
+        else
+          echo "Aspire container not running — skipping."
+        fi
+    depends_on:
+      aspire:
+        condition: service_started
+    networks:
+      - poc-net
+
+  # ── Portainer CE (container management UI) ───────────────────────────────────
+  portainer:
+    image: portainer/portainer-ce:2.27.4
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    networks:
+      - poc-net
+
+volumes:
+  pg_data:          # PostgreSQL data (conversations, audit, plans)
+  chroma_data:      # ChromaDB vector store
+  portainer_data:   # Portainer config
+  ollama_data:      # Ollama models (persists across restarts — pulled once by ollama-pull)
+
+networks:
+  poc-net:
+    driver: bridge

@@ -1,220 +1,86 @@
 #!/usr/bin/env bash
-# One-shot WSL2 Ubuntu bootstrap for the insurance-agent-rag-poc PoC.
-# Run from anywhere:  bash poc/scripts/setup_wsl.sh
+# WSL2 Ubuntu bootstrap for the insurance-agent-rag-poc PoC.
+# Run from anywhere:  bash src/scripts/setup_wsl.sh
 #
-# Skip the Aspire Docker image pre-pull with:
-#   SKIP_OBSERVABILITY=true bash poc/scripts/setup_wsl.sh
-# Skip voice model downloads (Piper TTS + faster-whisper STT) with:
-#   SKIP_VOICE=true bash poc/scripts/setup_wsl.sh
+# All services run in Docker Compose — no Python venv or native Ollama required.
+# Prerequisites: Docker Desktop for Windows with WSL2 integration enabled.
 set -euo pipefail
 
-# Resolve the script's directory as an absolute path BEFORE cd-ing away.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# Always operate from src/ regardless of where the script is invoked.
-cd "$SCRIPT_DIR/.."
+echo "============================================================"
+echo "  Insurance Agent PoC — WSL2 bootstrap"
+echo "============================================================"
+echo
 
-PYTHON_BIN="${PYTHON_BIN:-python3}"
-VENV_DIR="${VENV_DIR:-.venv}"
-SKIP_OBSERVABILITY="${SKIP_OBSERVABILITY:-false}"
-SKIP_FRONTEND="${SKIP_FRONTEND:-false}"
-SKIP_PLAYWRIGHT="${SKIP_PLAYWRIGHT:-false}"
-SKIP_VOICE="${SKIP_VOICE:-false}"
-ASPIRE_IMAGE="${ASPIRE_IMAGE:-mcr.microsoft.com/dotnet/aspire-dashboard:9.0}"
+# ── 0. NVIDIA Container Toolkit (optional — only needed for GPU inference) ────
+# If you have an NVIDIA GPU and want Ollama to use it (highly recommended),
+# run these commands once before starting the stack:
+#
+#   curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+#     | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+#   curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+#     | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
+#     | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+#   sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
+#   sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+#   # Then restart Docker Desktop from the Windows system tray.
+#   # Verify with: docker run --rm --gpus all ubuntu nvidia-smi
+#
+# The docker-compose.yml already has `deploy.resources.reservations.devices`
+# on the ollama service — no further changes needed once the toolkit is installed.
 
-# shellcheck source=scripts/nvm_env.sh
-source "$SCRIPT_DIR/nvm_env.sh"
-
-echo "[1/9] Installing system packages..."
-sudo apt-get update
-sudo apt-get install -y \
-  python3 python3-venv python3-dev \
-  build-essential curl git zstd \
-  sqlite3
-# sqlite3 CLI is a debug convenience for the Phase 7 audit DB
-# (poc/data/audit.sqlite). The app itself only uses Python's
-# stdlib sqlite3 module - this is just so `sqlite3 audit.sqlite`
-# in USAGE.md doesn't error out for first-time users.
-
-# Require Python 3.11+ (Ubuntu 22.04 ships 3.10 -- install 3.11 via deadsnakes
-# PPA if needed; Ubuntu 24.04 ships 3.12).
-"$PYTHON_BIN" -c "import sys; assert sys.version_info >= (3, 11), \
-  f'Python 3.11+ required, found {sys.version.split()[0]}'"
-echo "Using $($PYTHON_BIN --version)"
-
-echo "[2/9] Creating Python venv at $VENV_DIR..."
-$PYTHON_BIN -m venv "$VENV_DIR"
-# shellcheck disable=SC1091
-source "$VENV_DIR/bin/activate"
-
-echo "[3/9] Installing Python deps (incl. OpenTelemetry SDK + instrumentations)..."
-pip install --upgrade pip wheel
-pip install -r requirements.txt
-
-echo "[4/9] Installing Node.js via nvm..."
-# install_and_load_nvm installs nvm (pinned) if missing, then loads it into this
-# shell. We pin the LTS so every dev gets the same Node regardless of the Windows
-# Node that WSL leaks into PATH.
-install_and_load_nvm
-nvm install --lts
-nvm alias default 'lts/*'
-load_nvm
-echo "  Using Node $(node -v) at $(command -v node)"
-
-echo "[5/9] Installing frontend deps + Playwright browser..."
-if [ "$SKIP_FRONTEND" = "true" ]; then
-  echo "  Skipped (SKIP_FRONTEND=true)."
-else
-  (
-    cd frontend
-    npm install
-    if [ "$SKIP_PLAYWRIGHT" = "true" ]; then
-      echo "  Skipping Playwright browser (SKIP_PLAYWRIGHT=true)."
-    else
-      # Chromium download lands in the user cache (~/.cache/ms-playwright); the
-      # system libs it links against need root, so we preserve PATH into sudo.
-      npx playwright install chromium
-      sudo env "PATH=$PATH" npx playwright install-deps chromium \
-        || echo "  WARN: playwright install-deps failed — screenshots may not run." >&2
-    fi
-  )
+# ── 1. Verify Docker is reachable ────────────────────────────────
+echo "[1/3] Checking Docker..."
+if ! command -v docker >/dev/null 2>&1; then
+  echo "ERROR: 'docker' not found." >&2
+  echo "  Install Docker Desktop for Windows and enable WSL2 integration:" >&2
+  echo "  Settings → Resources → WSL Integration → turn on for this distro" >&2
+  exit 1
 fi
-
-echo "[6/9] Installing Ollama..."
-if ! command -v ollama >/dev/null 2>&1; then
-  curl -fsSL https://ollama.com/install.sh | sh
+if ! docker info >/dev/null 2>&1; then
+  echo "ERROR: Docker daemon is not reachable." >&2
+  echo "  Open Docker Desktop on Windows and wait for the whale icon to settle." >&2
+  exit 1
 fi
+echo "  Docker $(docker --version | awk '{print $3}' | tr -d ',') — daemon reachable."
 
-echo "[7/9] Pulling local models (this can take a while)..."
-ollama pull qwen2.5:7b
-ollama pull qwen2.5:3b
-ollama pull nomic-embed-text
-
-echo "[8/9] Installing Docker (for the Phase 5 Aspire observability backend)..."
-if [ "$SKIP_OBSERVABILITY" = "true" ]; then
-  echo "  Skipped (SKIP_OBSERVABILITY=true). Install later with:"
-  echo "    sudo apt-get install -y docker.io"
-elif command -v docker >/dev/null 2>&1; then
-  echo "  Docker CLI already present ($(docker --version 2>/dev/null \
-    | head -1))."
-  if docker info >/dev/null 2>&1; then
-    echo "  Daemon is reachable - nothing to do."
+# ── 2. Verify src/.env exists ─────────────────────────────────────
+echo "[2/3] Checking src/.env..."
+ENV_FILE="$REPO_ROOT/src/.env"
+EXAMPLE_FILE="$REPO_ROOT/src/.env.example"
+if [ ! -f "$ENV_FILE" ]; then
+  if [ -f "$EXAMPLE_FILE" ]; then
+    cp "$EXAMPLE_FILE" "$ENV_FILE"
+    echo "  Created src/.env from src/.env.example."
+    echo "  IMPORTANT: Edit src/.env and set APPROVAL_HMAC_SECRET before starting."
+    echo "    Generate one with:  python3 -c \"import secrets; print(secrets.token_hex(32))\""
   else
-    echo "  Daemon NOT reachable. If you're on Windows with Docker"
-    echo "  Desktop, open it and wait for the whale icon to settle."
-    echo "  On native Linux/WSL:  sudo systemctl start docker"
+    echo "ERROR: src/.env not found and no .env.example to copy from." >&2
+    exit 1
   fi
 else
-  # Detect WSL vs native Linux. On WSL we still install docker.io
-  # (works fine; some users prefer it over Docker Desktop), but flag
-  # the alternative.
-  IS_WSL=false
-  if grep -qiE '(microsoft|wsl)' /proc/version 2>/dev/null; then
-    IS_WSL=true
-  fi
-  if [ "$IS_WSL" = "true" ]; then
-    echo "  WSL detected. Installing docker.io (apt). If you'd rather"
-    echo "  use Docker Desktop on Windows with WSL integration, abort"
-    echo "  now (Ctrl+C), install Docker Desktop, then rerun this script."
-  else
-    echo "  Native Linux detected. Installing docker.io (apt)."
-  fi
-  sudo apt-get install -y docker.io
-  # Add the current user to the 'docker' group so future invocations
-  # don't need sudo. Takes effect after a fresh login / `newgrp docker`.
-  if ! id -nG "$USER" | grep -qw docker; then
-    sudo usermod -aG docker "$USER"
-    echo "  Added $USER to the 'docker' group. Run 'newgrp docker' (or"
-    echo "  log out and back in) so 'docker' works without sudo."
-  fi
-  # Start the daemon if it isn't already up.
-  if ! sudo service docker status >/dev/null 2>&1; then
-    sudo service docker start || true
-  fi
-  if docker info >/dev/null 2>&1 \
-     || sudo docker info >/dev/null 2>&1; then
-    echo "  Docker daemon reachable."
-  else
-    echo "  WARN: docker installed but daemon not reachable yet."
-    echo "        Try:  sudo service docker start"
-    echo "        Then: bash scripts/run_observability.sh"
-  fi
+  echo "  src/.env already exists."
 fi
 
-echo "[9/10] Pre-pulling Aspire Dashboard image (Phase 5 observability)..."
-if [ "$SKIP_OBSERVABILITY" = "true" ]; then
-  echo "  Skipped (SKIP_OBSERVABILITY=true). Pull later with:"
-  echo "    docker pull $ASPIRE_IMAGE"
-elif ! command -v docker >/dev/null 2>&1; then
-  echo "  Docker still not found - skipping image pre-pull."
-  echo "  Set OTEL_ENABLED=false in .env to silence the API startup"
-  echo "  warning about Aspire being unreachable."
-elif ! docker info >/dev/null 2>&1 \
-     && ! sudo docker info >/dev/null 2>&1; then
-  echo "  Docker daemon not reachable - skipping image pre-pull."
-  echo "  Start the daemon and run: docker pull $ASPIRE_IMAGE"
-else
-  if docker pull "$ASPIRE_IMAGE" \
-     || sudo docker pull "$ASPIRE_IMAGE"; then
-    echo "  OK - image cached"
-  else
-    echo "  WARN: docker pull failed; run_observability.sh will retry" >&2
-  fi
-fi
-
-echo "[10/10] Downloading voice models — Piper TTS + faster-whisper STT (Phase 13, optional)..."
-if [ "$SKIP_VOICE" = "true" ]; then
-  echo "  Skipped (SKIP_VOICE=true). Download later with:"
-  echo "    bash scripts/download_voice_models.sh                          # EN voice"
-  echo "    bash scripts/download_voice_models.sh el_GR-rapunzelina-low   # EL voice"
-  echo "    python -c \"from faster_whisper.utils import download_model; download_model('medium')\""
-else
-  # Piper TTS — EN and EL voices
-  if [ -f "voice/piper_voices/en_US-lessac-medium.onnx" ]; then
-    echo "  Piper EN model already present — skipping."
-  else
-    bash "$SCRIPT_DIR/download_voice_models.sh"
-  fi
-  if [ -f "voice/piper_voices/el_GR-rapunzelina-low.onnx" ]; then
-    echo "  Piper EL model already present — skipping."
-  else
-    bash "$SCRIPT_DIR/download_voice_models.sh" el_GR-rapunzelina-low
-  fi
-
-  # faster-whisper STT — pre-cache the model so the first API call is instant
-  # and avoids HuggingFace unauthenticated rate limits (especially on macOS).
-  WHISPER_MODEL="${VOICE_STT_MODEL:-medium}"
-  echo "  Pre-downloading faster-whisper model '${WHISPER_MODEL}' to HF cache..."
-  if python -c "
-from faster_whisper.utils import download_model
-download_model('${WHISPER_MODEL}')
-print('  faster-whisper model ready.')
-" 2>&1; then
-    :
-  else
-    echo "  WARN: faster-whisper download failed (network / HF rate limit)." >&2
-    echo "        The model will be downloaded automatically on first /audio/transcribe call." >&2
-    echo "        To retry: python -c \"from faster_whisper.utils import download_model; download_model('${WHISPER_MODEL}')\"" >&2
-  fi
-fi
+# ── 3. Build + start the stack ───────────────────────────────────
+echo "[3/3] Building Docker images and starting the stack..."
+echo "  This pulls ~7 GB of Ollama models on the first run — may take 15–30 min."
+echo "  Subsequent runs reuse the 'ollama_data' named volume."
+echo
+cd "$REPO_ROOT"
+docker compose up --build
 
 echo
 echo "============================================================"
-echo "Setup complete."
+echo "  Stack running."
 echo "============================================================"
+echo "  React SPA   → http://localhost:5173"
+echo "  API gateway → http://localhost:8000"
+echo "  Aspire OTel → http://localhost:18888"
+echo "  Portainer   → http://localhost:9000"
 echo
-echo "1) Activate the venv:"
-echo "     cd poc && source $VENV_DIR/bin/activate"
-echo
-echo "2) Copy the example env:"
-echo "     cp .env.example .env"
-echo
-echo "3) Start everything in ONE terminal (Aspire + API + UI):"
-echo "     bash scripts/run_all.sh"
-echo "   Ctrl+C stops the whole stack."
-echo
-echo "   Or run individual pieces:"
-echo "     bash scripts/run_observability.sh   # Aspire (Docker)"
-echo "     bash scripts/run_api.sh             # FastAPI"
-echo "     cd poc/frontend && npm run dev       # React dev server"
+echo "  Stop with: docker compose down"
+echo "  Logs:      docker compose logs -f <service>"
 echo

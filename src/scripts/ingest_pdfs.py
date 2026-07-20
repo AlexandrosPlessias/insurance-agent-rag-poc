@@ -51,7 +51,7 @@ def main() -> int:
     log.info("  raw_dir      = %s", raw_dir)
     log.info("  processed    = %s", settings.processed_dir)
     log.info("  metadata     = %s", settings.metadata_dir)
-    log.info("  chroma       = %s", settings.chroma_persist_dir)
+    log.info("  chroma       = %s:%s", settings.chroma_host, settings.chroma_port)
     log.info("  pdf count    = %d", len(pdfs))
     log.info("  workers      = %d", workers)
     log.info("=" * 60)

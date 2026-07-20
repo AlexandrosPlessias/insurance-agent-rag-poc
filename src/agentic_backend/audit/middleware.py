@@ -24,7 +24,7 @@ _store: AuditStore | None = None
 def get_audit_store() -> AuditStore:
     global _store
     if _store is None:
-        _store = AuditStore(settings.audit_sqlite_path)
+        _store = AuditStore(settings.database_url)
     return _store
 
 

@@ -1,9 +1,8 @@
 """OpenTelemetry setup for traces + logs + metrics.
 
 Targets Aspire Dashboard via OTLP gRPC on `OTEL_ENDPOINT`
-(default `http://localhost:4317`). Start the backend with:
-
-    bash scripts/run_observability.sh
+(default `http://aspire:18889` inside Docker). Aspire runs as part of
+the Docker Compose stack — start with `docker compose up`.
 
 `setup_otel(app=None, service_suffix=None)` is idempotent. It probes
 the endpoint at startup and self-disables (logs a warning) when
@@ -36,9 +35,7 @@ def _backend_reachable(timeout_s: float = 1.0) -> bool:
 def _resource(service_suffix: str | None):
     from opentelemetry.sdk.resources import Resource
 
-    name = settings.otel_service_name
-    if service_suffix:
-        name = f"{name}-{service_suffix}"
+    name = service_suffix if service_suffix else settings.otel_service_name
     return Resource.create(
         {
             "service.name": name,
@@ -77,13 +74,59 @@ def _metric_exporter():
     )
 
 
+_HEALTH_SKIP_FRAGMENTS = (
+    "/health",
+    "/favicon",
+    "/api/tags",          # Ollama model list poll
+    "/api/v2/auth",       # ChromaDB auth probe
+    "/api/v2/tenants/",   # ChromaDB tenant probe
+)
+
+
+class _HealthFilterExporter:
+    """Drops health-check spans before forwarding to the real OTLP exporter.
+
+    Filters both incoming server spans (http.target / url.path) and outgoing
+    client spans (http.url / url.full) so /health and /health/services never
+    reach Aspire. Necessary because HTTPXClientInstrumentor 0.65b0 dropped
+    the url_filter parameter that was silently ignored.
+    """
+
+    def __init__(self, inner) -> None:
+        self._inner = inner
+
+    def _is_health_span(self, span) -> bool:
+        attrs = dict(span.attributes or {})
+        for key in ("http.url", "url.full", "http.target", "url.path"):
+            val = str(attrs.get(key, ""))
+            if any(frag in val for frag in _HEALTH_SKIP_FRAGMENTS):
+                return True
+        return False
+
+    def export(self, spans):
+        from opentelemetry.sdk.trace.export import SpanExportResult
+
+        meaningful = [s for s in spans if not self._is_health_span(s)]
+        if not meaningful:
+            return SpanExportResult.SUCCESS
+        return self._inner.export(meaningful)
+
+    def shutdown(self):
+        return self._inner.shutdown()
+
+    def force_flush(self, timeout_millis: int = 30000):
+        return self._inner.force_flush(timeout_millis)
+
+
 def _setup_traces(resource) -> None:
     from opentelemetry import trace
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
     provider = TracerProvider(resource=resource)
-    provider.add_span_processor(BatchSpanProcessor(_trace_exporter()))
+    provider.add_span_processor(
+        BatchSpanProcessor(_HealthFilterExporter(_trace_exporter()))
+    )
     trace.set_tracer_provider(provider)
 
 
@@ -172,12 +215,14 @@ def _setup_metrics(resource) -> None:
 def _instrument_fastapi(app: Any) -> None:
     from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
-    FastAPIInstrumentor.instrument_app(app)
+    FastAPIInstrumentor.instrument_app(app, excluded_urls="/health,/health/services,/favicon")
 
 
 def _instrument_httpx() -> None:
     from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 
+    # url_filter was removed in 0.50b0+ — health filtering is done in
+    # _HealthFilterExporter at export time instead.
     HTTPXClientInstrumentor().instrument()
 
 
@@ -310,6 +355,39 @@ def _otel_pipeline_snapshot(label: str) -> None:
         _log.warning("[otel-debug %s] snapshot failed: %s", label, exc)
 
 
+def _patch_otel_detach() -> None:
+    """Suppress the cross-thread contextvars ValueError from OTel detach.
+
+    FastAPI streaming responses iterate sync generators across multiple
+    anyio threadpool threads. Each thread gets its own Context copy, so a
+    token created in Thread A cannot be reset in Thread B — OTel's detach()
+    catches the ValueError internally and logs it at ERROR level before
+    re-raising. We silence it at two levels:
+      1. Patch _RUNTIME_CONTEXT.detach so the ValueError never fires.
+      2. Add a log filter on opentelemetry.context to drop any residual
+         "Failed to detach context" records that slip through.
+    """
+    import opentelemetry.context as _ctx_mod
+
+    # Level 1: patch the inner ContextVar reset so ValueError never fires.
+    _orig_runtime_detach = _ctx_mod._RUNTIME_CONTEXT.detach
+
+    def _safe_runtime_detach(token: object) -> None:
+        try:
+            _orig_runtime_detach(token)
+        except ValueError:
+            pass
+
+    _ctx_mod._RUNTIME_CONTEXT.detach = _safe_runtime_detach
+
+    # Level 2: silence any residual log records from the OTel context logger.
+    class _DetachFilter(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            return "Failed to detach context" not in record.getMessage()
+
+    logging.getLogger("opentelemetry.context").addFilter(_DetachFilter())
+
+
 def setup_otel(
     app: Any | None = None,
     service_suffix: str | None = None,
@@ -331,6 +409,8 @@ def setup_otel(
             settings.otel_endpoint,
         )
         return
+
+    _patch_otel_detach()
 
     try:
         resource = _resource(service_suffix)
@@ -354,8 +434,7 @@ def setup_otel(
         _log.info(
             "OTel enabled: endpoint=%s service=%s ui=%s",
             settings.otel_endpoint,
-            settings.otel_service_name
-            + (f"-{service_suffix}" if service_suffix else ""),
+            service_suffix or settings.otel_service_name,
             settings.otel_ui_url,
         )
         _otel_pipeline_snapshot("end")

@@ -6,10 +6,12 @@ POST /chat/stream  - NDJSON stream from the manual graph walker; persists
                      the assistant turn after the stream completes.
 """
 import json
+import time
 from typing import Iterator
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
+from opentelemetry import context as otel_context
 from opentelemetry import trace
 
 from agentic_backend.api.dependencies import get_memory_store
@@ -22,6 +24,7 @@ from agentic_backend.graph.builder import get_graph
 from agentic_backend.graph.streaming import stream_graph
 from agentic_backend.memory.store import MemoryStore
 from agentic_backend.observability.logging import get_logger
+from agentic_backend.observability.metrics import record_chat_complete
 from agentic_backend.observability.tracing import annotate_request_span
 
 log = get_logger(__name__)
@@ -160,12 +163,18 @@ def _ndjson_persist(
     history: list[dict],
     activity: list[dict],
     last_data_operation: dict | None = None,
+    otel_ctx: object | None = None,
 ) -> Iterator[bytes]:
     """Stream events and persist the assistant turn after they finish."""
+    # Attach the caller's OTel context so child spans created inside the
+    # threadpool generator are children of the HTTP request span.
+    token = otel_context.attach(otel_ctx) if otel_ctx is not None else None
     final_chunks: list[str] = []
     citations: list[dict] = []
     route = ""
     store.add_message(conv_id, "user", question)
+    t_start = time.perf_counter()
+    t_first_token: float | None = None
 
     # First event carries the conversation_id so the UI can latch on.
     yield (
@@ -185,12 +194,20 @@ def _ndjson_persist(
     ):
         if event.get("type") == "token":
             final_chunks.append(event.get("value", ""))
+            if t_first_token is None:
+                t_first_token = time.perf_counter()
         elif event.get("type") == "done":
             citations = event.get("citations", []) or []
             route = event.get("route", "") or ""
         yield (json.dumps(event) + "\n").encode("utf-8")
 
     final_answer = "".join(final_chunks)
+    t_end = time.perf_counter()
+    record_chat_complete(
+        route=route,
+        ttft_ms=(t_first_token - t_start) * 1000 if t_first_token else None,
+        total_ms=(t_end - t_start) * 1000,
+    )
     store.add_message(
         conv_id,
         "assistant",
@@ -204,6 +221,13 @@ def _ndjson_persist(
         route,
         len(citations),
     )
+    if token is not None:
+        try:
+            otel_context.detach(token)
+        except ValueError:
+            # Token was created in a different threadpool thread context;
+            # the thread's contextvars copy is discarded on reclaim anyway.
+            pass
 
 
 @router.post("/chat/stream")
@@ -231,6 +255,7 @@ def chat_stream(
             store, request.user_id, conv_id, request.question,
             history, activity,
             last_data_operation=request.last_data_operation,
+            otel_ctx=otel_context.get_current(),
         ),
         media_type="application/x-ndjson",
     )

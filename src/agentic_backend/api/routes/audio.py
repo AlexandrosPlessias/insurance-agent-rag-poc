@@ -9,6 +9,7 @@ rest of the stack is unaffected by the feature flag.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import time
 
@@ -20,6 +21,7 @@ from agentic_backend.audit.events import VOICE_CORRECTION, VOICE_SYNTHESIZE, VOI
 from agentic_backend.audit.middleware import get_audit_store
 from agentic_backend.config import settings
 from agentic_backend.observability.logging import get_logger
+from agentic_backend.observability.metrics import record_voice_request
 from agentic_backend.voice import stt, tts
 
 log = get_logger(__name__)
@@ -97,11 +99,12 @@ async def transcribe_audio(
         raise HTTPException(400, "Uploaded file is empty")
 
     try:
-        result = stt.transcribe(audio_bytes, language=language or None)
+        result = await asyncio.to_thread(stt.transcribe, audio_bytes, language=language or None)
     except Exception as exc:
         log.exception("STT transcription failed")
         raise HTTPException(500, "Transcription failed — see server logs") from exc
 
+    record_voice_request("transcribe", result.get("duration_ms", 0))
     audio_sha256 = hashlib.sha256(audio_bytes).hexdigest()
 
     if settings.audit_retain_audio:
@@ -136,13 +139,14 @@ async def synthesize_audio(body: SynthesizeRequest) -> Response:
 
     t0 = time.perf_counter()
     try:
-        wav_bytes = tts.synthesize(body.text, language=body.language)
+        wav_bytes = await asyncio.to_thread(tts.synthesize, body.text, language=body.language)
     except FileNotFoundError as exc:
         raise HTTPException(503, str(exc)) from exc
     except Exception as exc:
         log.exception("TTS synthesis failed")
         raise HTTPException(500, "Synthesis failed — see server logs") from exc
 
+    record_voice_request("synthesize", int((time.perf_counter() - t0) * 1000))
     get_audit_store().log(
         event_type=VOICE_SYNTHESIZE,
         user_id="anonymous",

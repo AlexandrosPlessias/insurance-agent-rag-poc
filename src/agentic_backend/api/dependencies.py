@@ -7,4 +7,4 @@ from agentic_backend.memory.store import MemoryStore
 
 @lru_cache(maxsize=1)
 def get_memory_store() -> MemoryStore:
-    return MemoryStore(settings.sqlite_path)
+    return MemoryStore(settings.database_url)
