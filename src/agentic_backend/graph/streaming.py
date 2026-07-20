@@ -122,17 +122,27 @@ def _stream_rag_step(
             f"worker.{step['step_id']}.answer", "done", info=f"chars={len(answer_text)}"
         )
 
-    # Validate inline (no streaming for validator).
-    step_state.update(validator_node(step_state))
+    # Validate — first pass
+    yield _stage(f"worker.{step['step_id']}.validate", "started")
+    with track_tool("answer-policy-question", "validate"):
+        step_state.update(validator_node(step_state))
     v = step_state.get("validation", {})
+    is_valid = bool(v.get("grounded") and v.get("citations_ok"))
+    yield _stage(f"worker.{step['step_id']}.validate", "done", info=f"ok={is_valid}")
 
     # One retry if needed.
-    if not (v.get("grounded") and v.get("citations_ok")):
+    if not is_valid:
         step_state["retry_count"] = 1
         step_state["last_critique"] = v.get("critique", "")
         yield _stage(f"worker.{step['step_id']}.answer", "started", info="retry")
-        step_state.update(rag_node(step_state))
-        step_state.update(validator_node(step_state))
+        with track_tool("answer-policy-question", "answer_retry"):
+            step_state.update(rag_node(step_state))
+        answer_text = step_state.get("draft_answer", answer_text)
+        yield _stage(f"worker.{step['step_id']}.answer", "done", info="retry")
+        yield _stage(f"worker.{step['step_id']}.validate", "started", info="retry")
+        with track_tool("answer-policy-question", "validate_retry"):
+            step_state.update(validator_node(step_state))
+        yield _stage(f"worker.{step['step_id']}.validate", "done", info="retry")
         answer_text = step_state.get("draft_answer", answer_text)
 
     # Write result into step_results on the mutable state dict.
@@ -197,7 +207,7 @@ def _suspend_for_approval(
         "target_year": state.get("target_year"),
     }
 
-    store = ApprovalStore(settings.audit_sqlite_path)
+    store = ApprovalStore(settings.database_url)
     store.create_plan(
         plan_id=plan_id,
         user_id=user_id,
@@ -430,7 +440,7 @@ def stream_plan_resume(plan_id: str) -> Iterator[dict]:
     pending step and any remaining steps, then runs the Assembler.
     The plan state is updated to 'done' on success.
     """
-    store = ApprovalStore(settings.audit_sqlite_path)
+    store = ApprovalStore(settings.database_url)
     plan_db = store.get_plan(plan_id)
 
     if plan_db is None:

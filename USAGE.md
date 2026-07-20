@@ -4,568 +4,400 @@ Day-to-day operation of the PoC. First-time install is in [SETUP.md](SETUP.md).
 
 ---
 
-## 1. Quick start (one terminal)
+## 1. Quick start
 
 ```bash
-bash src/scripts/run_all.sh
+# First run (builds images + downloads models + indexes PDFs):
+docker compose up --build
+
+# macOS first run:
+docker compose -f docker-compose.yml -f docker-compose.override.macos.yml up --build
+
+# Subsequent runs (images already built, models already in volume):
+docker compose up
+
+# Stop everything:
+docker compose down
 ```
 
-This launches **Aspire Dashboard** (Docker) → **FastAPI** → **React dev server** in one terminal with prefixed output (`[api]` / `[ui]`). `Ctrl+C` stops everything cleanly.
+---
 
-| Service | URL | Notes |
+## 2. Service URLs
+
+| URL | Service | Purpose |
 |---|---|---|
-| React SPA | http://localhost:5173 | Main entry point — chat with policies |
-| FastAPI | http://localhost:8000 | REST + streaming; OpenAPI at `/docs`; serves built SPA when `src/frontend/dist/` exists |
-| Aspire Dashboard | http://localhost:18888 | OTel traces / logs / metrics |
-
-Env knobs:
-
-| Var | Effect |
-|---|---|
-| `SKIP_OBSERVABILITY=true` | Don't start Aspire (use this if `OTEL_ENABLED=false` in your `.env`) |
-| `KEEP_OBSERVABILITY_DATA=true` | Reuse an already-running Aspire container instead of restarting it (default behaviour wipes telemetry on each run) |
-| `SKIP_AUTO_INGEST=true` | Skip the knowledge-base probe on startup (saves 10–30 s once the KB is already ingested) |
-| `API_PORT=8000` / `API_HOST=0.0.0.0` | Override the FastAPI defaults |
-
-> **Fast daily restart** — once the knowledge base is ingested and you don't need
-> Aspire for the session, cut cold-start time from ~40 s to ~5 s:
->
-> ```bash
-> SKIP_AUTO_INGEST=true SKIP_OBSERVABILITY=true bash src/scripts/run_all.sh
-> ```
->
-> `SKIP_AUTO_INGEST=true` skips the ChromaDB cold-import probe (safe whenever
-> `src/data/chroma_db/` is already populated). `SKIP_OBSERVABILITY=true` skips the
-> Docker Aspire container startup (safe whenever you are not inspecting traces).
+| http://localhost:5173 | React SPA | Main entry point — chat with policies, upload documents, give feedback |
+| http://localhost:8000 | API gateway | REST + streaming; OpenAPI at `/docs` |
+| http://localhost:8001 | Voice service | STT (`/audio/transcribe`) and TTS (`/audio/synthesize`) endpoints |
+| http://localhost:18888 | Aspire | OTel traces, structured logs, metrics |
+| http://localhost:9000 | Portainer | Container management UI — logs, stats, exec |
 
 ---
 
-## 2. Individual scripts (multiple terminals)
-
-If you'd rather split the processes:
-
-| Terminal | Command | Purpose |
-|---|---|---|
-| 1 | `ollama serve` *(usually auto-started)* | Local LLM daemon |
-| 2 | `bash src/scripts/run_observability.sh` | Aspire Dashboard (Docker) |
-| 3 | `bash src/scripts/run_api.sh` | FastAPI backend |
-| 4 | `cd src/frontend && npm run dev` | React dev server (http://localhost:5173) |
-
-All scripts `cd` to the `src/` root themselves, so they work from anywhere in the repo.
-
----
-
-## 3. Ingesting policy documents (Phase 6)
-
-**Pipeline in one line:** PDF → Markdown (via `pymupdf4llm`) → LLM-summarised metadata sidecar → header-aware chunks → ChromaDB. Same `ingest_document()` function powers the batch script, the smoke test, and the `POST /ingest` upload endpoint.
-
-> 📖 **Design rationale, chunking strategy, tuning guide → [docs/ingestion.md](docs/ingestion.md).**
-
-### Folder layout
-
-```
-src/data/knowledge_base/
-├── raw/              # source PDFs (tracked in git)
-├── processed/        # one <stem>.md per document (gitignored)
-└── metadata/
-    ├── schema.json   # JSON Schema for the sidecars (tracked)
-    └── <stem>.json   # one validated sidecar per document (gitignored)
-```
-
-### Run it
+## 3. Day-to-day commands
 
 ```bash
-# Auto on first run via run_all.sh:
-bash src/scripts/run_all.sh
-# (auto-ingests if ChromaDB is empty AND raw/ has PDFs;
-#  set SKIP_AUTO_INGEST=true to skip, RESET_KNOWLEDGE=true to force re-ingest)
+# Stream logs for all services:
+docker compose logs -f
 
-# Manual:
-cd src && source .venv/bin/activate
-cp ~/my-policy.pdf data/knowledge_base/raw/
-python scripts/ingest_pdfs.py
-# (parallel by default; INGEST_WORKERS=4 tunes worker count)
+# Stream logs for one service:
+docker compose logs -f api-gateway
+docker compose logs -f ingestion-service
+
+# Restart a single service (e.g. after changing src/.env):
+docker compose restart api-gateway
+
+# Rebuild and restart a single service (e.g. after a code change):
+docker compose up --build api-gateway
+
+# Check container health:
+docker compose ps
 ```
-
-### Programmatic / curl
-
-```python
-from pathlib import Path
-from app.ingestion.pipeline import ingest_document
-
-result = ingest_document(
-    Path("src/data/knowledge_base/raw/my-policy.pdf"),
-    extra_metadata={"title": "My Auto Policy 2024", "year": 2024},
-)
-```
-
-```bash
-curl -F "file=@my-policy.pdf" -F "title=My Auto Policy 2024" \
-     -F "year=2024" -F "keywords=auto,collision" \
-     http://localhost:8000/ingest
-```
-
-### Chunk metadata at a glance
-
-Every chunk carries: `source`, `doc_id`, `title`, `year`, `description`, `keywords`, `language`, `document_category`, `ingestion_date_time`, `h1`..`h4`, `section`, **`section_title`**. The last one is the **primary topic anchor for semantic search** — stripped of markdown formatting and leading numbering, so `## **1. Refund Policy**` and `## 1. Refund Policy` from different years both filter as `section_title = "Refund Policy"`.
-
-```python
-# Find the refund-policy chunk across every PDF:
-collection.query(
-    query_texts=["what's the refund window?"],
-    where={"section_title": "Refund Policy"},
-    n_results=5,
-)
-```
-
-Full metadata table and JSON Schema in [docs/ingestion.md §7 + §9](docs/ingestion.md).
-
-> 📁 **Tracked vs ignored under `src/data/knowledge_base/`:**
-> - `raw/*.pdf` → **tracked** in git (the four `Enhanced_Customer_Guidelines_*.pdf` samples ship with the repo). New PDFs you drop in get committed unless you add a per-file pattern to `.gitignore`.
-> - `processed/*.md` → gitignored (regenerated from the PDFs).
-> - `metadata/*.json` → gitignored. Only `metadata/schema.json` is tracked.
 
 ---
 
-## 4. Observability (Aspire Dashboard)
+## 4. Knowledge base and ingestion
 
-After running `bash src/scripts/run_all.sh`, open **http://localhost:18888**.
+The `ingestion-service` **clears ChromaDB and re-indexes all PDFs** in
+`src/data/knowledge_base/raw/` on every container start. Watch for this banner in the
+logs before sending queries:
+
+```
+=== Ingestion complete — <N> chunks indexed ===
+```
+
+### Add a new PDF
+
+Drop the PDF into `src/data/knowledge_base/raw/` and restart the ingestion service:
+
+```bash
+cp ~/my-policy.pdf src/data/knowledge_base/raw/
+docker compose restart ingestion-service
+```
+
+Or upload through the UI sidebar — the file is sent to the API, saved to `raw/`, and
+ingested immediately without a restart.
+
+### Manual ingestion trigger
+
+```bash
+docker compose exec ingestion-service python scripts/ingest_pdfs.py
+```
+
+### Chunk metadata
+
+Every chunk carries: `source`, `doc_id`, `title`, `year`, `description`, `keywords`,
+`language`, `document_category`, `ingestion_date_time`, `h1`..`h4`, `section`,
+`section_title`. The `section_title` field is the primary topic anchor for semantic search
+— stripped of markdown formatting and leading numbers so `## **1. Refund Policy**` and
+`## 1. Refund Policy` both filter as `section_title = "Refund Policy"`.
+
+---
+
+## 5. Observability (Aspire)
+
+Open **http://localhost:18888** while containers are running. Telemetry is cleared each
+time `docker compose down` is run.
 
 ### Tabs
 
 | Tab | What you see |
 |---|---|
-| **Structured logs** | Application logs with `trace_id` / `span_id` enrichment. Filter by `service.name = insurance-rag-poc-api` |
-| **Traces** | One trace per `/chat` POST. Phase 11 topology: `chat.turn` → `planner.plan` → `orchestrator.execute` → `step.<id>` (one per Plan Step, parallel) → `assembler.merge`. HTTP spans from FastAPI, httpx client spans, and OpenInference LangChain spans with prompt / completion previews and token counts |
+| **Traces** | One trace per `/chat` POST. Topology: `chat.turn` → `planner.plan` → `orchestrator.execute` → `step.<id>` (parallel, one per plan step) → `assembler.merge`. Health-check routes are excluded |
+| **Structured logs** | Application logs enriched with `trace_id` / `span_id`. Filter by `service.name = insurance-rag-poc-api` |
 | **Metrics** | `rag_poc.node.invocations`, `rag_poc.node.duration`, `rag_poc.validator.outcomes`, `rag_poc.rag.chunks_retrieved` |
 
-### Useful trace span attributes
+### Useful span attributes
 
 Every node span carries:
-- `user.id` and `conversation.id` — set in both `/chat` and `/chat/stream` handlers
-- **Phase 11 Planner span** (`planner.plan`): `plan.plan_id`, `plan.n_steps`, `plan.rationale`
-- **Phase 11 Worker spans** (`step.<id>`): `step.step_id`, `step.skill_name`, `step.status`
-- **Phase 11 Assembler span** (`assembler.merge`): `assembler.partial`, `assembler.citations_count`
-- `supervisor.route` — `rag` / `report` / `out_of_scope` / `needs_clarification` / `out_of_year` *(Phase 1–10 legacy path, still emitted inside worker nodes)*
-- `supervisor.today`, `supervisor.covered_years`, `supervisor.target_year`, `supervisor.year_source` *(Phase 7)*
-- `rag.retry_count`, `rag.chunk_count`, `rag.has_critique`, `rag.target_year` *(Phase 7)*
-- `retrieve.where_filter` — present on `rag.retrieve` whenever year-scoped *(Phase 7)*
-- `clarifier.reason` ∈ {`year_missing`, `year_gap`, `ambiguous_clause`} *(Phase 7)*
-- `fallback.target_year`, `fallback.offered` *(Phase 7)*
+- `user.id` and `conversation.id`
+- **Planner span** (`planner.plan`): `plan.plan_id`, `plan.n_steps`, `plan.rationale`
+- **Worker spans** (`step.<id>`): `step.step_id`, `step.skill_name`, `step.status`
+- **Assembler span** (`assembler.merge`): `assembler.partial`, `assembler.citations_count`
+- `supervisor.route` — `rag` / `report` / `out_of_scope` / `needs_clarification` / `out_of_year`
+- `supervisor.today`, `supervisor.covered_years`, `supervisor.target_year`, `supervisor.year_source`
+- `rag.retry_count`, `rag.chunk_count`, `rag.has_critique`, `rag.target_year`
+- `retrieve.where_filter` — present when year-scoped
+- `clarifier.reason` ∈ {`year_missing`, `year_gap`, `ambiguous_clause`}
+- `fallback.target_year`, `fallback.offered`
 - `validator.grounded`, `validator.citations_ok`, `validator.critique`
-- `report.chunk_count`, `report.chart_present`, `report.markdown_chars`, `report.target_year` *(Phase 7)*
+- `report.chunk_count`, `report.chart_present`, `report.markdown_chars`, `report.target_year`
 - `llm.duration_s`, `llm.answer_chars`
 
 ### Filter examples
 
-Find every request from a specific user:
 ```
+# Every request from a specific user:
 user.id = "alex"
-```
 
-Find traces where validation failed:
-```
+# Traces where validation failed:
 validator.grounded = false
-```
 
-Find slow LLM calls:
-```
+# Slow LLM calls:
 llm.duration_s > 5
-```
 
-Find every clarifier-triggered turn (Phase 7):
-```
+# Clarifier-triggered turns:
 supervisor.route = "needs_clarification"
-```
 
-Find year-fallback turns (someone asked about 2023):
-```
+# Year-fallback turns:
 supervisor.route = "out_of_year"
 fallback.target_year = 2023
-```
 
-Find multi-step Plans (Phase 11):
-```
+# Multi-step plans:
 plan.n_steps > 1
-```
 
-Find turns where the user left a thumbs-down (Phase 11):
-```
+# Thumbs-down turns:
 event_type = "feedback.received"
 ```
 
-### Clearing telemetry between runs
+---
 
-`bash src/scripts/run_all.sh` restarts the Aspire container by default — every run starts with empty telemetry. Set `KEEP_OBSERVABILITY_DATA=true` if you want to preserve history during iteration.
+## 6. Container management (Portainer)
+
+Open **http://localhost:9000**. On first visit Portainer asks you to set an admin
+password.
+
+From the Portainer UI you can:
+- View live logs for any container (Containers → select → Logs)
+- Inspect CPU / memory stats per container (Containers → select → Stats)
+- Open a shell inside a container (Containers → select → Console)
 
 ---
 
-## 5. Inspecting the ChromaDB content
-
-Useful when tuning chunk size or debugging retrieval.
-
-```bash
-cd src && source .venv/bin/activate
-```
-
-### Live inspection (printed to terminal)
+## 7. Inspecting ChromaDB
 
 ```bash
 # Summary: total chunks + per-source counts
-python scripts/inspect_chroma.py
+docker compose exec ingestion-service python scripts/inspect_chroma.py
 
-# Page-level distribution for one document
-python scripts/inspect_chroma.py --source Enhanced_Customer_Guidelines_2024.pdf
+# Per-source breakdown
+docker compose exec ingestion-service python scripts/inspect_chroma.py \
+    --source Enhanced_Customer_Guidelines_2024.pdf
 
-# Look at 5 sample chunks (with full metadata)
-python scripts/inspect_chroma.py --sample 5 --metadata
+# Sample 5 chunks with full metadata
+docker compose exec ingestion-service python scripts/inspect_chroma.py --sample 5 --metadata
 
-# Dump every chunk (paginate or pipe to a file)
-python scripts/inspect_chroma.py --all > /tmp/all_chunks.txt
+# Similarity search (top-K with citations and previews)
+docker compose exec ingestion-service python scripts/inspect_chroma.py \
+    --search "What is the deductible?" --k 5
 
-# Run a similarity search end-to-end (top-K with citations + previews)
-python scripts/inspect_chroma.py --search "What is the deductible?" --k 5
+# Scope to one policy year
+docker compose exec ingestion-service python scripts/inspect_chroma.py \
+    --search "refund window" --year 2024 --k 5
 
-# Phase 7: scope sampling / search to one policy year
-python scripts/inspect_chroma.py --year 2020
-python scripts/inspect_chroma.py --search "refund window" --year 2024 --k 5
+# Generate per-PDF Markdown reports (written to src/data/knowledge_base/reports/)
+docker compose exec ingestion-service python scripts/inspect_chroma.py --report
 ```
 
-Quick smoke check after ingestion:
+---
+
+## 8. Resetting state
+
+### Wipe ChromaDB
 
 ```bash
-python scripts/inspect_chroma.py | head
-# === ChromaDB inspector ===
-#   collection : policies
-#   total docs : 67
-# Sources (4):
-#     17 chunks  |  Enhanced_Customer_Guidelines_2020.pdf
-#     ...
+docker compose exec ingestion-service python scripts/reset_stores.py
 ```
 
-If `total docs` is 0 after running `ingest_pdfs.py`, something went wrong — re-run with `LOG_LEVEL=DEBUG` and check the API logs.
-
-### Per-PDF inspection report (Markdown files)
-
-Run-once: writes one Markdown report per source PDF to `src/data/knowledge_base/reports/`. Each file contains the document-level metadata, chunk statistics (count, avg/min/median/max chars, page + section distribution), and the **full text + metadata** of every chunk. Reports are gitignored so they don't pollute commits.
+The `ingestion-service` will re-index all PDFs automatically on the next restart:
 
 ```bash
-# Generate reports for every PDF in the collection
-python scripts/inspect_chroma.py --report
-
-# Or just one PDF
-python scripts/inspect_chroma.py --report --source Enhanced_Customer_Guidelines_2024.pdf
-
-# Phase 7: report only one policy year (combinable with --source)
-python scripts/inspect_chroma.py --report --year 2020
-
-# Custom output directory
-python scripts/inspect_chroma.py --report --report-dir /tmp/chunks
+docker compose restart ingestion-service
 ```
 
-Sample output:
+### Wipe the PostgreSQL database (conversations, audit, plans)
 
-```
-=== Writing per-PDF reports to .../data/knowledge_base/reports ===
-  -> Enhanced_Customer_Guidelines_2020_chunks.md  (15 chunks)
-  -> Enhanced_Customer_Guidelines_2021_chunks.md  (17 chunks)
-  -> Enhanced_Customer_Guidelines_2022_chunks.md  (16 chunks)
-  -> Enhanced_Customer_Guidelines_2024_chunks.md  (19 chunks)
-
-Done. 4 report(s) written.
+```bash
+docker compose exec postgres psql -U poc -d poc < src/scripts/sql/reset_stores.sql
 ```
 
-Open one in your editor to see, per chunk:
+Or interactively:
 
-```markdown
-### Chunk 4 - page 1  ·  Refund Policy
-
-*1183 chars*
-
-**Metadata:**
-
-- `doc_id`: Enhanced_Customer_Guidelines_2024
-- `h2`: 1. Refund Policy
-- `page`: 1
-- `section`: 1. Refund Policy
-- `section_title`: Refund Policy
-- `source`: Enhanced_Customer_Guidelines_2024.pdf
-- `title`: Enhanced Customer Guidelines 2024
-- `year`: 2024
-- ...
-
-**Content:**
-
-​```markdown
-## 1. Refund Policy
-
-The refund policy for this year represents the culmination of …
-​```
+```bash
+docker compose exec postgres psql -U poc -d poc
+poc=# TRUNCATE conversations, messages, audit_events, plans, plan_approval_tokens RESTART IDENTITY CASCADE;
 ```
 
-Use these reports to:
-- Audit that chunks aren't header-only or too small after a tuning change.
-- Compare section distribution across years (e.g. did the 2024 doc gain a "Loyalty Programme" section that 2020 lacks?).
-- Verify that `section_title` is being populated correctly across documents before you build the semantic-search filter.
+### Full volume reset (re-downloads models)
 
-## 6. Year-aware routing & audit trail (Phase 7)
+Only do this if you want a completely clean slate including the Ollama model weights:
 
-> **Phase 11 note.** The supervisor-based routing documented below has been superseded by the Phase 11 Planner · Orchestrator · Workers · Skills architecture. The five supervisor routes still fire **inside** the worker nodes (the RAG worker still checks year coverage, the clarifier Skill still asks for a year), but the top-level graph now goes `planner → orchestrator → worker → assembler` for every turn. See [docs/agentic.md](../docs/agentic.md) for the current architecture.
+```bash
+docker compose down
+docker volume rm insurance-agent-rag-poc_ollama_data
+docker compose up --build
+```
 
-### Knowledge base coverage
+Model download will take 10–20 minutes again.
 
-`settings.kb_covered_years = [2020, 2021, 2022, 2024]` (see [src/agentic_backend/config.py](src/agentic_backend/config.py)). **2023 is an intentional gap.** When the supervisor extracts a `target_year` that isn't in this list, the request short-circuits to the **out-of-year fallback** node — no retrieval, no LLM call, just a templated reply naming the nearest covered years.
+---
 
-### The five supervisor routes
+## 9. Voice
 
-| Route | Triggered when | Terminal? |
+Voice is enabled by default in Docker. The api-gateway proxies all `/audio/*` requests to
+the `voice-service` container, which handles STT (faster-whisper) and TTS (piper-tts).
+
+| Endpoint | Method | Purpose |
 |---|---|---|
-| `rag` | Year resolved (from the question or recent history) **and** question is about policy content | No — runs validator + 1-retry |
-| `report` | Words like "summary", "report", "overview", "breakdown" | Yes |
-| `out_of_scope` | Greetings, math, chit-chat, non-insurance | Yes — `decline.canned` *(Phase 11 equivalent: `decline` Skill — same canned message, no LLM call)* |
-| `needs_clarification` | Question is RAG-ish but no year is mentioned and history can't resolve one | Yes — `clarifier.ask` emits one targeted question |
-| `out_of_year` | A year was named but it isn't in `kb_covered_years` | Yes — `fallback.out_of_year` offers nearest covered years |
+| `/audio/transcribe` | POST | Upload audio → returns transcript (EN or EL) |
+| `/audio/synthesize` | POST | Text → WAV audio response |
+| `/audio/correction` | POST | STT post-correction WER/CER audit |
 
-The terminal Phase 7 branches end the turn with a single assistant message; the **next** user reply re-enters the supervisor.
+The mic button in the React SPA captures audio via `MediaRecorder` (WebM/Opus format) and
+calls `/audio/transcribe`. Language selection (EN / EL) is controlled by the toggle in the
+UI header.
 
-### Audit trail
-
-Every routing / retrieval / validation / clarifier / fallback decision writes a typed row into `src/data/audit.sqlite` (separate file from `memory.sqlite`). Each row carries the active OTel `trace_id`, so an Aspire span is one click away from its audit record.
-
-| `event_type` | Payload highlights |
-|---|---|
-| `supervisor.route` | `{route, target_year, covered_years, resolved_today, clarifier_reason}` |
-| `rag.retrieve` | `{where, k, reformulated_query, sources}` |
-| `rag.answer` | `{retry_count, answer_chars, duration_s, target_year}` |
-| `validator.judge` | `{grounded, citations_ok, critique, retry_count, terminal}` |
-| `clarifier.ask` | `{reason, question, original_question_preview, covered_years}` |
-| `year_fallback` | `{requested, offered, covered_years}` |
-| `report.generate` | `{target_year, chunk_count, chart_present, markdown_chars, sources}` |
-| `decline.canned` | `{reason}` |
-| `planner.plan` | `{plan_id, steps: [...], rationale, n_steps}` *(Phase 11)* |
-| `orchestrator.step` | `{step_id, skill_name, status, latency_ms}` *(Phase 11)* |
-| `feedback.received` | `{plan_id, trace_id, score, comment, user_id, updated_at}` *(Phase 11)* |
-
-### Exporting for compliance review
+Quick smoke checks:
 
 ```bash
-cd src && source .venv/bin/activate
+# Health check — voice service:
+curl http://localhost:8001/health
 
-# Whole log → data/audit_export.csv
-python scripts/audit_export.py
+# TTS — synthesize a phrase and save to WAV:
+curl -s -X POST http://localhost:8001/audio/synthesize \
+    -H "Content-Type: application/json" \
+    -d '{"text":"Insurance claim filed successfully.","language":"en"}' \
+    --output /tmp/tts_test.wav && \
+    echo "TTS OK — $(stat -c%s /tmp/tts_test.wav) bytes"
 
-# One specific trace (copy the trace_id from Aspire's Traces tab)
-python scripts/audit_export.py --trace-id 8d2f...e1
-
-# Custom output file
-python scripts/audit_export.py --out /tmp/q3_audit.csv
-```
-
-The CSV keeps `payload_json` as a single column so Excel / PowerBI can ingest it without per-event schemas.
-
-### Viewing user feedback (Phase 11)
-
-After users rate answers with the 👍 / 👎 buttons in the chat UI, each vote is stored as a `feedback.received` row in `audit.sqlite`. Use `view_feedback.py` to print a summary table:
-
-```bash
-cd src && source .venv/bin/activate
-
-# All feedback (up to 200 rows)
-python scripts/view_feedback.py
-
-# Filter by a specific user
-python scripts/view_feedback.py --user alice
-
-# Show last N entries only
-python scripts/view_feedback.py --limit 20
-```
-
-Example output:
-
-```
---------------------------------------------------------------------
-Timestamp             User               Score   Plan ID                               Conv    Comment
---------------------------------------------------------------------
-2026-07-01T17:45:12   default_user       👍 +1   3f2a1b9c-48d1-4e2a-...                 42
-2026-07-01T17:46:03   default_user       👎 -1   7e8c4d2a-91f0-4c3b-...                 43
---------------------------------------------------------------------
-
-Total: 2 feedback entries — 👍 1  👎 1
-```
-
-Each row shows:
-- **Timestamp** — UTC time the feedback was submitted
-- **User** — the `user_id` from the chat session
-- **Score** — `👍 +1` (helpful) or `👎 -1` (needs improvement)
-- **Plan ID** — the Phase 11 plan that generated the answer (links to `planner.plan` audit rows)
-- **Conv** — conversation ID for cross-referencing `memory.sqlite`
-- **Comment** — optional free-text (not yet exposed in the UI, available via the API)
-
-> **Note:** When OTel is enabled the `trace_id` field carries the Aspire span ID so you can jump from a feedback row directly to its trace. When OTel is disabled the `plan_id` is stored as the `trace_id` so rows remain uniquely identifiable.
-
-### Inspecting from the SQLite shell
-
-The `sqlite3` CLI is installed by `setup_wsl.sh` ([1/6] step). If you're on a machine where it isn't available (`Command 'sqlite3' not found`), install it with `sudo apt install sqlite3`, **or** use the Python one-liner below.
-
-```bash
-sqlite3 src/data/audit.sqlite \
-  "SELECT ts, event_type, json_extract(payload_json, '$.route') AS route \
-   FROM audit_events WHERE user_id = 'alex' ORDER BY id DESC LIMIT 20;"
-```
-
-Pure-Python alternative — uses the stdlib module that's always available, no apt install needed:
-
-```bash
-cd src && source .venv/bin/activate
-python -c "
-from app.audit import AuditStore
-from app.config import settings
-for r in AuditStore(settings.audit_sqlite_path).recent(limit=20):
-    print(r['ts'], r['event_type'], r['payload'].get('route', ''))
-"
-```
-
-Quick count per event type (Python-only):
-
-```bash
-python -c "
-import sqlite3
-from app.config import settings
-with sqlite3.connect(settings.audit_sqlite_path) as c:
-    for et, n in c.execute('SELECT event_type, COUNT(*) FROM audit_events GROUP BY event_type'):
-        print(f'{n:>4}  {et}')
+# STT → TTS round-trip (inside voice-service container):
+docker compose exec voice-service python -c "
+from agentic_backend.voice import tts, stt
+wav = tts.synthesize('Policy claim filed.', language='en')
+result = stt.transcribe(wav, language='en')
+print('Round-trip OK:', result)
 "
 ```
 
 ---
 
-## 7. Resetting local state
+## 10. Adjusting log verbosity
+
+Add `LOG_LEVEL=DEBUG` to `src/.env`, then restart:
 
 ```bash
-cd src && source .venv/bin/activate
-python scripts/reset_stores.py                  # wipes ChromaDB + memory + audit
-python scripts/reset_stores.py --keep-audit     # keep audit.sqlite intact
-python scripts/ingest_pdfs.py                   # re-index from raw/ (with summariser pass)
+docker compose up
 ```
 
-PDFs in `src/data/knowledge_base/raw/` are kept (tracked in git). To start completely fresh including the venv:
-
-```bash
-rm -rf src/.venv src/data/chroma_db src/data/memory.sqlite src/data/audit.sqlite
-rm -rf src/data/knowledge_base/processed src/data/knowledge_base/metadata/*.json
-bash src/scripts/setup_wsl.sh        # rebuild venv + redo pip install
-```
+Logs go to each container's stdout (visible via `docker compose logs -f`) and to the
+Aspire Structured Logs tab when OTel is enabled.
 
 ---
 
-## 8. Voice smoke-test (Phase 13)
-
-Validates faster-whisper STT and piper-tts TTS locally without starting the full stack.
-Run from the repo root with the venv active.
-
-### Prerequisites
-
-```bash
-cd src && source .venv/bin/activate   # voice deps are in requirements.txt
-# Download voice models if not already present:
-bash src/scripts/download_voice_models.sh                    # English
-bash src/scripts/download_voice_models.sh el_GR-rapunzelina-low  # Greek
-```
-
-### Invocations
-
-```bash
-# Interactive language menu (EN / EL) then TTS-only with playback:
-python src/scripts/smoke_test_voice.py
-
-# Skip the menu — pass language directly:
-python src/scripts/smoke_test_voice.py --lang el
-
-# Full loop: TTS → play WAV → transcribe with STT:
-python src/scripts/smoke_test_voice.py --self-test
-python src/scripts/smoke_test_voice.py --lang el --self-test
-
-# Record 5 s from mic → STT → speak transcript back:
-python src/scripts/smoke_test_voice.py --record 5
-python src/scripts/smoke_test_voice.py --lang el --record 5
-
-# Record from a specific DirectShow device (device list is printed at startup):
-python src/scripts/smoke_test_voice.py --record 5 --device 1
-
-# Transcribe an existing WAV/MP3 file:
-python src/scripts/smoke_test_voice.py path/to/audio.wav
-python src/scripts/smoke_test_voice.py --lang el path/to/audio.wav
-```
-
-### What each mode does
-
-| Mode | STT | TTS | Mic |
-|---|---|---|---|
-| _(default)_ | — | synthesize sample phrase + play | — |
-| `--self-test` | transcribe TTS output | synthesize sample phrase + play | — |
-| `--record N` | transcribe mic recording | speak transcript back | ✓ (N seconds) |
-| `path/to/file` | transcribe file | synthesize sample phrase | — |
-
-### Sample output — Greek mic recording
-
-```
-Language: Ελληνικά (Greek)  |  voice: el_GR-rapunzelina-low  |  STT hint: el
-
-Mic-record mode: 5s → STT + TTS playback of transcript
-
-  Available devices:
-    [0] Microphone Array (Realtek) ◀
-    [1] Stereo Mix (Realtek)
-  Recording 5s via ffmpeg DirectShow: 'Microphone Array (Realtek)'
-  Recorded: 160,044 bytes → /mnt/c/Users/.../AppData/Local/Temp/irp_voice_rec.wav
-  audio level : peak=18432  rms=4821  (-16.6 dBFS)
-
-=== STT — faster-whisper  [/mnt/c/.../irp_voice_rec.wav] ===
-  Loading model 'medium' (int8, CPU)…
-  model loaded in 3.2s
-  language  : el
-  duration  : 4.8s
-  latency   : 5.1s
-  transcript: 'Η ασφαλιστική αξίωση κατατέθηκε.'
-  result: PASS ✓
-
-  Speaking back: 'Η ασφαλιστική αξίωση κατατέθηκε.'
-  Loading voice (el_GR-rapunzelina-low)…
-  voice loaded in 1.4s  (sample_rate: 22050)
-  Playing via Windows SoundPlayer…
-
-==================================================
-Overall: ALL PASS ✓
-```
-
-> **WSL2 note:** mic recording uses `ffmpeg.exe` (DirectShow) and playback uses `powershell.exe` `SoundPlayer` — both are Windows-side tools called from WSL2, so no extra Linux audio packages are needed.
-
----
-
-## 9. Adjusting log verbosity
-
-```bash
-# DEBUG | INFO | WARNING | ERROR
-LOG_LEVEL=DEBUG bash src/scripts/run_all.sh
-```
-
-Logs go to **stderr** (visible in the terminal) **and** to Aspire's Structured logs tab when OTel is enabled.
-
----
-
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 | Symptom | Fix |
 |---|---|
-| `Connection refused on :11434` | Ollama daemon not running — `ollama serve` in a separate terminal, or just rerun `run_all.sh` |
-| `OTel enabled but backend at http://localhost:4317 is unreachable` | Aspire not started yet. Run `bash src/scripts/run_observability.sh` or restart with `run_all.sh`. App still works without OTel (warning is one line and harmless) |
-| `address already in use` binding `:4317` | Something else owns the port. Diagnose with `sudo ss -tlnp \| grep ':4317'`. If a stray `tempo`/`loki` from an old experiment shows up: `sudo systemctl stop tempo loki; sudo systemctl disable tempo loki` |
-| React SPA can't reach API | Check `run_api.sh` is running; in dev the Vite proxy (`/api → http://localhost:8000`) handles routing automatically |
-| Slow first inference | Cold-start cost — Ollama loads the model into RAM on first request; subsequent calls are fast |
-| First LLM call takes 30+ s | Cold start is normal on a laptop. Re-asking the same question is fast — model stays warm |
-| `ModuleNotFoundError: No module named 'opentelemetry'` | Reinstall: `cd src && source .venv/bin/activate && pip install -r requirements.txt` |
-| Validator keeps marking answers as unverified | Your indexed PDFs may not contain the answer, or the model is hallucinating. Inspect the validator span's `critique` attribute in Aspire to see what went wrong |
-| Every question turns into a clarifier "which year?" prompt | Phase 7 escalates RAG-ish questions to the clarifier when no year is mentioned. Either mention a year in the question, or answer the clarifier so the next turn inherits the year from history |
-| Year-fallback fires when you asked about a covered year | Check `supervisor.target_year` in the trace. Regex may have latched onto an unrelated `20xx` token in the question. If that's the case, rephrase or set the year explicitly |
-| Audit DB grows large in long sessions | `python scripts/audit_export.py --out backup.csv` then delete `src/data/audit.sqlite` — it's re-created lazily on the next request |
-| `address already in use` on port 8000 or 5173 | A previous session's process is still running. Find and kill it: `fuser -k 8000/tcp && fuser -k 5173/tcp` |
+| Port already in use (5173 / 8000 / 8001 / 9000 / 18888) | Find and stop the conflicting process: `ss -tlnp \| grep :<port>` (Linux) or `lsof -i :<port>` (macOS) |
+| `address already in use` on port 11434 (Ollama) | A native Ollama process is running. Stop it: `sudo systemctl stop ollama` (or `pkill ollama`). The Docker Ollama container no longer exposes port 11434 on the host — if you see this error after updating, remove `ports: - "11434:11434"` from the `ollama` service in `docker-compose.yml` |
+| Model download stalled (ollama-pull) | `docker compose restart ollama-pull` — already-downloaded weights are kept in the volume |
+| Container OOM-killed | Raise Docker Desktop memory limit: Settings → Resources → Memory (12 GB recommended) |
+| `ChromaDB connection refused` | The `chromadb` container is still starting. Check `docker compose ps` and wait for its health check to pass |
+| Portainer shows "timeout" on first visit | Portainer initialises slowly on first boot. Refresh after 30 s |
+| Ingestion completes but `/chat` returns empty citations | ChromaDB volume may be on a different Docker context. Run `docker compose exec ingestion-service python scripts/inspect_chroma.py` to confirm chunk count |
+| Every question triggers "which year?" clarifier | Mention a year in your question, or answer the clarifier so the next turn inherits it from history |
+| Slow first inference | Cold-start cost — Ollama loads the model into RAM on the first request; subsequent calls are fast |
+| React SPA shows blank page | Frontend container still building. Check `docker compose logs -f frontend`; wait for the `ready` Vite banner |
+| macOS: build fails with wrong architecture | Use the override file: `docker compose -f docker-compose.yml -f docker-compose.override.macos.yml up --build` |
+
+---
+
+## 12. Feedback and audit
+
+All routing, retrieval, validation, and feedback events are written to the PostgreSQL
+`audit_events` table. Query it directly with psql or connect via DBeaver / TablePlus /
+DataGrip.
+
+```bash
+# Recent 50 audit events:
+docker compose exec postgres psql -U poc -d poc -f /dev/stdin < src/scripts/sql/audit_events.sql
+
+# Thumbs-up / thumbs-down feedback:
+docker compose exec postgres psql -U poc -d poc -f /dev/stdin < src/scripts/sql/feedback.sql
+
+# All conversations:
+docker compose exec postgres psql -U poc -d poc -f /dev/stdin < src/scripts/sql/conversations.sql
+
+# Messages for conversation 42:
+docker compose exec postgres psql -U poc -d poc -v conv_id=42 -f /dev/stdin < src/scripts/sql/messages.sql
+
+# Connect with DBeaver / TablePlus / DataGrip:
+#   host: localhost  port: 5432  db: poc  user: poc  password: poc
+
+# Interactive psql shell:
+docker compose exec postgres psql -U poc -d poc
+```
+
+The `trace_id` column links each audit row to its Aspire span.
+
+---
+
+## 13. Smoke tests
+
+### Voice smoke test (safe — no data wipe)
+
+```bash
+# TTS — synthesize and check WAV size:
+curl -s -X POST http://localhost:8001/audio/synthesize \
+    -H "Content-Type: application/json" \
+    -d '{"text":"Insurance claim filed successfully.","language":"en"}' \
+    --output /tmp/tts_test.wav && \
+    echo "TTS OK — $(stat -c%s /tmp/tts_test.wav) bytes"
+
+# STT → TTS round-trip (inside voice-service):
+docker compose exec voice-service python -c "
+from agentic_backend.voice import tts, stt
+wav = tts.synthesize('Policy claim filed.', language='en')
+result = stt.transcribe(wav, language='en')
+print('Round-trip OK:', result)
+"
+
+# Greek TTS:
+curl -s -X POST http://localhost:8001/audio/synthesize \
+    -H "Content-Type: application/json" \
+    -d '{"text":"Η αξίωση εγκρίθηκε.","language":"el"}' \
+    --output /tmp/tts_el.wav && \
+    echo "TTS-EL OK — $(stat -c%s /tmp/tts_el.wav) bytes"
+```
+
+### RAG smoke test
+
+In Docker, `pymupdf4llm` (for PDF parsing) lives only in `ingestion-service` and LangGraph
+lives only in `agentic-service` — no single container has both. Use `--skip-ingest` to run
+the RAG scenarios against data that the `ingestion-service` has already indexed:
+
+```bash
+# Step 1 — verify data is indexed (skip if ingestion-service already ran on startup):
+docker compose exec ingestion-service python scripts/ingest_pdfs.py
+
+# Step 2 — run all RAG / report / memory scenarios:
+docker compose exec agentic-service python scripts/smoke_test.py --skip-ingest
+```
+
+`--skip-ingest` skips the ChromaDB wipe and PDF ingest step. The test aborts early with a
+clear error if ChromaDB is empty.
+
+> **Without `--skip-ingest`** the script also resets ChromaDB and re-ingests the seed PDF.
+> This only works in a native (non-Docker) environment where both pymupdf4llm and LangGraph
+> are installed in the same venv. After running natively, restart `ingestion-service` to
+> re-index all PDFs: `docker compose restart ingestion-service`
+
+### End-to-end gateway proxy check
+
+Verifies that the api-gateway correctly proxies audio to the voice-service:
+
+```bash
+# Transcribe via the gateway (same path the UI uses):
+curl -s -X POST http://localhost:8000/audio/transcribe \
+    -F "language=en" \
+    -F "file=@/tmp/tts_test.wav" | python3 -m json.tool
+```
+
+Expected response:
+```json
+{
+  "transcript": "Insurance claim filed successfully.",
+  "language": "en",
+  "duration_ms": 1234
+}
+```

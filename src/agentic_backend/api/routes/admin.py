@@ -14,8 +14,8 @@ from agentic_backend.memory.store import MemoryStore
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
-_approval_store = ApprovalStore(settings.audit_sqlite_path)
-_audit_store = AuditStore(settings.audit_sqlite_path)
+_approval_store = ApprovalStore(settings.database_url)
+_audit_store = AuditStore(settings.database_url)
 
 
 @router.get("/conversations")

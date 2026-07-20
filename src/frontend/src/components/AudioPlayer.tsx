@@ -10,14 +10,32 @@ type PlayerState = "idle" | "loading" | "ready" | "error";
 
 export function AudioPlayer({ text, language = "en" }: Props) {
   const [playerState, setPlayerState] = useState<PlayerState>("idle");
+  const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement>(null);
   const objectUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
+    const el = audioRef.current;
+    if (!el) return;
+    const onPlay  = () => setIsPlaying(true);
+    const onPause = () => setIsPlaying(false);
+    const onEnded = () => setIsPlaying(false);
+    el.addEventListener("play",  onPlay);
+    el.addEventListener("pause", onPause);
+    el.addEventListener("ended", onEnded);
     return () => {
+      el.removeEventListener("play",  onPlay);
+      el.removeEventListener("pause", onPause);
+      el.removeEventListener("ended", onEnded);
       if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
     };
   }, []);
+
+  const handleStop = () => {
+    if (!audioRef.current) return;
+    audioRef.current.pause();
+    audioRef.current.currentTime = 0;
+  };
 
   const handlePlay = async () => {
     if (playerState === "loading") return;
@@ -43,6 +61,33 @@ export function AudioPlayer({ text, language = "en" }: Props) {
       setPlayerState("error");
     }
   };
+
+  if (isPlaying) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+        <button
+          onClick={handleStop}
+          title="Stop playback"
+          style={{
+            display: "flex", alignItems: "center", gap: 5,
+            background: "#fff1f2",
+            border: "1px solid #fecdd3",
+            borderRadius: 8,
+            padding: "3px 10px",
+            cursor: "pointer",
+            fontSize: 11, color: "#e11d48", fontWeight: 600,
+            transition: "background .15s",
+          }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#ffe4e6"; }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "#fff1f2"; }}
+        >
+          <span>⏹</span>
+          <span>Stop</span>
+        </button>
+        <audio ref={audioRef} style={{ display: "none" }} />
+      </div>
+    );
+  }
 
   const label =
     playerState === "loading" ? "⏳"
@@ -77,7 +122,6 @@ export function AudioPlayer({ text, language = "en" }: Props) {
         <span>{label}</span>
         <span>Listen</span>
       </button>
-      {/* Hidden audio element — controlled programmatically */}
       <audio ref={audioRef} style={{ display: "none" }} />
     </div>
   );

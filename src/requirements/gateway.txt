@@ -1,0 +1,7 @@
+# api-gateway — full monolith entrypoint (main.py) + Telegram bot
+# Inherits the complete agentic stack so main.py can import LangGraph,
+# langchain, voice routes, reporting, etc.
+-r agentic.txt
+
+# Approval notifications via Telegram
+python-telegram-bot>=21.0

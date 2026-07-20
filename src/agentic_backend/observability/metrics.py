@@ -74,6 +74,62 @@ _tool_duration = _meter.create_histogram(
     unit="s",
 )
 
+# ── Chat / streaming ──────────────────────────────────────────────────────────
+
+_chat_requests = _meter.create_counter(
+    name="rag_poc.chat.requests",
+    description="Completed chat turns, tagged by route",
+    unit="1",
+)
+
+_chat_ttft = _meter.create_histogram(
+    name="rag_poc.chat.ttft_ms",
+    description="Time-to-first-token for streaming chat (ms)",
+    unit="ms",
+)
+
+_chat_total = _meter.create_histogram(
+    name="rag_poc.chat.total_ms",
+    description="Total streaming response time from request to last token (ms)",
+    unit="ms",
+)
+
+# ── Planner ───────────────────────────────────────────────────────────────────
+
+_plan_steps = _meter.create_histogram(
+    name="rag_poc.plan.steps",
+    description="Number of steps in each generated plan",
+    unit="1",
+)
+
+# ── Telegram approvals ────────────────────────────────────────────────────────
+
+_telegram_events = _meter.create_counter(
+    name="rag_poc.telegram.events",
+    description="Telegram approval notifications sent or failed",
+    unit="1",
+)
+
+_telegram_approvals = _meter.create_counter(
+    name="rag_poc.telegram.approvals",
+    description="Telegram approval gate outcomes",
+    unit="1",
+)
+
+# ── Voice ─────────────────────────────────────────────────────────────────────
+
+_voice_requests = _meter.create_counter(
+    name="rag_poc.voice.requests",
+    description="Voice STT/TTS requests",
+    unit="1",
+)
+
+_voice_duration = _meter.create_histogram(
+    name="rag_poc.voice.duration_ms",
+    description="Voice request processing time (ms)",
+    unit="ms",
+)
+
 
 @contextmanager
 def track_node(node: str, route: str = ""):
@@ -135,3 +191,33 @@ def track_tool(skill: str, tool: str):
         yield
     finally:
         _tool_duration.record(time.perf_counter() - t0, attrs)
+
+
+def record_chat_complete(route: str, ttft_ms: float | None, total_ms: float) -> None:
+    """Record a completed streaming chat turn."""
+    attrs = {"route": route}
+    _chat_requests.add(1, attrs)
+    _chat_total.record(total_ms, attrs)
+    if ttft_ms is not None:
+        _chat_ttft.record(ttft_ms, attrs)
+
+
+def record_plan_steps(n_steps: int) -> None:
+    _plan_steps.record(n_steps, {})
+
+
+def record_telegram_event(outcome: str) -> None:
+    """outcome: 'sent' | 'failed'"""
+    _telegram_events.add(1, {"outcome": outcome})
+
+
+def record_telegram_approval(outcome: str) -> None:
+    """outcome: 'approved' | 'rejected' | 'timeout'"""
+    _telegram_approvals.add(1, {"outcome": outcome})
+
+
+def record_voice_request(kind: str, duration_ms: float) -> None:
+    """kind: 'transcribe' | 'synthesize'"""
+    attrs = {"kind": kind}
+    _voice_requests.add(1, attrs)
+    _voice_duration.record(duration_ms, attrs)
