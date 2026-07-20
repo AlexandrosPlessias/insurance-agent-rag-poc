@@ -1,0 +1,4 @@
+# Never bake secrets or local env overrides into images.
+# Secrets are injected at runtime via docker-compose env_file.
+src/.env
+**/.env

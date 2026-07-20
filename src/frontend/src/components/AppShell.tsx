@@ -1,5 +1,5 @@
 import { useEffect, useReducer, useState } from "react";
-import { getHealth } from "../api/client";
+import { getHealth, getServicesHealth } from "../api/client";
 import { ChatContext, chatReducer, initialState } from "../store/chatStore";
 import { AdminPage } from "./AdminPage";
 import { ChatPage } from "./ChatPage";
@@ -59,6 +59,7 @@ export function AppShell() {
   const [otelEnabled, setOtelEnabled] = useState(false);
   const [aspireUrl, setAspireUrl] = useState("http://localhost:18888");
   const [voiceEnabled, setVoiceEnabled] = useState(false);
+  const [podServices, setPodServices] = useState<ServiceRow[]>([]);
 
   useEffect(() => {
     const check = async () => {
@@ -75,18 +76,36 @@ export function AppShell() {
         setOllamaUp(false);
       }
     };
+    const checkPods = async () => {
+      try {
+        const pods = await getServicesHealth();
+        setPodServices(
+          pods.map((p) => ({
+            label: p.name,
+            detail: p.latency_ms >= 0 ? `${p.latency_ms}ms` : undefined,
+            state: p.status === "ok" ? "ok" : p.status === "down" ? "down" : "inactive",
+          }))
+        );
+      } catch {
+        // pods health unavailable — clear the list silently
+        setPodServices([]);
+      }
+    };
     void check();
+    void checkPods();
     const interval = setInterval(check, 300_000);
-    return () => clearInterval(interval);
+    const podInterval = setInterval(checkPods, 10_000);
+    return () => { clearInterval(interval); clearInterval(podInterval); };
   }, []);
 
-  const services: ServiceRow[] = [
+  const coreServices: ServiceRow[] = [
     { label: "Backend API", state: apiUp        ? "ok" : "down" },
     { label: "Ollama LLM",  state: ollamaUp     ? "ok" : "down" },
     { label: "Telegram",    state: telegramOk   ? "ok" : "inactive" },
-    { label: "Aspire",      detail: "OTEL",  state: otelEnabled  ? "ok" : "inactive" },
+    { label: "Aspire",      detail: "OTEL",    state: otelEnabled  ? "ok" : "inactive" },
     { label: "Voice",       detail: "STT/TTS", state: voiceEnabled ? "ok" : "inactive" },
   ];
+  const services = [...coreServices, ...podServices];
 
   const handleConversationCreated = (id: number) => {
     setRefreshTrigger((n) => n + 1);
@@ -247,6 +266,31 @@ export function AppShell() {
                     background: "#22c55e", boxShadow: "0 0 4px #22c55e",
                   }} />
                 )}
+              </a>
+
+              {/* Portainer link */}
+              <a
+                href="http://localhost:9000"
+                target="_blank"
+                rel="noreferrer"
+                title="Open Portainer container management"
+                style={{
+                  display: "flex", alignItems: "center", gap: 5,
+                  background: "#f0f9ff",
+                  border: "1px solid #bae6fd",
+                  borderRadius: 8,
+                  padding: "4px 10px",
+                  textDecoration: "none",
+                  color: "#0369a1",
+                  fontSize: 11, fontWeight: 600,
+                  transition: "background .15s",
+                  letterSpacing: ".01em",
+                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = "#e0f2fe"; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = "#f0f9ff"; }}
+              >
+                <span>🐳</span>
+                <span>Portainer</span>
               </a>
 
               <button

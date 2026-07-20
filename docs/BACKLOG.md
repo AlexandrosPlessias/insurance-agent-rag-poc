@@ -104,15 +104,17 @@ horizontal scaling yet, so LangGraph state stays in-process.
 - Replace `run_all.sh` with `docker compose up --build`.
 - Smoke test: `docker compose ps` → all services healthy; `smoke_test.py` hits gateway.
 
-**Phase 14b — Kubernetes + Helm (production-ready)**
+**Phase 14b — Kubernetes + Helm** _(nice-to-have / future — not pursued)_
+
+Docker Compose fully meets PoC and demo needs. Kubernetes adds operational complexity with
+no benefit at this scale. Retained as a future option if the project graduates to production.
+
 - One `Deployment` + `Service` per pod; `ConfigMap` for env, `Secret` for tokens.
 - `helm/` chart at repo root with `values.yaml` for environment overrides.
 - Persistent volumes for Postgres, ChromaDB, Ollama models, Piper voices.
 - Liveness + readiness probes on every service (`GET /health`).
 - Horizontal Pod Autoscaler on voice-service and agentic-service.
-- Management UI: **Headlamp** (`headlamp-k8s/headlamp`) — free Kubernetes dashboard,
-  WSL2-compatible, supports rolling updates, log streaming, and pod restart from the UI.
-  Complements **k9s** (terminal) + **Stern** (aggregated multi-pod logs).
+- Management: **Headlamp** (web UI) · **k9s** (terminal) · **Stern** (multi-pod logs).
 
 ---
 
@@ -142,9 +144,34 @@ without switching to another browser tab.
 
 ---
 
-**Effort estimate:** L (Phase 14a Docker Compose) + L (Phase 14b Kubernetes).
-**Recommended order:** 18a first — gives immediate value with minimal risk; 18b unlocks
-production deployment and horizontal scale.
+**Effort estimate:** L (Phase 14a Docker Compose — complete). Phase 14b Kubernetes deferred.
+
+---
+
+## Phase 14c — SQLite → PostgreSQL migration 📋
+
+**Goal:** Replace the shared-volume SQLite workaround (introduced in Phase 14a) with a
+proper multi-writer PostgreSQL instance so all pods can write to memory and audit tables
+concurrently without lock contention.
+
+**Prerequisite:** Phase 14a stable in Docker Compose with smoke tests passing.
+
+| Deliverable | Detail |
+|---|---|
+| `alembic/` at repo root | Initial migration mirroring the existing SQLite schema for `conversations`, `messages`, `audit_events`, `plans` tables |
+| `src/agentic_backend/config.py` | Add `database_url: str` field; default `sqlite+aiosqlite:///./data/memory.sqlite` for local dev |
+| `src/agentic_backend/memory/store.py` | Use `settings.database_url` instead of hardcoded path |
+| `src/agentic_backend/audit/store.py` | Same swap |
+| `docker-compose.yml` | Replace `sqlite_data` named volume with `postgres:16-alpine` service + `pg_data` volume |
+| `src/requirements.txt` | Add `alembic>=1.13.0`, `asyncpg>=0.29.0` |
+| Remove single-writer constraint | All pods write to Postgres directly; api-gateway no longer the sole DB writer |
+
+**Verification:**
+- `docker compose exec postgres psql -U poc -c '\dt'` — all tables present
+- `alembic upgrade head` runs cleanly on a fresh Postgres instance
+- `python src/scripts/smoke_test.py` — full chat flow; `audit_events` written to Postgres
+
+**Effort estimate:** M
 
 ---
 

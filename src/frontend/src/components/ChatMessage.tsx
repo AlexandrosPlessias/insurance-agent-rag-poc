@@ -158,6 +158,7 @@ export function ChatMessage({
               skillLabels={turn.skillLabels}
               route={turn.route}
               isStreaming={turn.isStreaming}
+              reformulatedQuery={turn.reformulatedQuery}
             />
           </div>
         )}

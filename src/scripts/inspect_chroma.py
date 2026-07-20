@@ -310,7 +310,7 @@ def main() -> int:
 
     print("\n=== ChromaDB inspector ===")
     print(f"  collection : {settings.chroma_collection}")
-    print(f"  path       : {settings.chroma_persist_dir}")
+    print(f"  host       : {settings.chroma_host}:{settings.chroma_port}")
     print(f"  total docs : {total}")
 
     if total == 0:

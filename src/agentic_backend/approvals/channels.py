@@ -10,6 +10,7 @@ from abc import ABC, abstractmethod
 import httpx
 
 from agentic_backend.observability.logging import get_logger
+from agentic_backend.observability.metrics import record_telegram_event
 
 log = get_logger(__name__)
 
@@ -74,8 +75,10 @@ class TelegramChannel(ApprovalChannel):
             )
             r.raise_for_status()
             log.info("TelegramChannel.send ok plan_id=%s", plan_id)
+            record_telegram_event("sent")
         except Exception as exc:
             log.warning("TelegramChannel.send failed plan_id=%s: %s", plan_id, exc)
+            record_telegram_event("failed")
 
 
 def get_channel() -> ApprovalChannel:

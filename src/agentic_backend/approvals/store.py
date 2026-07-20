@@ -1,6 +1,6 @@
 """HMAC-signed approval-token CRUD and plan persistence.
 
-Shares audit.sqlite with AuditStore — schema extended via schema.sql.
+Shares the PostgreSQL database with AuditStore and MemoryStore.
 One connection per method, same pattern as MemoryStore and AuditStore.
 """
 from __future__ import annotations
@@ -8,12 +8,12 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import os
 import secrets
-import sqlite3
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any
+
+import psycopg2
+import psycopg2.extras
 
 from agentic_backend.observability.logging import get_logger
 
@@ -43,12 +43,13 @@ def _hash_token(raw_token: str) -> str:
 
 
 class ApprovalStore:
-    def __init__(self, db_path: Path | str) -> None:
-        self.db_path = Path(db_path)
+    def __init__(self, database_url: str) -> None:
+        self._url = database_url
 
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
+    def _connect(self):
+        conn = psycopg2.connect(self._url)
+        conn.cursor_factory = psycopg2.extras.RealDictCursor
+        conn.autocommit = True
         return conn
 
     # ------------------------------------------------------------------ plans
@@ -65,11 +66,12 @@ class ApprovalStore:
     ) -> None:
         now = _now()
         with self._connect() as conn:
-            conn.execute(
+            cur = conn.cursor()
+            cur.execute(
                 "INSERT INTO plans "
                 "(id, user_id, conversation_id, state, pending_step_id, "
                 " trigger_case, resume_payload, created_at, updated_at, expires_at) "
-                "VALUES (?, ?, ?, 'suspended', ?, ?, ?, ?, ?, ?)",
+                "VALUES (%s, %s, %s, 'suspended', %s, %s, %s, %s, %s, %s)",
                 (
                     plan_id,
                     user_id,
@@ -85,9 +87,11 @@ class ApprovalStore:
 
     def get_plan(self, plan_id: str) -> dict | None:
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM plans WHERE id = ?", (plan_id,)
-            ).fetchone()
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT * FROM plans WHERE id = %s", (plan_id,)
+            )
+            row = cur.fetchone()
         if row is None:
             return None
         d = dict(row)
@@ -100,8 +104,9 @@ class ApprovalStore:
 
     def update_plan_state(self, plan_id: str, state: str) -> None:
         with self._connect() as conn:
-            conn.execute(
-                "UPDATE plans SET state = ?, updated_at = ? WHERE id = ?",
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE plans SET state = %s, updated_at = %s WHERE id = %s",
                 (state, _now(), plan_id),
             )
 
@@ -109,12 +114,14 @@ class ApprovalStore:
         self, conversation_id: int
     ) -> dict | None:
         with self._connect() as conn:
-            row = conn.execute(
+            cur = conn.cursor()
+            cur.execute(
                 "SELECT * FROM plans "
-                "WHERE conversation_id = ? AND state = 'suspended' "
+                "WHERE conversation_id = %s AND state = 'suspended' "
                 "ORDER BY created_at DESC LIMIT 1",
                 (conversation_id,),
-            ).fetchone()
+            )
+            row = cur.fetchone()
         if row is None:
             return None
         d = dict(row)
@@ -135,12 +142,14 @@ class ApprovalStore:
             List of dicts with plan metadata (resume_payload excluded).
         """
         with self._connect() as conn:
-            rows = conn.execute(
+            cur = conn.cursor()
+            cur.execute(
                 "SELECT id, user_id, conversation_id, state, pending_step_id, "
                 "       trigger_case, created_at, updated_at, expires_at "
-                "FROM plans ORDER BY created_at DESC LIMIT ?",
+                "FROM plans ORDER BY created_at DESC LIMIT %s",
                 (limit,),
-            ).fetchall()
+            )
+            rows = cur.fetchall()
         return [dict(r) for r in rows]
 
     # --------------------------------------------------------- tokens
@@ -151,10 +160,11 @@ class ApprovalStore:
         token_hash = _hash_token(raw_token)
         now = _now()
         with self._connect() as conn:
-            conn.execute(
+            cur = conn.cursor()
+            cur.execute(
                 "INSERT INTO plan_approval_tokens "
                 "(token_hash, plan_id, step_id, issued_at, expires_at) "
-                "VALUES (?, ?, ?, ?, ?)",
+                "VALUES (%s, %s, %s, %s, %s)",
                 (token_hash, plan_id, step_id, now, _expires_in(_TOKEN_TTL_MINUTES)),
             )
         return raw_token
@@ -174,10 +184,12 @@ class ApprovalStore:
         token_hash = _hash_token(raw_token)
         now = _now()
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM plan_approval_tokens WHERE token_hash = ?",
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT * FROM plan_approval_tokens WHERE token_hash = %s",
                 (token_hash,),
-            ).fetchone()
+            )
+            row = cur.fetchone()
             if row is None:
                 log.warning("verify_and_consume_token: unknown token_hash")
                 return None
@@ -192,10 +204,10 @@ class ApprovalStore:
                     "verify_and_consume_token: expired plan_id=%s", token["plan_id"]
                 )
                 return None
-            conn.execute(
+            cur.execute(
                 "UPDATE plan_approval_tokens "
-                "SET used_at = ?, verdict = ?, approver_id = ?, channel = ? "
-                "WHERE token_hash = ?",
+                "SET used_at = %s, verdict = %s, approver_id = %s, channel = %s "
+                "WHERE token_hash = %s",
                 (now, verdict, approver_id, channel, token_hash),
             )
         return token
