@@ -4,8 +4,12 @@ This is intentionally minimal. It exercises module-level execution
 (decorators, top-level constant building, prompt loading) without
 running anything that hits Ollama / Chroma / the filesystem.
 
-Run with:
-cd src && source .venv/bin/activate && pytest tests/unit/test_imports.py
+The only test that can run natively without Docker:
+
+    pip install -e "src/[test]"
+    cd src && pytest tests/unit/test_imports.py -v
+
+All other tests require the full Docker stack (see SETUP.md § 7).
 """
 
 from __future__ import annotations

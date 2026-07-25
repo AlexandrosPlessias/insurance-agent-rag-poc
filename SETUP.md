@@ -244,17 +244,28 @@ Internal services (debugging only):
 
 The test suite has two layers that run in different environments.
 
-### Unit tests — no Docker stack required
+### Unit tests (import smoke test)
 
-Run inside the container (or natively if you have a local venv):
+`test_imports.py` is the only test that can run **natively without Docker** — useful
+for a quick sanity check during development without rebuilding images:
 
 ```bash
-docker compose exec agentic-service python -m pytest tests/unit/ -v
+# One-time native install (Python 3.11+ required):
+pip install -e "src/[test]"
+
+# Run natively:
+cd src && pytest tests/unit/test_imports.py -v
+```
+
+Or inside Docker:
+
+```bash
+docker compose exec agentic-service python -m pytest tests/unit/test_imports.py -v
 ```
 
 | File | What it covers |
 |---|---|
-| `test_imports.py` | Imports all 71 agentic-backend modules — catches syntax errors and missing deps at import time |
+| `test_imports.py` | Imports all agentic-backend modules — catches syntax errors and missing deps at import time |
 
 Expected: **71 passed** in ~4 seconds.
 
