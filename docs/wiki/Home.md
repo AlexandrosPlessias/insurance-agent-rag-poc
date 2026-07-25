@@ -204,7 +204,7 @@ Detailed per-phase write-ups live in the main [`README.md`](../../README.md). Th
 
 - Each phase lives on its own branch — `poc/phase-<N>-<slug>`. Merge into
   `dev` via squash-merge PR. Refactor branches use `refactor/<slug>`.
-- Smoke test before opening a PR: `python src/scripts/smoke_test.py`.
+- Run integration tests before opening a PR: `docker compose exec agentic-service python -m pytest tests/integration/ -v --skip-ingest`.
 - Commit hygiene: keep the README phase section in sync with every new
   surface (UI / API / SQL / OTel).
 

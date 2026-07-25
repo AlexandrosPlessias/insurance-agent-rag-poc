@@ -381,27 +381,19 @@ curl -s -X POST http://localhost:8001/audio/synthesize \
     echo "TTS-EL OK — $(stat -c%s /tmp/tts_el.wav) bytes"
 ```
 
-### RAG smoke test
+### RAG integration tests
 
-In Docker, `pymupdf4llm` (for PDF parsing) lives only in `ingestion-service` and LangGraph
-lives only in `agentic-service` — no single container has both. Use `--skip-ingest` to run
-the RAG scenarios against data that the `ingestion-service` has already indexed:
+Run the full integration suite against live containers (18 tests):
 
 ```bash
-# Step 1 — verify data is indexed (skip if ingestion-service already ran on startup):
+# Ensure PDFs are indexed first:
 docker compose exec ingestion-service python scripts/ingest_pdfs.py
 
-# Step 2 — run all RAG / report / memory scenarios:
-docker compose exec agentic-service python scripts/smoke_test.py --skip-ingest
+# Run all integration tests:
+docker compose exec agentic-service python -m pytest tests/integration/ -v --skip-ingest
 ```
 
-`--skip-ingest` skips the ChromaDB wipe and PDF ingest step. The test aborts early with a
-clear error if ChromaDB is empty.
-
-> **Without `--skip-ingest`** the script also resets ChromaDB and re-ingests the seed PDF.
-> In the Docker stack, `pymupdf4llm` lives only in `ingestion-service` and LangGraph only in
-> `agentic-service`, so no single container has both. Always use `--skip-ingest` and run
-> ingestion separately as shown in Step 1 above.
+See SETUP.md Section 7 for the full test matrix and per-file run commands.
 
 ### End-to-end gateway proxy check
 

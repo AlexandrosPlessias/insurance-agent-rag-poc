@@ -410,7 +410,7 @@ class SkillMetadata(BaseModel):
 1. Create `src/agentic_backend/skills/<skill_name>.py` with a `skill: Skill` export.
 2. Drop the system prompt into `src/agentic_backend/llm/prompts/skills/<skill_name>.txt`.
 3. (If new Tools are needed) implement them under `src/agentic_backend/tools/`.
-4. Add a smoke-test scenario in `src/scripts/smoke_test.py` that triggers
+4. Add an integration test in `src/tests/integration/` that triggers
    the Planner into emitting a Step with this Skill.
 5. Update [docs/architecture/agentic-pipeline.md § 2.4](#24-skills) Skill table.
 

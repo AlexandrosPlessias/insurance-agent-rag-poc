@@ -51,10 +51,8 @@ transitions from the `waiting_approval` stage once the status changes.
 
 ## Running the Telegram bot
 
-```bash
-cd src && source .venv/bin/activate
-python scripts/run_telegram_bot.py
-```
+The bot runs automatically inside the `agentic-service` container when
+`TELEGRAM_BOT_TOKEN` is set. No separate process is needed.
 
 Environment variables required in `src/.env`:
 

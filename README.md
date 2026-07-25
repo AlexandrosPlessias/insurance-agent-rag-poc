@@ -62,7 +62,7 @@ Internal services — not browser UIs, but useful when debugging:
 | :8004 | ingestion-service — PDF processing |
 | :8005 | ChromaDB — vector store |
 | :5432 | PostgreSQL — connect with DBeaver / TablePlus / psql |
-| :11434 | Ollama — LLM inference (internal only) |
+| :11434 | Ollama — LLM inference (shared infra stack — started via `./start-infra.sh`, not `docker compose up`) |
 
 ---
 
