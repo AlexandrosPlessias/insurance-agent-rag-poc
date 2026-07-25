@@ -5,6 +5,13 @@ x-python-service: &python-service
   networks:
     - poc-net
 
+# Services that call Ollama also join ai-shared to reach http://ollama:11434
+x-ollama-consumer: &ollama-consumer
+  <<: *python-service
+  networks:
+    - poc-net
+    - ai-shared
+
 services:
 
   # ── Frontend ────────────────────────────────────────────────────────────────
@@ -21,7 +28,7 @@ services:
 
   # ── API Gateway ─────────────────────────────────────────────────────────────
   api-gateway:
-    <<: *python-service
+    <<: *ollama-consumer
     build:
       context: .
       dockerfile: docker/api-gateway/Dockerfile
@@ -45,8 +52,6 @@ services:
         condition: service_healthy
       ingestion-service:
         condition: service_healthy
-      ollama-pull:
-        condition: service_completed_successfully
 
   # ── Voice service ────────────────────────────────────────────────────────────
   voice-service:
@@ -71,7 +76,7 @@ services:
 
   # ── Agentic service ──────────────────────────────────────────────────────────
   agentic-service:
-    <<: *python-service
+    <<: *ollama-consumer
     build:
       context: .
       dockerfile: docker/agentic-service/Dockerfile
@@ -90,12 +95,10 @@ services:
         condition: service_healthy
       rag-service:
         condition: service_healthy
-      ollama-pull:
-        condition: service_completed_successfully
 
   # ── RAG service ──────────────────────────────────────────────────────────────
   rag-service:
-    <<: *python-service
+    <<: *ollama-consumer
     build:
       context: .
       dockerfile: docker/rag-service/Dockerfile
@@ -115,7 +118,7 @@ services:
 
   # ── Ingestion service ────────────────────────────────────────────────────────
   ingestion-service:
-    <<: *python-service
+    <<: *ollama-consumer
     build:
       context: .
       dockerfile: docker/ingestion-service/Dockerfile
@@ -140,9 +143,9 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     env_file:
-      - src/.env          # provides POSTGRES_USER and POSTGRES_PASSWORD
+      - src/.env
     environment:
-      POSTGRES_DB: poc    # database name is fixed; user/password come from env_file
+      POSTGRES_DB: poc
     ports:
       - "5432:5432"
     volumes:
@@ -176,53 +179,6 @@ services:
     networks:
       - poc-net
 
-  # ── Ollama ───────────────────────────────────────────────────────────────────
-  ollama:
-    image: ollama/ollama:0.9.0
-    restart: unless-stopped
-    # Port 11434 is not exposed on the host — only the internal poc-net
-    # services need it (via http://ollama:11434). Remove host binding to
-    # avoid conflicts with a native Ollama process on the host.
-    volumes:
-      - ollama_data:/root/.ollama
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 15s
-      timeout: 10s
-      retries: 5
-      start_period: 15s
-    networks:
-      - poc-net
-
-  # ── Ollama model pull (runs once, exits 0 when all models are ready) ─────────
-  ollama-pull:
-    image: ollama/ollama:0.9.0
-    restart: "no"
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        echo "Waiting for Ollama..."
-        until ollama list >/dev/null 2>&1; do sleep 2; done
-        echo "Pulling models..."
-        ollama pull qwen2.5:7b
-        ollama pull qwen2.5:3b
-        ollama pull nomic-embed-text
-        echo "All models ready."
-    environment:
-      - OLLAMA_HOST=http://ollama:11434
-    depends_on:
-      ollama:
-        condition: service_healthy
-    networks:
-      - poc-net
-
   # ── Aspire Dashboard (OTel) ──────────────────────────────────────────────────
   aspire:
     image: mcr.microsoft.com/dotnet/aspire-dashboard:9.0
@@ -235,9 +191,7 @@ services:
     networks:
       - poc-net
 
-  # ── Aspire telemetry clear (one-shot; runs on every 'docker compose up') ─────
-  # Aspire stores all telemetry in-memory. Restarting it gives a clean slate on
-  # every stack start. Uses the Docker socket (same trust level as Portainer).
+  # ── Aspire telemetry clear (one-shot) ────────────────────────────────────────
   aspire-clear:
     image: docker:27-cli
     restart: "no"
@@ -262,24 +216,13 @@ services:
     networks:
       - poc-net
 
-  # ── Portainer CE (container management UI) ───────────────────────────────────
-  portainer:
-    image: portainer/portainer-ce:2.27.4
-    restart: unless-stopped
-    ports:
-      - "9000:9000"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - portainer_data:/data
-    networks:
-      - poc-net
-
 volumes:
-  pg_data:          # PostgreSQL data (conversations, audit, plans)
-  chroma_data:      # ChromaDB vector store
-  portainer_data:   # Portainer config
-  ollama_data:      # Ollama models (persists across restarts — pulled once by ollama-pull)
+  pg_data:
+  chroma_data:
 
 networks:
   poc-net:
     driver: bridge
+  ai-shared:
+    external: true
+    name: ai-shared
