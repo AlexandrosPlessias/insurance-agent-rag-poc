@@ -6,20 +6,27 @@ Day-to-day operation of the PoC. First-time install is in [SETUP.md](SETUP.md).
 
 ## 1. Quick start
 
+**First run** — use the bootstrap script for your platform (handles Docker check, `.env`,
+shared infra, and image build in one step):
+
 ```bash
-# Step 1 — start shared infrastructure (Ollama + Portainer, idempotent):
+# Windows / WSL2:
+bash src/scripts/setup_wsl.sh
+
+# macOS:
+bash src/scripts/setup_macos.sh
+```
+
+**Subsequent runs** (images already built, models already downloaded):
+
+```bash
+# Start shared infra if it isn't running (idempotent):
 ./start-infra.sh
 
-# Step 2 — first run (builds project images + indexes PDFs):
-docker compose up --build
-
-# macOS first run (Step 1 is the same; Step 2 uses the platform override):
-docker compose -f docker-compose.yml -f docker-compose.override.macos.yml up --build
-
-# Subsequent runs (images already built, models already in shared volume):
+# Start project services:
 docker compose up
 
-# Stop project services only (shared infra keeps running for other projects):
+# Stop project services only (shared infra keeps running):
 docker compose down
 
 # Stop everything including shared infra:

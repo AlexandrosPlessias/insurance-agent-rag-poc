@@ -139,48 +139,26 @@ Skip this if you want UI-only approvals.
 
 ## 5. First run
 
-### Step 1 — start shared infrastructure (all platforms)
+Use the platform bootstrap script — it verifies Docker is running, creates `src/.env`
+from the example if missing, starts the shared AI infrastructure (Ollama + Portainer),
+then builds and starts all project services.
 
-Ollama (LLM runtime) and Portainer run in a separate shared stack that is reused across
-projects. Start it once — it is idempotent and safe to re-run if already running:
-
-```bash
-./start-infra.sh
-```
-
-The script auto-detects an NVIDIA GPU and applies the GPU profile automatically. Pass
-`--cpu` to force CPU-only mode, or `--gpu` to force GPU mode.
-
-### Step 2 — start project services
-
-#### Windows / WSL2
+### Windows / WSL2
 
 ```bash
-docker compose up --build
+bash src/scripts/setup_wsl.sh
 ```
 
-#### macOS
-
-Before running Compose, make sure Docker Desktop is open and the Docker daemon is
-reachable. If Docker is not running, Compose will fail with:
-`Cannot connect to the Docker daemon at unix:///Users/<you>/.docker/run/docker.sock`.
+### macOS
 
 ```bash
-docker info
+bash src/scripts/setup_macos.sh
 ```
 
-If that command fails, start Docker Desktop and wait until it finishes starting:
-
-```bash
-open -a Docker
-```
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.override.macos.yml up --build
-```
-
-The override file adds `platform: linux/arm64` to each service so images build natively
-on Apple Silicon.
+On Apple Silicon the script automatically adds `docker-compose.override.macos.yml` to
+build native `linux/arm64` images. On Intel Mac it runs the standard compose command.
+On macOS, make sure Docker Desktop is open before running — the script will attempt to
+start it for you, but if that fails, open it manually and re-run.
 
 ### What happens on first run
 
