@@ -12,6 +12,7 @@ import { EmptyState } from "./EmptyState";
 interface Props {
   conversationId: number | null;
   userId: string;
+  responseMode: "fast" | "accurate";
   telegramConfigured: boolean;
   voiceEnabled?: boolean;
   onConversationCreated: (id: number) => void;
@@ -20,6 +21,7 @@ interface Props {
 export function ChatPage({
   conversationId,
   userId,
+  responseMode,
   telegramConfigured,
   voiceEnabled,
   onConversationCreated,
@@ -45,7 +47,7 @@ export function ChatPage({
     if (!done.length) return;
     try {
       sessionStorage.setItem(`turns_v1_${state.conversationId}`, JSON.stringify(done));
-    } catch {}
+    } catch { }
   }, [state.history, state.conversationId]);
 
   // Load message history when switching to an existing conversation.
@@ -59,11 +61,15 @@ export function ChatPage({
     if (cached) {
       try {
         const turns = JSON.parse(cached) as Turn[];
-        if (turns.length > 0) {
+        // Only trust the cache when the last turn is an assistant reply.
+        // A cache ending in a user turn means the stream was interrupted
+        // mid-flight; fall through to getMessages() to get the DB truth.
+        const lastTurn = turns[turns.length - 1];
+        if (turns.length > 0 && lastTurn?.role === "assistant") {
           dispatch({ type: "LOAD_HISTORY", turns });
           return;
         }
-      } catch {}
+      } catch { }
     }
 
     getMessages(conversationId).then((msgs) => {
@@ -73,6 +79,8 @@ export function ChatPage({
         content: m.content,
         citations: m.citations ?? [],
         route: m.route ?? "",
+        intent: null,
+        effectiveResponseMode: null,
         stages: {},
         skillLabels: {},
         planId: null,
@@ -88,8 +96,8 @@ export function ChatPage({
         totalMs: null,
       }));
       dispatch({ type: "LOAD_HISTORY", turns });
-    }).catch(() => {});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    }).catch(() => { });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
 
   useEffect(() => {
@@ -175,7 +183,13 @@ export function ChatPage({
         ?.dataOperation ?? undefined;
       await processStream(
         streamChat(
-          { question: text, user_id: userId, conversation_id: conversationId, last_data_operation: lastDataOp },
+          {
+            question: text,
+            user_id: userId,
+            conversation_id: conversationId,
+            last_data_operation: lastDataOp,
+            response_mode: responseMode,
+          },
           controller.signal,
         )
       );
