@@ -3,6 +3,7 @@ export interface ChatRequest {
   user_id: string;
   conversation_id: number | null;
   last_data_operation?: unknown;
+  response_mode?: "fast" | "accurate";
 }
 
 export interface Citation {
@@ -104,6 +105,8 @@ export interface DoneEvent {
   retry_count: number;
   critique: string;
   route: string;
+  intent?: string;
+  effective_response_mode?: "fast" | "accurate";
   target_year: number | null;
   plan_id: string | null;
   data_operation: unknown | null;

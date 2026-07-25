@@ -28,7 +28,7 @@ const ShieldAvatar = () => (
 const COLOR_KEYWORDS: Record<string, string> = {
   green: "#16a34a",
   amber: "#d97706",
-  red:   "#dc2626",
+  red: "#dc2626",
 };
 
 function colorizeText(text: string): React.ReactNode {
@@ -149,6 +149,32 @@ export function ChatMessage({
             }} />
           )}
         </div>
+
+        {(turn.intent || turn.effectiveResponseMode) && !turn.isStreaming && (
+          <div style={{
+            marginTop: 8,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            background: "#f8fafc",
+            border: "1px solid var(--border)",
+            borderRadius: 999,
+            padding: "3px 10px",
+            fontSize: 10,
+            color: "var(--text-muted)",
+            textTransform: "none",
+          }}>
+            <span>
+              {turn.effectiveResponseMode === "fast" ? "Fast" : "Accurate"}
+            </span>
+            {turn.intent && (
+              <>
+                <span style={{ opacity: 0.45 }}>·</span>
+                <span>{turn.intent.replace(/_/g, " ")}</span>
+              </>
+            )}
+          </div>
+        )}
 
         {/* Pipeline stepper — shown during AND after streaming */}
         {Object.keys(turn.stages).length > 0 && (

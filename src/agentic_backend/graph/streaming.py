@@ -16,10 +16,11 @@ Event types emitted:
   {"type": "done",             "citations": […], "validated": bool, "route": "…", …}
   {"type": "error",            "value": "…"}
 """
+
 from __future__ import annotations
 
-import re
 import dataclasses
+import re
 import time
 from typing import Iterator
 
@@ -28,6 +29,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from agentic_backend.agents.assembler_agent import assembler_node
 from agentic_backend.agents.planner_agent import planner_node
 from agentic_backend.agents.rag_agent import (
+    _extract_refund_window_answer,
     build_rag_prompt,
     citation_payload,
     rag_node,
@@ -40,7 +42,7 @@ from agentic_backend.audit import events as audit_events
 from agentic_backend.audit.middleware import record as audit_record
 from agentic_backend.config import settings
 from agentic_backend.graph.orchestrator import _step_state, worker_node
-from agentic_backend.graph.state import GraphState
+from agentic_backend.graph.state import GraphState, is_fast_mode
 from agentic_backend.llm.ollama_client import get_llm
 from agentic_backend.observability.logging import get_logger
 from agentic_backend.observability.metrics import track_node, track_skill, track_tool
@@ -59,18 +61,14 @@ def _stage(node: str, status: str, info: str = "") -> dict:
     return event
 
 
-def _stream_rag_step(
-    step: dict, state: GraphState
-) -> Iterator[dict]:
+def _stream_rag_step(step: dict, state: GraphState) -> Iterator[dict]:
     """Stream tokens for an answer-policy-question step inline."""
     args = step.get("args") or {}
     step_state = _step_state(state, args)
     question = step_state.get("question") or ""
     target_year = step_state.get("target_year")
     history = step_state.get("history") or []
-    where_filter = (
-        {"year": int(target_year)} if target_year is not None else None
-    )
+    where_filter = {"year": int(target_year)} if target_year is not None else None
 
     with track_tool("answer-policy-question", "reformulate"):
         yield _stage(f"worker.{step['step_id']}.reformulate", "started")
@@ -93,21 +91,26 @@ def _stream_rag_step(
                 "sources": sorted({c.source for c in chunks if c.source}),
             },
         )
-        yield _stage(
-            f"worker.{step['step_id']}.retrieve", "done", info=f"k={len(chunks)}"
-        )
+        yield _stage(f"worker.{step['step_id']}.retrieve", "done", info=f"k={len(chunks)}")
 
     with track_tool("answer-policy-question", "answer"):
         yield _stage(f"worker.{step['step_id']}.answer", "started")
-        prompt = build_rag_prompt(chunks, history=history)
-        messages = [SystemMessage(content=prompt), HumanMessage(content=question)]
-        parts: list[str] = []
-        for piece in get_llm().stream(messages):
-            text = getattr(piece, "content", "")
-            if text:
-                parts.append(str(text))
-                yield {"type": "token", "value": str(text)}
-        answer_text = "".join(parts)
+        extracted = (
+            _extract_refund_window_answer(question, chunks) if is_fast_mode(state) else None
+        )
+        if extracted:
+            answer_text = extracted
+            yield {"type": "token", "value": answer_text}
+        else:
+            prompt = build_rag_prompt(chunks, history=history)
+            messages = [SystemMessage(content=prompt), HumanMessage(content=question)]
+            parts: list[str] = []
+            for piece in get_llm().stream(messages):
+                text = getattr(piece, "content", "")
+                if text:
+                    parts.append(str(text))
+                    yield {"type": "token", "value": str(text)}
+            answer_text = "".join(parts)
         step_state["draft_answer"] = answer_text
         audit_record(
             step_state,
@@ -118,9 +121,7 @@ def _stream_rag_step(
                 "target_year": target_year,
             },
         )
-        yield _stage(
-            f"worker.{step['step_id']}.answer", "done", info=f"chars={len(answer_text)}"
-        )
+        yield _stage(f"worker.{step['step_id']}.answer", "done", info=f"chars={len(answer_text)}")
 
     # Validate — first pass
     yield _stage(f"worker.{step['step_id']}.validate", "started")
@@ -197,6 +198,7 @@ def _suspend_for_approval(
 
     resume_payload = {
         "question": state.get("question"),
+        "response_mode": state.get("response_mode"),
         "history": state.get("history") or [],
         "user_activity": state.get("user_activity") or [],
         "plan": state.get("plan") or {},
@@ -254,10 +256,7 @@ def _approval_message(skill_name: str, trigger_case: str = "") -> str:
             "Manager approval required before delivery."
         )
     if skill_name == "executive-section-summary":
-        return (
-            "An executive annual report is about to be generated. "
-            "Approve to continue delivery."
-        )
+        return "An executive annual report is about to be generated. Approve to continue delivery."
     return "A step requires approval before it can run."
 
 
@@ -268,6 +267,7 @@ def stream_graph(
     user_id: str | None = None,
     conversation_id: int | None = None,
     last_data_operation: dict | None = None,
+    response_mode: str | None = None,
 ) -> Iterator[dict]:
     """Walk planner → workers → assembler, emitting NDJSON events.
 
@@ -287,6 +287,8 @@ def stream_graph(
         state["conversation_id"] = conversation_id
     if last_data_operation is not None:
         state["last_data_operation"] = last_data_operation
+    if response_mode in {"fast", "accurate"}:
+        state["response_mode"] = response_mode
 
     try:
         # --- Planner ---
@@ -313,7 +315,8 @@ def stream_graph(
                 break
 
             ready = [
-                s for s in steps_raw
+                s
+                for s in steps_raw
                 if s["step_id"] not in completed
                 and all(dep in completed for dep in s.get("depends_on", []))
             ]
@@ -420,6 +423,8 @@ def stream_graph(
             "retry_count": state.get("retry_count", 0),
             "critique": "",
             "route": state.get("route", "agentic"),
+            "intent": state.get("planner_intent", ""),
+            "effective_response_mode": state.get("response_mode"),
             "target_year": state.get("target_year"),
             "plan_id": (state.get("plan") or {}).get("plan_id"),
             "data_operation": state.get("data_operation"),
@@ -463,6 +468,8 @@ def stream_plan_resume(plan_id: str) -> Iterator[dict]:
         "user_activity": payload.get("user_activity") or [],
         "plan": payload.get("plan") or {},
     }
+    if payload.get("response_mode") in {"fast", "accurate"}:
+        state["response_mode"] = payload["response_mode"]  # type: ignore[index]
     if payload.get("user_id"):
         state["user_id"] = payload["user_id"]  # type: ignore[index]
     if payload.get("conversation_id") is not None:
@@ -485,7 +492,8 @@ def stream_plan_resume(plan_id: str) -> Iterator[dict]:
                 break
 
             ready = [
-                s for s in steps_raw
+                s
+                for s in steps_raw
                 if s["step_id"] not in completed
                 and all(dep in completed for dep in s.get("depends_on", []))
             ]
