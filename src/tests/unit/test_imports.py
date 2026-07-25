@@ -70,7 +70,6 @@ _MODULES = [
     "agentic_backend.observability.tracing",
     # --- RAG ---
     "agentic_backend.rag.chunker",
-    "agentic_backend.rag.loader",
     "agentic_backend.rag.retriever",
     "agentic_backend.rag.vectorstore",
     # --- Reporting ---

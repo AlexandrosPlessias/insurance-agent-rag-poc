@@ -11,6 +11,17 @@ include = ["agentic_backend*"]
 line-length = 100
 target-version = ["py311"]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: requires a running Docker stack (ChromaDB + Ollama) — run with --skip-ingest inside the container",
+]
+filterwarnings = [
+    # LoggingHandler in opentelemetry-sdk is deprecated but no public replacement
+    # exists in the installed version — suppressed until the SDK provides a migration path.
+    "ignore:.*LoggingHandler.*deprecated.*:DeprecationWarning:opentelemetry",
+]
+
 [tool.isort]
 profile = "black"
 line_length = 100
