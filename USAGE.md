@@ -7,17 +7,23 @@ Day-to-day operation of the PoC. First-time install is in [SETUP.md](SETUP.md).
 ## 1. Quick start
 
 ```bash
-# First run (builds images + downloads models + indexes PDFs):
+# Step 1 — start shared infrastructure (Ollama + Portainer, idempotent):
+./start-infra.sh
+
+# Step 2 — first run (builds project images + indexes PDFs):
 docker compose up --build
 
-# macOS first run:
+# macOS first run (Step 1 is the same; Step 2 uses the platform override):
 docker compose -f docker-compose.yml -f docker-compose.override.macos.yml up --build
 
-# Subsequent runs (images already built, models already in volume):
+# Subsequent runs (images already built, models already in shared volume):
 docker compose up
 
-# Stop everything:
+# Stop project services only (shared infra keeps running for other projects):
 docker compose down
+
+# Stop everything including shared infra:
+docker compose down && docker compose -f docker-compose.infra.yml down
 ```
 
 ---
@@ -26,11 +32,23 @@ docker compose down
 
 | URL | Service | Purpose |
 |---|---|---|
+| URL | Service | Purpose |
+|---|---|---|
 | http://localhost:5173 | React SPA | Main entry point — chat with policies, upload documents, give feedback |
 | http://localhost:8000 | API gateway | REST + streaming; OpenAPI at `/docs` |
-| http://localhost:8001 | Voice service | STT (`/audio/transcribe`) and TTS (`/audio/synthesize`) endpoints |
 | http://localhost:18888 | Aspire | OTel traces, structured logs, metrics |
 | http://localhost:9000 | Portainer | Container management UI — logs, stats, exec |
+
+Internal services (not browser UIs — useful when checking health or debugging a 502):
+
+| Port | Service |
+|---|---|
+| :8001 | voice-service — STT and TTS |
+| :8002 | agentic-service — LangGraph pipeline |
+| :8003 | rag-service — vector retrieval |
+| :8004 | ingestion-service — PDF processing |
+| :8005 | ChromaDB — vector store |
+| :5432 | PostgreSQL — `psql -h localhost -U poc -d poc` or DBeaver / TablePlus |
 
 ---
 
@@ -114,7 +132,7 @@ Every node span carries:
 - **Planner span** (`planner.plan`): `plan.plan_id`, `plan.n_steps`, `plan.rationale`
 - **Worker spans** (`step.<id>`): `step.step_id`, `step.skill_name`, `step.status`
 - **Assembler span** (`assembler.merge`): `assembler.partial`, `assembler.citations_count`
-- `supervisor.route` — `rag` / `report` / `out_of_scope` / `needs_clarification` / `out_of_year`
+- `planner.route` — the primary route chosen (`rag` / `data` / `report` / `out_of_scope` / `needs_clarification` / `out_of_year`)
 - `supervisor.today`, `supervisor.covered_years`, `supervisor.target_year`, `supervisor.year_source`
 - `rag.retry_count`, `rag.chunk_count`, `rag.has_critique`, `rag.target_year`
 - `retrieve.where_filter` — present when year-scoped
@@ -220,11 +238,14 @@ poc=# TRUNCATE conversations, messages, audit_events, plans, plan_approval_token
 
 ### Full volume reset (re-downloads models)
 
-Only do this if you want a completely clean slate including the Ollama model weights:
+The model weights live in the shared `ollama_models` volume. Removing it also affects any
+other project using the same infra stack (e.g. `offgrid-trader`):
 
 ```bash
 docker compose down
-docker volume rm insurance-agent-rag-poc_ollama_data
+docker compose -f docker-compose.infra.yml down
+docker volume rm ollama_models
+./start-infra.sh
 docker compose up --build
 ```
 
@@ -289,8 +310,8 @@ Aspire Structured Logs tab when OTel is enabled.
 | Symptom | Fix |
 |---|---|
 | Port already in use (5173 / 8000 / 8001 / 9000 / 18888) | Find and stop the conflicting process: `ss -tlnp \| grep :<port>` (Linux) or `lsof -i :<port>` (macOS) |
-| `address already in use` on port 11434 (Ollama) | A native Ollama process is running. Stop it: `sudo systemctl stop ollama` (or `pkill ollama`). The Docker Ollama container no longer exposes port 11434 on the host — if you see this error after updating, remove `ports: - "11434:11434"` from the `ollama` service in `docker-compose.yml` |
-| Model download stalled (ollama-pull) | `docker compose restart ollama-pull` — already-downloaded weights are kept in the volume |
+| `address already in use` on port 11434 (Ollama) | A native Ollama process is running. Stop it: `sudo systemctl stop ollama` (or `pkill ollama`). The Docker Ollama container does not publish port 11434 on the host — if you still see this, check `docker-compose.infra.yml` for a stale `ports:` entry |
+| Model download stalled (ollama-pull) | `docker compose -f docker-compose.infra.yml restart ollama-pull` — already-downloaded weights are kept in the volume |
 | Container OOM-killed | Raise Docker Desktop memory limit: Settings → Resources → Memory (12 GB recommended) |
 | `ChromaDB connection refused` | The `chromadb` container is still starting. Check `docker compose ps` and wait for its health check to pass |
 | Portainer shows "timeout" on first visit | Portainer initialises slowly on first boot. Refresh after 30 s |
@@ -378,9 +399,9 @@ docker compose exec agentic-service python scripts/smoke_test.py --skip-ingest
 clear error if ChromaDB is empty.
 
 > **Without `--skip-ingest`** the script also resets ChromaDB and re-ingests the seed PDF.
-> This only works in a native (non-Docker) environment where both pymupdf4llm and LangGraph
-> are installed in the same venv. After running natively, restart `ingestion-service` to
-> re-index all PDFs: `docker compose restart ingestion-service`
+> In the Docker stack, `pymupdf4llm` lives only in `ingestion-service` and LangGraph only in
+> `agentic-service`, so no single container has both. Always use `--skip-ingest` and run
+> ingestion separately as shown in Step 1 above.
 
 ### End-to-end gateway proxy check
 
