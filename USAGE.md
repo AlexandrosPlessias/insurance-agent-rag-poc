@@ -39,7 +39,6 @@ docker compose down && docker compose -f docker-compose.infra.yml down
 
 | URL | Service | Purpose |
 |---|---|---|
-| URL | Service | Purpose |
 |---|---|---|
 | http://localhost:5173 | React SPA | Main entry point — chat with policies, upload documents, give feedback |
 | http://localhost:8000 | API gateway | REST + streaming; OpenAPI at `/docs` |
