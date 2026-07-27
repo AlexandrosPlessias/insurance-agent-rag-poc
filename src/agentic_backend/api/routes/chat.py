@@ -5,6 +5,7 @@ POST /chat         - invokes the compiled graph; persists user + assistant
 POST /chat/stream  - NDJSON stream from the manual graph walker; persists
                      the assistant turn after the stream completes.
 """
+
 import json
 import time
 from typing import Iterator
@@ -20,6 +21,7 @@ from agentic_backend.api.schemas import (
     ChatResponse,
     Citation,
 )
+from agentic_backend.config import settings
 from agentic_backend.graph.builder import get_graph
 from agentic_backend.graph.streaming import stream_graph
 from agentic_backend.memory.store import MemoryStore
@@ -30,8 +32,14 @@ from agentic_backend.observability.tracing import annotate_request_span
 log = get_logger(__name__)
 router = APIRouter()
 
-HISTORY_TURNS = 6          # last N messages from THIS conversation
-ACTIVITY_LIMIT = 10        # last N user messages across ALL conversations
+HISTORY_TURNS = 6  # last N messages from THIS conversation
+ACTIVITY_LIMIT = 10  # last N user messages across ALL conversations
+
+
+def _resolve_response_mode(mode: str | None) -> str:
+    if mode in {"fast", "accurate"}:
+        return mode
+    return "fast" if settings.low_latency_mode else "accurate"
 
 
 def _ensure_conversation(
@@ -53,9 +61,7 @@ def _load_memory(
     # HISTORY_TURNS get condensed into a single synthetic
     # "system" message so the prompt stays bounded but the model
     # still sees earlier context.
-    history = store.get_messages_with_summary(
-        conversation_id, recent_n=HISTORY_TURNS
-    )
+    history = store.get_messages_with_summary(conversation_id, recent_n=HISTORY_TURNS)
     activity = store.get_user_activity(user_id, limit=ACTIVITY_LIMIT)
     return history, activity
 
@@ -71,24 +77,28 @@ def _citation_dicts(state: dict) -> list[dict]:
     for c in chunks:
         if isinstance(c, dict):
             src = c.get("source", "")
-            out.append({
-                "source": src,
-                "content": c.get("content", ""),
-                "download_url": f"/sources/{src}",
-                "section": c.get("section", "") or "",
-                "section_title": c.get("section_title", "") or "",
-                "chunk_index": int(c.get("chunk_index", 0) or 0),
-            })
+            out.append(
+                {
+                    "source": src,
+                    "content": c.get("content", ""),
+                    "download_url": f"/sources/{src}",
+                    "section": c.get("section", "") or "",
+                    "section_title": c.get("section_title", "") or "",
+                    "chunk_index": int(c.get("chunk_index", 0) or 0),
+                }
+            )
         else:
             src = c.source
-            out.append({
-                "source": src,
-                "content": c.content,
-                "download_url": f"/sources/{src}",
-                "section": getattr(c, "section", "") or "",
-                "section_title": getattr(c, "section_title", "") or "",
-                "chunk_index": int(getattr(c, "chunk_index", 0) or 0),
-            })
+            out.append(
+                {
+                    "source": src,
+                    "content": c.content,
+                    "download_url": f"/sources/{src}",
+                    "section": getattr(c, "section", "") or "",
+                    "section_title": getattr(c, "section_title", "") or "",
+                    "chunk_index": int(getattr(c, "chunk_index", 0) or 0),
+                }
+            )
     return out
 
 
@@ -98,14 +108,13 @@ def chat(
     store: MemoryStore = Depends(get_memory_store),
 ) -> ChatResponse:
     log.info(
-        "POST /chat: user=%r conv=%s q=%r",
+        "POST /chat: user=%r conv=%s mode=%s q=%r",
         request.user_id,
         request.conversation_id,
+        _resolve_response_mode(request.response_mode),
         request.question[:80],
     )
-    conv_id = _ensure_conversation(
-        store, request.user_id, request.conversation_id
-    )
+    conv_id = _ensure_conversation(store, request.user_id, request.conversation_id)
     annotate_request_span(
         trace.get_current_span(),
         user_id=request.user_id,
@@ -117,6 +126,7 @@ def chat(
     state = get_graph().invoke(
         {
             "question": request.question,
+            "response_mode": _resolve_response_mode(request.response_mode),
             "user_id": request.user_id,
             "conversation_id": conv_id,
             "history": history,
@@ -152,6 +162,12 @@ def chat(
         conversation_id=conv_id,
         route=route,
         plan_id=plan_id,
+        intent=str(state.get("planner_intent", "")),
+        effective_response_mode=(
+            str(state.get("response_mode"))
+            if state.get("response_mode") in {"fast", "accurate"}
+            else None
+        ),
     )
 
 
@@ -160,6 +176,7 @@ def _ndjson_persist(
     user_id: str,
     conv_id: int,
     question: str,
+    response_mode: str,
     history: list[dict],
     activity: list[dict],
     last_data_operation: dict | None = None,
@@ -177,12 +194,7 @@ def _ndjson_persist(
     t_first_token: float | None = None
 
     # First event carries the conversation_id so the UI can latch on.
-    yield (
-        json.dumps(
-            {"type": "conversation", "conversation_id": conv_id}
-        )
-        + "\n"
-    ).encode("utf-8")
+    yield (json.dumps({"type": "conversation", "conversation_id": conv_id}) + "\n").encode("utf-8")
 
     for event in stream_graph(
         question,
@@ -191,6 +203,7 @@ def _ndjson_persist(
         user_id=user_id,
         conversation_id=conv_id,
         last_data_operation=last_data_operation,
+        response_mode=response_mode,
     ):
         if event.get("type") == "token":
             final_chunks.append(event.get("value", ""))
@@ -236,14 +249,13 @@ def chat_stream(
     store: MemoryStore = Depends(get_memory_store),
 ) -> StreamingResponse:
     log.info(
-        "POST /chat/stream: user=%r conv=%s q=%r",
+        "POST /chat/stream: user=%r conv=%s mode=%s q=%r",
         request.user_id,
         request.conversation_id,
+        _resolve_response_mode(request.response_mode),
         request.question[:80],
     )
-    conv_id = _ensure_conversation(
-        store, request.user_id, request.conversation_id
-    )
+    conv_id = _ensure_conversation(store, request.user_id, request.conversation_id)
     annotate_request_span(
         trace.get_current_span(),
         user_id=request.user_id,
@@ -252,8 +264,13 @@ def chat_stream(
     history, activity = _load_memory(store, request.user_id, conv_id)
     return StreamingResponse(
         _ndjson_persist(
-            store, request.user_id, conv_id, request.question,
-            history, activity,
+            store,
+            request.user_id,
+            conv_id,
+            request.question,
+            _resolve_response_mode(request.response_mode),
+            history,
+            activity,
             last_data_operation=request.last_data_operation,
             otel_ctx=otel_context.get_current(),
         ),

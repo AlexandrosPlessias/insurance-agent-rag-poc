@@ -1,6 +1,8 @@
 """Pydantic request and response models for the API."""
-from pydantic import BaseModel, Field
 
+from typing import Literal
+
+from pydantic import BaseModel, Field
 
 # --- Chat ---
 
@@ -10,6 +12,7 @@ class ChatRequest(BaseModel):
     user_id: str = "default_user"
     conversation_id: int | None = None
     last_data_operation: dict | None = None
+    response_mode: Literal["fast", "accurate"] | None = None
 
 
 class Citation(BaseModel):
@@ -27,7 +30,9 @@ class ChatResponse(BaseModel):
     reformulated_query: str = ""
     conversation_id: int | None = None
     route: str = ""
-    plan_id: str = ""   # for client-side feedback submission
+    plan_id: str = ""  # for client-side feedback submission
+    intent: str = ""
+    effective_response_mode: Literal["fast", "accurate"] | None = None
 
 
 class HealthResponse(BaseModel):
@@ -71,7 +76,7 @@ class FeedbackRequest(BaseModel):
     trace_id: str
     plan_id: str = ""
     user_id: str = "default_user"
-    score: int = Field(..., ge=-1, le=1)   # +1 thumbs-up, -1 thumbs-down
+    score: int = Field(..., ge=-1, le=1)  # +1 thumbs-up, -1 thumbs-down
     comment: str | None = None
     conversation_id: int | None = None
 

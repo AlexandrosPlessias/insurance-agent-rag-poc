@@ -111,7 +111,7 @@ as a row (✅ ok / ⚠ degraded / ❌ down) without requiring Portainer or Docke
 
 | Model | Storage |
 |---|---|
-| Ollama models | `ollama_data` named volume — downloaded once by `ollama-pull` init container, persisted across restarts |
+| Ollama models | `ollama_models` named volume — downloaded once by `ollama-pull` init container, persisted across restarts |
 | faster-whisper | `~/.cache/huggingface:/root/.cache/huggingface` (bind mount — reuses host cache) |
 | Piper TTS `.onnx` | `./src/voice/piper_voices:/app/voice/piper_voices:ro` (bind mount, read-only) |
 

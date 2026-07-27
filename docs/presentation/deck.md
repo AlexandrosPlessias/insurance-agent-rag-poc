@@ -1,6 +1,6 @@
 # ACME Insurances — Local RAG PoC
 
-> Source of truth for the stakeholder deck. `poc/scripts/build_pptx.py`
+> Source of truth for the stakeholder deck. `src/scripts/build_pptx.py`
 > reads this file and emits `docs/presentation/insurance-rag-poc.pptx`.
 >
 > Slide grammar:
@@ -56,7 +56,7 @@ image: 11.full-topology-stepper.png
 
 The seven-route topology as the actual compiled graph
 
-- Source of truth: [`poc/app/graph/builder.py`](../../poc/app/graph/builder.py)
+- Source of truth: [`src/agentic_backend/graph/builder.py`](../../src/agentic_backend/graph/builder.py)
 - Per-node contracts (MUST / MUST-NOT): [`docs/agent_topology.md`](../agent_topology.md)
 - Colour code: 🟦 router · 🟩 worker · 🟧 guard · ⬛ terminal
 - Every node carries an OTel span; every edge is auditable

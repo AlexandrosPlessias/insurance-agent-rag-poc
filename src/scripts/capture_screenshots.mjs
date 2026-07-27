@@ -5,10 +5,10 @@
  * Filenames match the image: references in docs/presentation/deck.md exactly.
  *
  * Prerequisites (one-time):
- *   cd poc/frontend && npm install && npx playwright install chromium
+ *   cd src/frontend && npm install && npx playwright install chromium
  *
- * Run (stack must already be running via bash scripts/run_all.sh):
- *   node scripts/capture_screenshots.mjs
+ * Run (stack must already be running via docker compose up):
+ *   node src/scripts/capture_screenshots.mjs
  */
 
 import { chromium } from "../frontend/node_modules/playwright/index.mjs";

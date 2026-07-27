@@ -236,6 +236,6 @@ If a future phase needs another route (e.g. `talk_to_data` in Phase 8), the play
 3. Implement the node as its own file under [`src/agentic_backend/graph/`](../../src/agentic_backend/graph/) or [`src/agentic_backend/agents/`](../../src/agentic_backend/agents/) — never inside `rag_agent.py` or `report_agent.py`.
 4. Decide whether the node is terminal (most are) or feeds back into the supervisor for a multi-turn pattern.
 5. Add a new `event_type` constant in [`src/agentic_backend/audit/events.py`](../../src/agentic_backend/audit/events.py) and emit it from the node.
-6. Update [GRAPH.md](GRAPH.md), the stepper in the React frontend ([`poc/frontend/src/components/PipelineStepper.tsx`](../poc/frontend/src/components/PipelineStepper.tsx)), and this doc's tables.
+6. Update [GRAPH.md](GRAPH.md), the stepper in the React frontend ([`src/frontend/src/components/PipelineStepper.tsx`](../../src/frontend/src/components/PipelineStepper.tsx)), and this doc's tables.
 
 The supervisor decides; each route owns its node; the topology stays flat. That's the whole rule.

@@ -7,6 +7,7 @@ are anchored to POC_ROOT by the field validator at the bottom, so they
 behave the same as the absolute defaults regardless of where Python is
 launched from.
 """
+
 import logging
 from pathlib import Path
 
@@ -51,9 +52,7 @@ class Settings(BaseSettings):
     raw_pdf_dir: Path = POC_ROOT / "data" / "knowledge_base" / "raw"
     processed_dir: Path = POC_ROOT / "data" / "knowledge_base" / "processed"
     metadata_dir: Path = POC_ROOT / "data" / "knowledge_base" / "metadata"
-    metadata_schema_path: Path = (
-        POC_ROOT / "data" / "knowledge_base" / "metadata" / "schema.json"
-    )
+    metadata_schema_path: Path = POC_ROOT / "data" / "knowledge_base" / "metadata" / "schema.json"
 
     # --- FastAPI ---
     api_host: str = "0.0.0.0"
@@ -66,6 +65,8 @@ class Settings(BaseSettings):
     chunk_size: int = 1200
     chunk_overlap: int = 200
     retrieval_k: int = 5
+    # When true, skips LLM-as-judge validation for faster interactive responses.
+    low_latency_mode: bool = False
 
     # --- year-aware retrieval ---
     # Knowledge base coverage. The 2023 gap is intentional - the seed
@@ -80,14 +81,8 @@ class Settings(BaseSettings):
     # plus two pre-aggregated annual-rollup rows for 2020 and 2024.
     # The executor filters / groups / aggregates this
     # DataFrame at request time.
-    kpi_csv_path: Path = (
-        POC_ROOT / "data" / "kpi" / "metrics"
-        / "insurance_kpis_2020_2024.csv"
-    )
-    kpi_schema_path: Path = (
-        POC_ROOT / "data" / "kpi" / "metrics"
-        / "insurance_kpis.schema.json"
-    )
+    kpi_csv_path: Path = POC_ROOT / "data" / "kpi" / "metrics" / "insurance_kpis_2020_2024.csv"
+    kpi_schema_path: Path = POC_ROOT / "data" / "kpi" / "metrics" / "insurance_kpis.schema.json"
 
     # --- HITL approval gates ---
     # Override via APPROVAL_HMAC_SECRET env var before any production deployment.
@@ -100,7 +95,7 @@ class Settings(BaseSettings):
 
     # --- Container orchestration (Phase 14) ---
     chroma_host: str = "chromadb"
-    chroma_port: int = 8000   # internal Docker port; host-side is mapped to 8005
+    chroma_port: int = 8000  # internal Docker port; host-side is mapped to 8005
     agentic_service_url: str = "http://agentic-service:8002"
     rag_service_url: str = "http://rag-service:8003"
     voice_service_url: str = "http://voice-service:8001"

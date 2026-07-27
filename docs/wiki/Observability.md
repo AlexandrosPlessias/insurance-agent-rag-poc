@@ -7,17 +7,11 @@ stays local — traces go to a Docker-hosted .NET Aspire Dashboard; no data leav
 
 ## Starting the Aspire Dashboard
 
-The full-stack launcher starts it automatically:
+Aspire starts automatically as part of the Docker stack — no separate step needed:
 
 ```bash
-cd src && source .venv/bin/activate
-bash scripts/run_all.sh
-```
-
-Or start it alone:
-
-```bash
-bash scripts/run_observability.sh
+./start-infra.sh          # shared Ollama + Portainer (once)
+docker compose up --build # project services including Aspire
 ```
 
 Dashboard URL: **http://localhost:18888**
