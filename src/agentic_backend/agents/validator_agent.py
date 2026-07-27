@@ -2,6 +2,7 @@
 
 span attributes capture grounded/citations_ok/retry decision.
 """
+
 import json
 import re
 
@@ -9,9 +10,10 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from agentic_backend.audit import events as audit_events
 from agentic_backend.audit.middleware import record as audit_record
-from agentic_backend.graph.state import GraphState
+from agentic_backend.config import settings
+from agentic_backend.graph.state import GraphState, is_fast_mode
 from agentic_backend.llm import load_prompt
-from agentic_backend.llm.ollama_client import get_llm
+from agentic_backend.llm.ollama_client import get_fast_llm
 from agentic_backend.observability.logging import get_logger
 from agentic_backend.observability.metrics import record_validator_outcome, track_node
 from agentic_backend.observability.tracing import annotate_request_span, get_tracer
@@ -26,10 +28,7 @@ VALIDATOR_PROMPT = load_prompt("validator")
 def _format_context(chunks: list[RetrievedChunk]) -> str:
     if not chunks:
         return "(no chunks were retrieved)"
-    return "\n\n".join(
-        f"[{i + 1}] {c.source}\n{c.content}"
-        for i, c in enumerate(chunks)
-    )
+    return "\n\n".join(f"[{i + 1}] {c.source}\n{c.content}" for i, c in enumerate(chunks))
 
 
 def _parse_validation(raw: str) -> dict:
@@ -55,8 +54,23 @@ def validator_node(state: GraphState) -> dict:
     question = state.get("question", "")
     retry_count = state.get("retry_count", 0)
 
-    with tracer.start_as_current_span("validator.judge") as span, \
-            track_node("validator", route="rag"):
+    if is_fast_mode(state):
+        log.info("Validator bypassed (LOW_LATENCY_MODE=true)")
+        return {
+            "validation": {
+                "grounded": True,
+                "citations_ok": True,
+                "critique": "",
+            },
+            "final_answer": answer,
+            "final_citations": chunks,
+            "validated": True,
+        }
+
+    with (
+        tracer.start_as_current_span("validator.judge") as span,
+        track_node("validator", route="rag"),
+    ):
         annotate_request_span(
             span,
             user_id=state.get("user_id"),
@@ -67,8 +81,7 @@ def validator_node(state: GraphState) -> dict:
         span.set_attribute("validator.retry_count", retry_count)
 
         log.info(
-            "Validator checking %d-char answer against %d chunk(s) "
-            "[retry=%d]",
+            "Validator checking %d-char answer against %d chunk(s) " "[retry=%d]",
             len(answer),
             len(chunks),
             retry_count,
@@ -80,7 +93,7 @@ def validator_node(state: GraphState) -> dict:
             f"CONTEXT:\n{_format_context(chunks)}"
         )
 
-        result = get_llm().invoke(
+        result = get_fast_llm().invoke(
             [
                 SystemMessage(content=VALIDATOR_PROMPT),
                 HumanMessage(content=user_msg),

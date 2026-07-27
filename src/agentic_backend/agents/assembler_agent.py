@@ -125,6 +125,7 @@ def _route_label(steps_raw: list[dict]) -> str:
             "executive-section-summary": "report",
             "clarify-year": "needs_clarification",
             "out-of-year-fallback": "out_of_year",
+            "decline": "out_of_scope",
         }
         return mapping.get(skills[0], "agentic")
     return "agentic"

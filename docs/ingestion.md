@@ -1,6 +1,6 @@
 # Ingestion & Chunking Pipeline
 
-How PDFs in `poc/data/knowledge_base/raw/` end up as queryable chunks in ChromaDB, and why each step looks the way it does.
+How PDFs in `src/data/knowledge_base/raw/` end up as queryable chunks in ChromaDB, and why each step looks the way it does.
 
 For a one-page operational quickstart see [USAGE.md §3](../USAGE.md). This document explains the **logic and design decisions** behind the code.
 
@@ -9,7 +9,7 @@ For a one-page operational quickstart see [USAGE.md §3](../USAGE.md). This docu
 ## 1. Pipeline at a glance
 
 ```
-poc/data/knowledge_base/raw/<doc>.pdf
+src/data/knowledge_base/raw/<doc>.pdf
               │
               ▼  PyMuPDF4LLM (page_chunks=True)
         list[{page, markdown}]
@@ -17,13 +17,13 @@ poc/data/knowledge_base/raw/<doc>.pdf
               ▼  _smart_join_pages()
         one Markdown body (no page markers)
               │
-              ├─► poc/data/knowledge_base/processed/<doc>.md
+              ├─► src/data/knowledge_base/processed/<doc>.md
               │
               ├─► LLM summariser (one round-trip per doc)
               │     {description, keywords}
               │
               ▼  build_document_metadata() + write_metadata()
-        poc/data/knowledge_base/metadata/<doc>.json
+        src/data/knowledge_base/metadata/<doc>.json
               │
               ▼  chunk_markdown_doc()
         Header-aware + recursive-character chunks
@@ -32,7 +32,7 @@ poc/data/knowledge_base/raw/<doc>.pdf
         ChromaDB collection `policies`
 ```
 
-Single entry point: [`ingest_document(pdf_path, extra_metadata)`](../poc/app/ingestion/pipeline.py). Used by the batch script, the smoke test, and the `POST /ingest` endpoint.
+Single entry point: [`ingest_document(pdf_path, extra_metadata)`](../src/agentic_backend/ingestion/pipeline.py). Used by the batch script, the smoke test, and the `POST /ingest` endpoint.
 
 Per-doc cost: **one LLM call** for the summariser, **one batch embedding** call across all chunks. Documents are ingested in parallel by `scripts/ingest_pdfs.py` (default 4 workers, governed by `INGEST_WORKERS` and Ollama's `OLLAMA_NUM_PARALLEL`).
 
@@ -42,7 +42,7 @@ Per-doc cost: **one LLM call** for the summariser, **one batch embedding** call 
 
 We use [`pymupdf4llm`](https://pypi.org/project/pymupdf4llm/) (same publisher as PyMuPDF). It preserves layout (headings, tables, lists) and produces one Markdown blob per page when called with `page_chunks=True`.
 
-Function: [`pdf_to_markdown_pages(pdf_path)`](../poc/app/ingestion/pdf_to_md.py).
+Function: [`pdf_to_markdown_pages(pdf_path)`](../src/agentic_backend/ingestion/pdf_to_md.py).
 
 Returns `list[{"page": int, "markdown": str}]` — one entry per page, page number preserved at this stage even though we drop it downstream.
 
@@ -61,7 +61,7 @@ extracts as
 
 If we then insert `"\n\n"` between pages, the recursive splitter sees that as the strongest paragraph break and obediently cuts the chunk right there — severing the sentence.
 
-`_smart_join_pages` ([app/ingestion/pipeline.py](../poc/app/ingestion/pipeline.py)) handles this with a small heuristic:
+`_smart_join_pages` ([app/ingestion/pipeline.py](../src/agentic_backend/ingestion/pipeline.py)) handles this with a small heuristic:
 
 | Previous page ends with | Next page starts with | Join character |
 |---|---|---|
@@ -77,9 +77,9 @@ Result: clean text flow, no marker comments, no orphan periods, no severed sente
 
 ## 4. Document metadata sidecar
 
-Function: [`build_document_metadata(pdf_path, pages, extra)`](../poc/app/ingestion/metadata.py).
+Function: [`build_document_metadata(pdf_path, pages, extra)`](../src/agentic_backend/ingestion/metadata.py).
 
-Per document we write a JSON sidecar at `poc/data/knowledge_base/metadata/<stem>.json`, validated (best-effort) against [`metadata/schema.json`](../poc/data/knowledge_base/metadata/schema.json).
+Per document we write a JSON sidecar at `src/data/knowledge_base/metadata/<stem>.json`, validated (best-effort) against [`metadata/schema.json`](../src/data/knowledge_base/metadata/schema.json).
 
 Field sources:
 
@@ -99,7 +99,7 @@ Field sources:
 
 ## 5. LLM summariser
 
-Function: [`summarize_document(markdown)`](../poc/app/ingestion/summarizer.py). Externalised prompt at [`prompts/document_summary.txt`](../poc/app/llm/prompts/document_summary.txt).
+Function: [`summarize_document(markdown)`](../src/agentic_backend/ingestion/summarizer.py). Externalised prompt at [`prompts/document_summary.txt`](../src/agentic_backend/llm/prompts/document_summary.txt).
 
 - **One LLM round-trip** per document, returning JSON `{description, keywords}`.
 - Description: ≤250 chars, neutral tone, what the document is about.
@@ -114,7 +114,7 @@ The `extra_metadata` argument to `ingest_document` short-circuits the summariser
 
 ## 6. Chunking: header-aware two-step
 
-Function: [`chunk_markdown_doc(doc_meta, full_markdown)`](../poc/app/rag/chunker.py).
+Function: [`chunk_markdown_doc(doc_meta, full_markdown)`](../src/agentic_backend/rag/chunker.py).
 
 ### Step 1 — `MarkdownHeaderTextSplitter`
 
@@ -173,7 +173,7 @@ collection.query(
 # Returns the "Refund Policy" chunk from every PDF in the index.
 ```
 
-`section_title` derivation is in `_clean_section_title()` ([chunker.py](../poc/app/rag/chunker.py)):
+`section_title` derivation is in `_clean_section_title()` ([chunker.py](../src/agentic_backend/rag/chunker.py)):
 
 ```
 "**1. Refund Policy**"            -> "Refund Policy"
@@ -193,7 +193,7 @@ Defaults are `chunk_size=1200`, `chunk_overlap=200` (≈17%). The README has the
 |---|---|
 | Answers miss details you know are in the doc | chunks too small — try 1500 / 250 |
 | Answers wander, include unrelated facts | chunks too large — try 900 / 150 |
-| Citations point at chunks that look fragmented or empty | the `_MIN_CHUNK_CHARS` filter (80) is too aggressive — adjust in [chunker.py](../poc/app/rag/chunker.py) |
+| Citations point at chunks that look fragmented or empty | the `_MIN_CHUNK_CHARS` filter (80) is too aggressive — adjust in [chunker.py](../src/agentic_backend/rag/chunker.py) |
 | You see periods at start of chunks | `keep_separator="end"` isn't applied — check your branch is up to date |
 
 After any tuning change:
@@ -209,7 +209,7 @@ python scripts/inspect_chroma.py --report   # full audit
 
 ## 9. Storage in ChromaDB
 
-`add_documents(chunks)` ([app/rag/vectorstore.py](../poc/app/rag/vectorstore.py)) embeds via `nomic-embed-text` and writes to the persistent Chroma collection at `poc/data/chroma_db/`. Chroma stores per-record:
+`add_documents(chunks)` ([app/rag/vectorstore.py](../src/agentic_backend/rag/vectorstore.py)) embeds via `nomic-embed-text` and writes to the persistent Chroma collection at `src/data/chroma_db/`. Chroma stores per-record:
 
 - `documents` → the chunk text (with prepended heading where applicable)
 - `embeddings` → the vector
@@ -236,7 +236,7 @@ If you want per-document idempotency without nuking everything, you'd add a dele
 
 ## 11. UI upload pipeline
 
-The `POST /ingest` endpoint ([api/routes/ingest.py](../poc/app/api/routes/ingest.py)) wraps the same `ingest_document` function:
+The `POST /ingest` endpoint ([api/routes/ingest.py](../src/agentic_backend/api/routes/ingest.py)) wraps the same `ingest_document` function:
 
 ```bash
 curl -F "file=@my-policy.pdf" \
@@ -267,14 +267,14 @@ Stderr logs use the standard format and are tagged by module (`app.ingestion.pip
 
 | Concern | File |
 |---|---|
-| Pipeline orchestration | [poc/app/ingestion/pipeline.py](../poc/app/ingestion/pipeline.py) |
-| PDF → Markdown | [poc/app/ingestion/pdf_to_md.py](../poc/app/ingestion/pdf_to_md.py) |
-| LLM summariser | [poc/app/ingestion/summarizer.py](../poc/app/ingestion/summarizer.py) |
-| Document metadata builder + schema validator | [poc/app/ingestion/metadata.py](../poc/app/ingestion/metadata.py) |
-| Header + recursive chunker | [poc/app/rag/chunker.py](../poc/app/rag/chunker.py) |
-| Embedding + Chroma persistence | [poc/app/rag/vectorstore.py](../poc/app/rag/vectorstore.py) |
-| Retrieval at query time | [poc/app/rag/retriever.py](../poc/app/rag/retriever.py) |
-| Metadata schema (JSON Schema) | [poc/data/knowledge_base/metadata/schema.json](../poc/data/knowledge_base/metadata/schema.json) |
-| Batch ingestion script (parallel) | [poc/scripts/ingest_pdfs.py](../poc/scripts/ingest_pdfs.py) |
-| Inspector (live + reports) | [poc/scripts/inspect_chroma.py](../poc/scripts/inspect_chroma.py) |
-| Document summariser prompt | [poc/app/llm/prompts/document_summary.txt](../poc/app/llm/prompts/document_summary.txt) |
+| Pipeline orchestration | [src/agentic_backend/ingestion/pipeline.py](../src/agentic_backend/ingestion/pipeline.py) |
+| PDF → Markdown | [src/agentic_backend/ingestion/pdf_to_md.py](../src/agentic_backend/ingestion/pdf_to_md.py) |
+| LLM summariser | [src/agentic_backend/ingestion/summarizer.py](../src/agentic_backend/ingestion/summarizer.py) |
+| Document metadata builder + schema validator | [src/agentic_backend/ingestion/metadata.py](../src/agentic_backend/ingestion/metadata.py) |
+| Header + recursive chunker | [src/agentic_backend/rag/chunker.py](../src/agentic_backend/rag/chunker.py) |
+| Embedding + Chroma persistence | [src/agentic_backend/rag/vectorstore.py](../src/agentic_backend/rag/vectorstore.py) |
+| Retrieval at query time | [src/agentic_backend/rag/retriever.py](../src/agentic_backend/rag/retriever.py) |
+| Metadata schema (JSON Schema) | [src/data/knowledge_base/metadata/schema.json](../src/data/knowledge_base/metadata/schema.json) |
+| Batch ingestion script (parallel) | [src/scripts/ingest_pdfs.py](../src/scripts/ingest_pdfs.py) |
+| Inspector (live + reports) | [src/scripts/inspect_chroma.py](../src/scripts/inspect_chroma.py) |
+| Document summariser prompt | [src/agentic_backend/llm/prompts/document_summary.txt](../src/agentic_backend/llm/prompts/document_summary.txt) |

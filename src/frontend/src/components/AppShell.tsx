@@ -7,6 +7,7 @@ import { ConversationList } from "./ConversationList";
 import { DocumentUpload } from "./DocumentUpload";
 
 const TELEGRAM_CONFIGURED = Boolean(import.meta.env.VITE_TELEGRAM_CONFIGURED);
+const RESPONSE_MODE_KEY = "chat_response_mode_v1";
 
 type ServiceState = "ok" | "down" | "inactive";
 
@@ -17,14 +18,14 @@ interface ServiceRow {
 }
 
 const DOT: Record<ServiceState, { color: string; glow?: string }> = {
-  ok:       { color: "#22c55e", glow: "#22c55e" },
-  down:     { color: "#f43f5e", glow: "#f43f5e" },
+  ok: { color: "#22c55e", glow: "#22c55e" },
+  down: { color: "#f43f5e", glow: "#f43f5e" },
   inactive: { color: "#52525b" },
 };
 
 const TAG: Record<ServiceState, { color: string; label: string }> = {
-  ok:       { color: "#86efac", label: "OK" },
-  down:     { color: "#fda4af", label: "Down" },
+  ok: { color: "#86efac", label: "OK" },
+  down: { color: "#fda4af", label: "Down" },
   inactive: { color: "#52525b", label: "Inactive" },
 };
 
@@ -50,6 +51,7 @@ function ServiceStatusRow({ label, detail, state }: ServiceRow) {
 export function AppShell() {
   const [state, dispatch] = useReducer(chatReducer, initialState);
   const [userId] = useState("demo_user");
+  const [responseMode, setResponseMode] = useState<"fast" | "accurate">("fast");
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showAdmin, setShowAdmin] = useState(false);
@@ -60,6 +62,25 @@ export function AppShell() {
   const [aspireUrl, setAspireUrl] = useState("http://localhost:18888");
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [podServices, setPodServices] = useState<ServiceRow[]>([]);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(RESPONSE_MODE_KEY);
+      if (saved === "fast" || saved === "accurate") {
+        setResponseMode(saved);
+      }
+    } catch {
+      // Ignore unavailable storage and keep default mode.
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(RESPONSE_MODE_KEY, responseMode);
+    } catch {
+      // Ignore unavailable storage.
+    }
+  }, [responseMode]);
 
   useEffect(() => {
     const check = async () => {
@@ -99,11 +120,11 @@ export function AppShell() {
   }, []);
 
   const coreServices: ServiceRow[] = [
-    { label: "Backend API", state: apiUp        ? "ok" : "down" },
-    { label: "Ollama LLM",  state: ollamaUp     ? "ok" : "down" },
-    { label: "Telegram",    state: telegramOk   ? "ok" : "inactive" },
-    { label: "Aspire",      detail: "OTEL",    state: otelEnabled  ? "ok" : "inactive" },
-    { label: "Voice",       detail: "STT/TTS", state: voiceEnabled ? "ok" : "inactive" },
+    { label: "Backend API", state: apiUp ? "ok" : "down" },
+    { label: "Ollama LLM", state: ollamaUp ? "ok" : "down" },
+    { label: "Telegram", state: telegramOk ? "ok" : "inactive" },
+    { label: "Aspire", detail: "OTEL", state: otelEnabled ? "ok" : "inactive" },
+    { label: "Voice", detail: "STT/TTS", state: voiceEnabled ? "ok" : "inactive" },
   ];
   const services = [...coreServices, ...podServices];
 
@@ -116,7 +137,7 @@ export function AppShell() {
     if (!id) return;
     const done = state.history.filter((t) => !t.isStreaming);
     if (!done.length) return;
-    try { sessionStorage.setItem(`turns_v1_${id}`, JSON.stringify(done)); } catch {}
+    try { sessionStorage.setItem(`turns_v1_${id}`, JSON.stringify(done)); } catch { }
   };
 
   const handleSelectConversation = (id: number) => {
@@ -235,6 +256,51 @@ export function AppShell() {
                 : "New conversation"}
             </span>
 
+            <div
+              style={{
+                marginLeft: 8,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                padding: 4,
+                borderRadius: 10,
+                border: "1px solid var(--border)",
+                background: "#fafafa",
+              }}
+              title="Response mode"
+            >
+              <button
+                onClick={() => setResponseMode("fast")}
+                style={{
+                  border: "none",
+                  borderRadius: 8,
+                  padding: "5px 10px",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  background: responseMode === "fast" ? "#fee2e2" : "transparent",
+                  color: responseMode === "fast" ? "#be123c" : "var(--text-muted)",
+                }}
+              >
+                Fast
+              </button>
+              <button
+                onClick={() => setResponseMode("accurate")}
+                style={{
+                  border: "none",
+                  borderRadius: 8,
+                  padding: "5px 10px",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  background: responseMode === "accurate" ? "#dbeafe" : "transparent",
+                  color: responseMode === "accurate" ? "#1d4ed8" : "var(--text-muted)",
+                }}
+              >
+                Accurate
+              </button>
+            </div>
+
             {/* Right side */}
             <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
               {/* Telemetry link */}
@@ -319,6 +385,7 @@ export function AppShell() {
             <ChatPage
               conversationId={state.conversationId}
               userId={userId}
+              responseMode={responseMode}
               telegramConfigured={TELEGRAM_CONFIGURED}
               voiceEnabled={voiceEnabled}
               onConversationCreated={handleConversationCreated}

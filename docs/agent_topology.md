@@ -4,7 +4,7 @@
 
 This doc captures the design intent so future readers don't refactor the topology into something smaller-looking but operationally worse.
 
-For the rendered diagram and per-node reference, see [GRAPH.md](../GRAPH.md). For the implementation, see [poc/app/graph/](../poc/app/graph/).
+For the rendered diagram and per-node reference, see [GRAPH.md](../GRAPH.md). For the implementation, see [src/agentic_backend/graph/](../src/agentic_backend/graph/).
 
 ---
 
@@ -23,7 +23,7 @@ The supervisor classifies every incoming user message into exactly one of six ro
 
 `needs_clarification` and `out_of_year` are the Phase 7 additions; `data` is the Phase 8 addition. The rest predates them.
 
-> **Phase 10 (PoC presentation deck)** is intentionally absent from this table. It's a non-runtime build artefact — a `python-pptx`-generated stakeholder deck assembled from [`docs/presentation/deck.md`](presentation/deck.md) + [`docs/screens/`](screens/) by [`poc/scripts/build_pptx.py`](../poc/scripts/build_pptx.py). No node in the graph, no operational impact, no audit event. Lives entirely outside the request/response path.
+> **Phase 10 (PoC presentation deck)** is intentionally absent from this table. It's a non-runtime build artefact — a `python-pptx`-generated stakeholder deck assembled from [`docs/presentation/deck.md`](presentation/deck.md) + [`docs/screens/`](screens/) by [`src/scripts/build_pptx.py`](../src/scripts/build_pptx.py). No node in the graph, no operational impact, no audit event. Lives entirely outside the request/response path.
 
 ---
 
@@ -94,7 +94,7 @@ If clarifier/fallback lived inside RAG, every count would become a `json_extract
 
 ### 2.6 The graph topology is the source of truth
 
-[poc/app/graph/builder.py](../poc/app/graph/builder.py) lists every possible outcome at a glance:
+[src/agentic_backend/graph/builder.py](../src/agentic_backend/graph/builder.py) lists every possible outcome at a glance:
 
 ```python
 builder.add_conditional_edges(
@@ -195,7 +195,7 @@ to the legacy Phase 3 single-policy summary.
 
 ## 4. Decision matrix — which route fires when
 
-This is the supervisor's logic in tabular form. The implementation is in [poc/app/graph/supervisor.py](../poc/app/graph/supervisor.py).
+This is the supervisor's logic in tabular form. The implementation is in [src/agentic_backend/graph/supervisor.py](../src/agentic_backend/graph/supervisor.py).
 
 | Question contains a year? | Year is in `kb_covered_years`? | LLM classified as | Final route |
 |---|---|---|---|
@@ -231,11 +231,11 @@ None of those are true today. If two of them flip in the future (e.g. local sub-
 
 If a future phase needs another route (e.g. `talk_to_data` in Phase 8), the playbook is:
 
-1. Add the literal to [`Route`](../poc/app/graph/state.py).
-2. Add the destination key to the conditional-edges dict in [`builder.get_graph`](../poc/app/graph/builder.py).
-3. Implement the node as its own file under [`poc/app/graph/`](../poc/app/graph/) or [`poc/app/agents/`](../poc/app/agents/) — never inside `rag_agent.py` or `report_agent.py`.
+1. Add the literal to [`Route`](../src/agentic_backend/graph/state.py).
+2. Add the destination key to the conditional-edges dict in [`builder.get_graph`](../src/agentic_backend/graph/builder.py).
+3. Implement the node as its own file under [`src/agentic_backend/graph/`](../src/agentic_backend/graph/) or [`src/agentic_backend/agents/`](../src/agentic_backend/agents/) — never inside `rag_agent.py` or `report_agent.py`.
 4. Decide whether the node is terminal (most are) or feeds back into the supervisor for a multi-turn pattern.
-5. Add a new `event_type` constant in [`poc/app/audit/events.py`](../poc/app/audit/events.py) and emit it from the node.
-6. Update [GRAPH.md](../GRAPH.md), the stepper in [`streamlit_app.py`](../poc/app/ui/streamlit_app.py), and this doc's tables.
+5. Add a new `event_type` constant in [`src/agentic_backend/audit/events.py`](../src/agentic_backend/audit/events.py) and emit it from the node.
+6. Update [GRAPH.md](../GRAPH.md), the pipeline stepper in [`src/frontend/src/components/PipelineStepper.tsx`](../src/frontend/src/components/PipelineStepper.tsx), and this doc's tables.
 
 The supervisor decides; each route owns its node; the topology stays flat. That's the whole rule.

@@ -53,7 +53,7 @@ they now run in separate containers instead of a single process.
 └─────────────────────────────────────────┘
 
 Init / one-shot containers (restart: "no"):
-  ollama-pull   — downloads models into ollama_data volume on first run
+  ollama-pull   — downloads models into ollama_models volume on first run
   aspire-clear  — restarts Aspire on every `docker compose up` to wipe telemetry
 ```
 
@@ -110,14 +110,14 @@ through nginx to the browser token-by-token. `gateway_client.stream_post()` uses
 
 **Model persistence (named volumes)**
 
-Ollama models are stored in a named volume `ollama_data` so they survive restarts without
+Ollama models are stored in a named volume `ollama_models` so they survive restarts without
 re-downloading (~7 GB). The `ollama-pull` one-shot init container pulls `qwen2.5:7b`,
 `qwen2.5:3b`, and `nomic-embed-text` on first run and exits (code 0). Subsequent
 `docker compose up` calls skip the download.
 
 | Model | Storage |
 |---|---|
-| Ollama models | `ollama_data` named volume (pulled once by `ollama-pull`) |
+| Ollama models | `ollama_models` named volume (pulled once by `ollama-pull`) |
 | faster-whisper | `~/.cache/huggingface:/root/.cache/huggingface` (bind mount) |
 | Piper TTS | `./src/voice/piper_voices:/app/voice/piper_voices:ro` |
 
@@ -187,7 +187,7 @@ without requiring the Docker CLI.
 | Container stats | Containers → `<name>` → Stats | Live CPU, memory, network I/O, disk I/O charts |
 | Container exec | Containers → `<name>` → Console | Interactive shell inside a running container |
 | Image list | Images | Pulled images with sizes; use to spot bloat |
-| Volume list | Volumes | Named volumes (`pg_data`, `chroma_data`, `ollama_data`, etc.) |
+| Volume list | Volumes | Named volumes (`pg_data`, `chroma_data`, `ollama_models`, etc.) |
 | Network | Networks | `poc-net` bridge — shows which containers are connected |
 
 ### Operational tasks via Portainer

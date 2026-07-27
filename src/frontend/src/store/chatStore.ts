@@ -8,6 +8,8 @@ export interface Turn {
   content: string;
   citations: Citation[];
   route: string;
+  intent: string | null;
+  effectiveResponseMode: "fast" | "accurate" | null;
   stages: Record<string, StageStatus>;
   skillLabels: Record<string, string>;
   planId: string | null;
@@ -56,6 +58,8 @@ function emptyAssistantTurn(): Turn {
     content: "",
     citations: [],
     route: "",
+    intent: null,
+    effectiveResponseMode: null,
     stages: {},
     skillLabels: {},
     planId: null,
@@ -87,6 +91,8 @@ function chatReducer(state: ChatState, action: Action): ChatState {
             content: action.content,
             citations: [],
             route: "",
+            intent: null,
+            effectiveResponseMode: null,
             stages: {},
             skillLabels: {},
             planId: null,
@@ -171,6 +177,8 @@ function chatReducer(state: ChatState, action: Action): ChatState {
         ...last,
         citations: ev.citations ?? [],
         route: ev.route ?? "",
+        intent: ev.intent ?? null,
+        effectiveResponseMode: ev.effective_response_mode ?? null,
         planId: ev.plan_id ?? null,
         dataOperation: ev.data_operation ?? null,
         reportKind: ev.report_kind ?? null,

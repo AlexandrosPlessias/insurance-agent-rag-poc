@@ -189,7 +189,7 @@ class Skill(BaseModel):
     output_schema: type[BaseModel]
 ```
 
-**Initial Skill set** (`poc/app/skills/`):
+**Initial Skill set** (`src/agentic_backend/skills/`):
 
 | Skill | Owner | Tools | Purpose |
 |---|---|---|---|
@@ -203,7 +203,7 @@ class Skill(BaseModel):
 **Registration.** Adding a new Skill is a **one-file PR**:
 
 ```python
-# poc/app/skills/summarise_complaint.py
+# src/agentic_backend/skills/summarise_complaint.py
 from app.llm import load_prompt
 from app.skills import Skill
 
@@ -221,7 +221,7 @@ skill = Skill(
 )
 ```
 
-Prompt template at `poc/app/llm/prompts/skills/summarise_complaint.txt`.
+Prompt template at `src/agentic_backend/llm/prompts/skills/summarise_complaint.txt`.
 
 The `skills/__init__.py` registry auto-discovers any module exporting a
 `skill: Skill` symbol. **No changes to Planner / Orchestrator / Workers required.**
@@ -231,7 +231,7 @@ The `skills/__init__.py` registry auto-discovers any module exporting a
 **A Tool is an atomic, side-effect-free function with a Pydantic schema.**
 Tools are what Workers actually call to touch the data layer.
 
-**Initial Tool set** (`poc/app/tools/`):
+**Initial Tool set** (`src/agentic_backend/tools/`):
 
 | Tool | Schema (input → output) | Span name | Notes |
 |---|---|---|---|
@@ -298,7 +298,7 @@ Aspire renders this as one collapsible tree per chat turn. Every span carries:
 
 ### Audit-event taxonomy
 
-All events land in the existing `audit_events` table ([poc/app/audit/schema.sql](../poc/app/audit/schema.sql)),
+All events land in the existing `audit_events` table ([src/agentic_backend/audit/schema.sql](../src/agentic_backend/audit/schema.sql)),
 keyed by `trace_id`. No new tables.
 
 | `event_type` | `payload_json` shape | Source |
@@ -309,7 +309,7 @@ keyed by `trace_id`. No new tables.
 
 All Phase 1–10 event types (`supervisor.route`, `rag.retrieve`, `validator.judge`, etc.) are
 unchanged — Phase 11 adds three new types on top; it does not replace the existing taxonomy.
-The full list is the canonical source: [`poc/app/audit/events.py`](../poc/app/audit/events.py).
+The full list is the canonical source: [`src/agentic_backend/audit/events.py`](../src/agentic_backend/audit/events.py).
 
 ### Replay
 
@@ -398,7 +398,7 @@ class SkillMetadata(BaseModel):
 | User jailbreaks the Planner into hijacking a worker | Planner sees Skill `name + description + schemas` only — never `system_prompt`. Worst case: Planner emits a Step with valid `skill_name` but absurd `args`; Skill's `input_schema` rejects it. |
 | Cross-Step output pollutes a downstream worker's prompt with prompt-injection text | Tool outputs flow through a `sanitise_dependency_output` passthrough (strip control characters · cap length · re-anchor with XML tags) before becoming inputs to dependent Steps. |
 | Tool execution leaks PII into Aspire / audit log | Tool span attributes record `output_sha` (sha256 of the result) **not the result itself** when the Tool's `redact_in_telemetry=True` flag is set. The result still flows to the worker — just not to telemetry. |
-| Malicious Skill installed via a typo-squat | Skill registry only loads modules under `poc/app/skills/`; `__init__.py` enforces an allowlist of expected Skill names; CI fails if a Skill name appears that isn't on the allowlist. |
+| Malicious Skill installed via a typo-squat | Skill registry only loads modules under `src/agentic_backend/skills/`; `__init__.py` enforces an allowlist of expected Skill names; CI fails if a Skill name appears that isn't on the allowlist. |
 | Budget overrun used as a DOS vector | Per-turn budgets are enforced **before** the planner runs (max question length) and **inside** the orchestrator (max steps · tool calls · seconds). |
 
 ---
@@ -407,10 +407,10 @@ class SkillMetadata(BaseModel):
 
 ### Add a new Skill
 
-1. Create `poc/app/skills/<skill_name>.py` with a `skill: Skill` export.
-2. Drop the system prompt into `poc/app/llm/prompts/skills/<skill_name>.txt`.
-3. (If new Tools are needed) implement them under `poc/app/tools/`.
-4. Add a smoke-test scenario in `poc/scripts/smoke_test.py` that triggers
+1. Create `src/agentic_backend/skills/<skill_name>.py` with a `skill: Skill` export.
+2. Drop the system prompt into `src/agentic_backend/llm/prompts/skills/<skill_name>.txt`.
+3. (If new Tools are needed) implement them under `src/agentic_backend/tools/`.
+4. Add an integration test in `src/tests/integration/` that triggers
    the Planner into emitting a Step with this Skill.
 5. Update [docs/agentic.md § 2.4](#24-skills) Skill table.
 
@@ -418,9 +418,9 @@ No changes to Planner, Orchestrator, Worker shells, or the graph.
 
 ### Add a new Tool
 
-1. Implement under `poc/app/tools/<tool_name>.py` with a `@tool` decorator
+1. Implement under `src/agentic_backend/tools/<tool_name>.py` with a `@tool` decorator
    exposing a Pydantic input schema.
-2. Export from `poc/app/tools/__init__.py`.
+2. Export from `src/agentic_backend/tools/__init__.py`.
 3. Add to the Skill specs that need it.
 4. Confirm a new OTel span name `tool.<tool_name>` appears in Aspire.
 
@@ -429,8 +429,8 @@ No changes to Planner, Orchestrator, Worker shells, or the graph.
 Rare — only needed when a Skill needs a fundamentally different runtime
 (e.g. a vision worker for image inputs). Steps:
 
-1. Implement the worker shell under `poc/app/agents/<worker>_agent.py`.
-2. Wire it into [poc/app/graph/builder.py](../poc/app/graph/builder.py) as a
+1. Implement the worker shell under `src/agentic_backend/agents/<worker>_agent.py`.
+2. Wire it into [src/agentic_backend/graph/builder.py](../src/agentic_backend/graph/builder.py) as a
    new graph node.
 3. Add `owner_worker="<worker>"` to the relevant Skills.
 
@@ -445,7 +445,7 @@ Rare — only needed when a Skill needs a fundamentally different runtime
 | `max_seconds` | 60 | Orchestrator cancels in-flight Steps via `asyncio.timeout`, marks `partial=True` |
 | `max_question_length` | 4 000 chars | Rejected pre-Planner with HTTP 413 |
 
-All budgets are config-driven via `poc/app/config.py` → `Settings.agentic`
+All budgets are config-driven via `src/agentic_backend/config.py` → `Settings.agentic`
 (new namespace).
 
 ---
@@ -618,5 +618,5 @@ Two hard overrides fire after LLM classification:
 
 - Graph shape + diagrams: [GRAPH.md](GRAPH.md)
 - Roadmap: [README.md § Phase 11](../README.md#phase-11--agentic-multi-intent-architecture--feedback-)
-- Audit schema: [poc/app/audit/schema.sql](../poc/app/audit/schema.sql)
+- Audit schema: [src/agentic_backend/audit/schema.sql](../src/agentic_backend/audit/schema.sql)
 - LangGraph `Send()` reference: <https://langchain-ai.github.io/langgraph/concepts/low_level/#send>

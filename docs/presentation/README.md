@@ -37,8 +37,8 @@ npm install
 npx playwright install chromium
 
 # 2. Start the stack
-cd ..
-bash scripts/run_all.sh
+cd ../..
+./start-infra.sh && docker compose up --build
 
 # 3. Run the capture script (new terminal)
 node scripts/capture_screenshots.mjs
@@ -89,15 +89,10 @@ Filenames are numbered `01`–`18` in slide order.
 
 1. **Start the stack:**
    ```bash
-   bash src/scripts/run_all.sh
+   ./start-infra.sh && docker compose up --build
    ```
 2. **Open the UI** at http://localhost:5173 and Aspire at http://localhost:18888.
-3. **Walk through the scenarios** — the smoke test gives you a script:
-   ```bash
-   cd src && source .venv/bin/activate
-   python scripts/smoke_test.py
-   ```
-   Use the **same conversations** in the React SPA to reach each
+3. **Walk through the scenarios** manually in the React SPA to reach each
    state listed above.
 4. **Capture each shot** with **Win + Shift + S** (Snipping Tool) or
    any screenshot tool. Save into `docs/screens/<name>.png` using the

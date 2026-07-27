@@ -65,11 +65,12 @@ else
 fi
 
 # ── 3. Build + start the stack ───────────────────────────────────
-echo "[3/3] Building Docker images and starting the stack..."
-echo "  This pulls ~7 GB of Ollama models on the first run — may take 15–30 min."
-echo "  Subsequent runs reuse the 'ollama_data' named volume."
+echo "[3/3] Starting shared infra then project services..."
+echo "  The first run downloads ~7 GB of Ollama models — may take 15–30 min."
+echo "  Subsequent runs reuse the 'ollama_models' named volume."
 echo
 cd "$REPO_ROOT"
+./start-infra.sh
 docker compose up --build
 
 echo
