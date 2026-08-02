@@ -1,14 +1,13 @@
 # macOS override — loaded on top of docker-compose.yml on Apple Silicon.
 #
+# Sets linux/arm64 platform for all project services so Docker Desktop on Apple Silicon
+# runs native ARM images instead of Rosetta emulation.
+#
 # Usage:
-#   ./start-infra.sh            # start shared Ollama + Portainer (idempotent)
 #   docker compose -f docker-compose.yml -f docker-compose.override.macos.yml up --build
 #
-# What this does: sets linux/arm64 platform for all project services so Docker Desktop
-# on Apple Silicon runs native ARM images instead of Rosetta emulation.
-#
-# Ollama and Portainer live in docker-compose.infra.yml (shared across projects) and are
-# started separately via ./start-infra.sh — they do not appear here.
+# Infra (Ollama Metal GPU proxy) is handled separately by ./start-infra.sh via
+# docker-compose.infra.mac.yml — do not add infra services here.
 
 services:
   frontend:
