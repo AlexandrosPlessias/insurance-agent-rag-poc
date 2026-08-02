@@ -23,6 +23,7 @@ The entire stack runs in Docker — no Python venv, no native Ollama, no native 
 | Requirement | Notes |
 |---|---|
 | **Docker Desktop for Mac** | Apple Silicon or Intel; enable "Use Rosetta for x86/amd64 emulation" if prompted |
+| **Ollama (native)** | `brew install ollama` — `./start-infra.sh` starts it automatically. Runs LLM inference via Apple Metal GPU instead of inside Docker |
 | **RAM** | 16 GB minimum |
 | **Disk** | ~15 GB free |
 | **git** | To clone the repo |
@@ -155,17 +156,20 @@ bash src/scripts/setup_wsl.sh
 bash src/scripts/setup_macos.sh
 ```
 
-On Apple Silicon the script automatically adds `docker-compose.override.macos.yml` to
-build native `linux/arm64` images. On Intel Mac it runs the standard compose command.
-On macOS, make sure Docker Desktop is open before running — the script will attempt to
-start it for you, but if that fails, open it manually and re-run.
+On Apple Silicon the script:
+1. Starts native Ollama (installing it via Homebrew if missing) so LLM inference uses **Apple Metal GPU**.
+2. Starts the infra stack with `docker-compose.infra.mac.yml`, replacing the Docker Ollama container with an nginx proxy to native Ollama.
+3. Builds project images with `docker-compose.override.macos.yml` to use native `linux/arm64` images.
+
+On Intel Mac steps 1–2 are skipped and the standard compose command runs.
+Make sure Docker Desktop is open before running — the script will attempt to start it, but if that fails, open it manually and re-run.
 
 ### What happens on first run
 
 | Phase | What | Approximate time |
 |---|---|---|
 | Image build | Docker builds all service images from source | 3–8 min (depends on cache) |
-| Model download (`ollama-pull`) | Downloads `qwen2.5:7b`, `qwen2.5:3b`, `nomic-embed-text` (~7 GB total) into a named volume | 10–20 min (depends on connection) |
+| Model download | **macOS:** models pulled natively by Ollama into `~/.ollama` on first inference (no Docker volume). **WSL2/Linux:** `ollama-pull` downloads `qwen2.5:7b`, `qwen2.5:3b`, `nomic-embed-text` (~7 GB) into the shared `ollama_models` volume | 10–20 min (first run only) |
 | PDF ingestion (`ingestion-service`) | Clears ChromaDB and indexes all PDFs in `src/data/knowledge_base/raw/` | 2–5 min |
 
 **Total first-run time: 15–30 minutes.** Subsequent runs skip the model download (weights

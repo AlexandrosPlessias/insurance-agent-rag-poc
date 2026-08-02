@@ -9,6 +9,7 @@ Ask questions about policy documents in natural language. Get grounded answers w
 ## 🚀 Quick Start
 
 **Requirements:** Docker Desktop (or Docker Engine + Compose plugin), 16 GB RAM, ~15 GB free disk.
+**macOS extra:** `brew install ollama` — `./start-infra.sh` starts it automatically and uses Apple Metal GPU for inference.
 
 ```bash
 git clone <your-remote-url> insurance-agent-rag-poc
@@ -17,7 +18,7 @@ cp src/.env.example src/.env      # fill in APPROVAL_HMAC_SECRET (see SETUP.md)
 docker compose up --build
 ```
 
-Open **http://localhost:5173** — the chat UI is ready.
+Open **<http://localhost:5173>** — the chat UI is ready.
 
 > **First run:** Docker downloads the language models (~7 GB) and indexes the sample PDFs. This takes 15–30 minutes. Every subsequent start is under a minute.
 
@@ -28,7 +29,7 @@ For detailed prerequisites and configuration see [SETUP.md](SETUP.md).
 ## 💬 What can it do?
 
 | Ask it… | What happens |
-|---|---|
+| --- | --- |
 | *"What is the refund window under the 2024 policy?"* | Searches the policy PDFs, answers with the exact paragraph cited |
 | *"What were total claims in Q3 2022 by channel?"* | Queries the KPI dataset, returns a table + prose summary |
 | *"Give me the 2024 annual report"* | Generates a full report: on-screen Markdown + downloadable DOCX and PDF |
@@ -46,16 +47,16 @@ Every answer cites the exact PDF chunk it came from. Every decision is logged to
 Once the stack is running:
 
 | URL | What it is |
-|---|---|
-| **http://localhost:5173** | Chat UI — main entry point |
-| **http://localhost:8000/docs** | API documentation (FastAPI Swagger) |
-| **http://localhost:18888** | Observability dashboard (Aspire — traces, logs, metrics) |
-| **http://localhost:9000** | Container management (Portainer) |
+| --- | --- |
+| **<http://localhost:5173>** | Chat UI — main entry point |
+| **<http://localhost:8000/docs>** | API documentation (FastAPI Swagger) |
+| **<http://localhost:18888>** | Observability dashboard (Aspire — traces, logs, metrics) |
+| **<http://localhost:9000>** | Container management (Portainer) |
 
 Internal services — not browser UIs, but useful when debugging:
 
 | Port | Service |
-|---|---|
+| --- | --- |
 | :8001 | voice-service — STT and TTS |
 | :8002 | agentic-service — LangGraph pipeline |
 | :8003 | rag-service — vector retrieval |
@@ -116,7 +117,7 @@ insurance-agent-rag-poc/
 Phases 1–14 are fully implemented and running in the Docker stack. Phases 15–19 are planned.
 
 | Phase | What was built | Status |
-|---|---|---|
+| --- | --- | --- |
 | 1 | Basic RAG: answer policy questions with PDF citations, streamed token by token | ✅ |
 | 2 | Validator agent: every answer is grounded-checked; retries once if it fails | ✅ |
 | 3 | Report agent: structured policy report with embedded charts | ✅ |
@@ -144,7 +145,7 @@ For phase design details and prioritisation see [docs/BACKLOG.md](docs/BACKLOG.m
 ## 📚 Documentation
 
 | Document | Read it when… |
-|---|---|
+| --- | --- |
 | [SETUP.md](SETUP.md) | First-time install — Docker prerequisites, env vars, verification steps |
 | [USAGE.md](USAGE.md) | Day-to-day — running the stack, uploading PDFs, reading traces, troubleshooting |
 | [docs/architecture/GRAPH.md](docs/architecture/GRAPH.md) | You want to understand the LangGraph pipeline (planner → orchestrator → workers) |

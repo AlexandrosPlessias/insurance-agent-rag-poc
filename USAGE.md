@@ -38,17 +38,17 @@ docker compose down && docker compose -f docker-compose.infra.yml down
 ## 2. Service URLs
 
 | URL | Service | Purpose |
-|---|---|---|
-|---|---|---|
-| http://localhost:5173 | React SPA | Main entry point — chat with policies, upload documents, give feedback |
-| http://localhost:8000 | API gateway | REST + streaming; OpenAPI at `/docs` |
-| http://localhost:18888 | Aspire | OTel traces, structured logs, metrics |
-| http://localhost:9000 | Portainer | Container management UI — logs, stats, exec |
+| --- | --- | --- |
+| --- | --- | --- |
+| <http://localhost:5173> | React SPA | Main entry point — chat with policies, upload documents, give feedback |
+| <http://localhost:8000> | API gateway | REST + streaming; OpenAPI at `/docs` |
+| <http://localhost:18888> | Aspire | OTel traces, structured logs, metrics |
+| <http://localhost:9000> | Portainer | Container management UI — logs, stats, exec |
 
 Internal services (not browser UIs — useful when checking health or debugging a 502):
 
 | Port | Service |
-|---|---|
+| --- | --- |
 | :8001 | voice-service — STT and TTS |
 | :8002 | agentic-service — LangGraph pipeline |
 | :8003 | rag-service — vector retrieval |
@@ -120,13 +120,13 @@ Every chunk carries: `source`, `doc_id`, `title`, `year`, `description`, `keywor
 
 ## 5. Observability (Aspire)
 
-Open **http://localhost:18888** while containers are running. Telemetry is cleared each
+Open **<http://localhost:18888>** while containers are running. Telemetry is cleared each
 time `docker compose down` is run.
 
 ### Tabs
 
 | Tab | What you see |
-|---|---|
+| --- | --- |
 | **Traces** | One trace per `/chat` POST. Topology: `chat.turn` → `planner.plan` → `orchestrator.execute` → `step.<id>` (parallel, one per plan step) → `assembler.merge`. Health-check routes are excluded |
 | **Structured logs** | Application logs enriched with `trace_id` / `span_id`. Filter by `service.name = insurance-rag-poc-api` |
 | **Metrics** | `rag_poc.node.invocations`, `rag_poc.node.duration`, `rag_poc.validator.outcomes`, `rag_poc.rag.chunks_retrieved` |
@@ -134,6 +134,7 @@ time `docker compose down` is run.
 ### Useful span attributes
 
 Every node span carries:
+
 - `user.id` and `conversation.id`
 - **Planner span** (`planner.plan`): `plan.plan_id`, `plan.n_steps`, `plan.rationale`
 - **Worker spans** (`step.<id>`): `step.step_id`, `step.skill_name`, `step.status`
@@ -178,10 +179,11 @@ event_type = "feedback.received"
 
 ## 6. Container management (Portainer)
 
-Open **http://localhost:9000**. On first visit Portainer asks you to set an admin
+Open **<http://localhost:9000>**. On first visit Portainer asks you to set an admin
 password.
 
 From the Portainer UI you can:
+
 - View live logs for any container (Containers → select → Logs)
 - Inspect CPU / memory stats per container (Containers → select → Stats)
 - Open a shell inside a container (Containers → select → Console)
@@ -265,7 +267,7 @@ Voice is enabled by default in Docker. The api-gateway proxies all `/audio/*` re
 the `voice-service` container, which handles STT (faster-whisper) and TTS (piper-tts).
 
 | Endpoint | Method | Purpose |
-|---|---|---|
+| --- | --- | --- |
 | `/audio/transcribe` | POST | Upload audio → returns transcript (EN or EL) |
 | `/audio/synthesize` | POST | Text → WAV audio response |
 | `/audio/correction` | POST | STT post-correction WER/CER audit |
@@ -314,7 +316,7 @@ Aspire Structured Logs tab when OTel is enabled.
 ## 11. Troubleshooting
 
 | Symptom | Fix |
-|---|---|
+| --- | --- |
 | Port already in use (5173 / 8000 / 8001 / 9000 / 18888) | Find and stop the conflicting process: `ss -tlnp \| grep :<port>` (Linux) or `lsof -i :<port>` (macOS) |
 | `address already in use` on port 11434 (Ollama) | A native Ollama process is running. Stop it: `sudo systemctl stop ollama` (or `pkill ollama`). The Docker Ollama container does not publish port 11434 on the host — if you still see this, check `docker-compose.infra.yml` for a stale `ports:` entry |
 | Model download stalled (ollama-pull) | `docker compose -f docker-compose.infra.yml restart ollama-pull` — already-downloaded weights are kept in the volume |
@@ -326,6 +328,7 @@ Aspire Structured Logs tab when OTel is enabled.
 | Slow first inference | Cold-start cost — Ollama loads the model into RAM on the first request; subsequent calls are fast |
 | React SPA shows blank page | Frontend container still building. Check `docker compose logs -f frontend`; wait for the `ready` Vite banner |
 | macOS: build fails with wrong architecture | Use the override file: `docker compose -f docker-compose.yml -f docker-compose.override.macos.yml up --build` |
+| macOS: Ollama not found / Metal GPU not used | Run `brew install ollama` then `./start-infra.sh` — it starts native Ollama automatically and proxies Docker containers to it via Metal GPU |
 
 ---
 
@@ -413,6 +416,7 @@ curl -s -X POST http://localhost:8000/audio/transcribe \
 ```
 
 Expected response:
+
 ```json
 {
   "transcript": "Insurance claim filed successfully.",

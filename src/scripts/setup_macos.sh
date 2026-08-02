@@ -2,8 +2,8 @@
 # macOS bootstrap for the insurance-agent-rag-poc PoC.
 # Run from anywhere:  bash src/scripts/setup_macos.sh
 #
-# All services run in Docker Compose — no Python venv or native Ollama required.
-# Prerequisites: Docker Desktop for Mac (Apple Silicon or Intel), 16 GB RAM, 15 GB free disk.
+# Prerequisites: Docker Desktop for Mac (Apple Silicon or Intel), Ollama, 16 GB RAM, 15 GB free disk.
+# On Apple Silicon, native Ollama runs inference via Apple Metal GPU.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -15,7 +15,7 @@ echo "============================================================"
 echo
 
 # ── 1. Verify Docker is reachable ────────────────────────────────
-echo "[1/3] Checking Docker..."
+echo "[1/4] Checking Docker..."
 if ! command -v docker >/dev/null 2>&1; then
   echo "ERROR: 'docker' not found." >&2
   echo "  Install Docker Desktop for Mac from https://www.docker.com/products/docker-desktop" >&2
@@ -37,8 +37,20 @@ if ! docker info >/dev/null 2>&1; then
 fi
 echo "  Docker $(docker --version | awk '{print $3}' | tr -d ',') — daemon reachable."
 
-# ── 2. Verify src/.env exists ─────────────────────────────────────
-echo "[2/3] Checking src/.env..."
+# ── 2. Verify native Ollama is installed (required for Metal GPU on macOS) ────
+echo "[2/4] Checking Ollama..."
+if ! command -v ollama >/dev/null 2>&1; then
+  echo "  Ollama not found — installing via Homebrew..."
+  if ! command -v brew >/dev/null 2>&1; then
+    echo "ERROR: Homebrew not found. Install from https://brew.sh then re-run." >&2
+    exit 1
+  fi
+  brew install ollama
+fi
+echo "  Ollama $(ollama --version 2>/dev/null | head -1) — found."
+
+# ── 3. Verify src/.env exists ─────────────────────────────────────
+echo "[3/4] Checking src/.env..."
 ENV_FILE="$REPO_ROOT/src/.env"
 EXAMPLE_FILE="$REPO_ROOT/src/.env.example"
 if [ ! -f "$ENV_FILE" ]; then
@@ -55,15 +67,15 @@ else
   echo "  src/.env already exists."
 fi
 
-# ── 3. Build + start the stack ───────────────────────────────────
-echo "[3/3] Starting shared infra then project services..."
-echo "  The first run downloads ~7 GB of Ollama models — may take 15–30 min."
-echo "  Subsequent runs reuse the 'ollama_models' named volume."
+# ── 4. Build + start the stack ───────────────────────────────────
+echo "[4/4] Starting shared infra then project services..."
+echo "  On Apple Silicon, native Ollama handles LLM inference via Metal GPU."
+echo "  Models are stored in ~/.ollama — no Docker volume download needed."
 echo
 cd "$REPO_ROOT"
 
-# Start shared infra (Ollama + Portainer) — idempotent, GPU auto-detected.
-# On macOS there is no NVIDIA GPU so start-infra.sh runs in CPU mode automatically.
+# start-infra.sh auto-detects macOS, starts native ollama serve, and proxies Docker
+# containers to it via docker-compose.infra.mac.yml (nginx → host.docker.internal:11434).
 ./start-infra.sh
 
 # Detect Apple Silicon — use the macOS override for platform: linux/arm64
